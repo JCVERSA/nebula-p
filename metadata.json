@@ -1,0 +1,6 @@
+{
+  "name": "Remix Nebul",
+  "description": "Lightweight and modular WhatsApp multi-device bot with custom dynamic commands, AI capabilities, and interactive control playground.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

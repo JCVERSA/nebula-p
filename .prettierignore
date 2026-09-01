@@ -1,0 +1,17 @@
+node_modules
+dist
+src/**
+tests/**
+src/bot/imported
+.test-tmp
+recovery
+bun.lock
+package-lock.json
+.env.example
+*.md
+cat-catch-source
+# Root application entry points — formatting deferred to a dedicated pass
+# (see PHASE3_SCOPE.md item #11, "ratchet up prettier over the source tree").
+app.ts
+server.ts
+index.html

@@ -1,0 +1,14 @@
+node_modules/
+build/
+dist/
+assets/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+database/
+nebula_auth_info/
+src/bot/commands/.compiled/
+.test-tmp/
+recovery/

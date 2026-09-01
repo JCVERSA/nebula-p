@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" role="img" aria-label="Nebula Bot banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1026"/>
+      <stop offset="0.55" stop-color="#131a3a"/>
+      <stop offset="1" stop-color="#1b1140"/>
+    </linearGradient>
+    <radialGradient id="neb1" cx="0.72" cy="0.30" r="0.5">
+      <stop offset="0" stop-color="#7c3aed" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="neb2" cx="0.20" cy="0.75" r="0.55">
+      <stop offset="0" stop-color="#06b6d4" stop-opacity="0.40"/>
+      <stop offset="1" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="neb3" cx="0.5" cy="0.1" r="0.6">
+      <stop offset="0" stop-color="#f43f5e" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#f43f5e" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a78bfa"/>
+      <stop offset="0.5" stop-color="#e0e7ff"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+    <radialGradient id="planet" cx="0.35" cy="0.3" r="1">
+      <stop offset="0" stop-color="#c4b5fd"/>
+      <stop offset="0.7" stop-color="#6d28d9"/>
+      <stop offset="1" stop-color="#312e81"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#67e8f9" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#a78bfa" stop-opacity="0.15"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="300" fill="url(#bg)"/>
+  <rect width="1200" height="300" fill="url(#neb1)"/>
+  <rect width="1200" height="300" fill="url(#neb2)"/>
+  <rect width="1200" height="300" fill="url(#neb3)"/>
+
+  <!-- stars -->
+  <g fill="#e0e7ff">
+    <circle cx="90" cy="40" r="1.4" opacity="0.9"/><circle cx="210" cy="90" r="1" opacity="0.6"/>
+    <circle cx="320" cy="30" r="1.6" opacity="0.8"/><circle cx="430" cy="120" r="1" opacity="0.5"/>
+    <circle cx="560" cy="50" r="1.3" opacity="0.9"/><circle cx="660" cy="140" r="1" opacity="0.55"/>
+    <circle cx="820" cy="60" r="1.5" opacity="0.85"/><circle cx="960" cy="110" r="1.1" opacity="0.6"/>
+    <circle cx="1080" cy="40" r="1.6" opacity="0.9"/><circle cx="1140" cy="200" r="1.2" opacity="0.65"/>
+    <circle cx="60" cy="200" r="1.2" opacity="0.7"/><circle cx="150" cy="250" r="1.4" opacity="0.8"/>
+    <circle cx="300" cy="220" r="1" opacity="0.5"/><circle cx="500" cy="260" r="1.2" opacity="0.7"/>
+    <circle cx="700" cy="240" r="1.4" opacity="0.75"/><circle cx="880" cy="270" r="1" opacity="0.5"/>
+    <circle cx="1010" cy="240" r="1.3" opacity="0.7"/><circle cx="740" cy="30" r="1" opacity="0.6"/>
+    <path d="M 118 118 l 2.2 5.4 5.8 0.5 -4.4 3.8 1.3 5.7 -4.9 -3.1 -4.9 3.1 1.3 -5.7 -4.4 -3.8 5.8 -0.5 z" fill="#fde68a" opacity="0.9"/>
+    <path d="M 1042 160 l 1.8 4.4 4.7 0.4 -3.6 3.1 1.1 4.6 -4 -2.5 -4 2.5 1.1 -4.6 -3.6 -3.1 4.7 -0.4 z" fill="#bae6fd" opacity="0.85"/>
+  </g>
+
+  <!-- planet + ring, right side -->
+  <g transform="translate(955,150)">
+    <circle r="62" fill="url(#planet)"/>
+    <ellipse rx="108" ry="26" fill="none" stroke="url(#ring)" stroke-width="7" transform="rotate(-18)"/>
+    <circle r="62" fill="none" stroke="#a78bfa" stroke-opacity="0.35" stroke-width="1.5"/>
+    <circle cx="-22" cy="-18" r="10" fill="#ddd6fe" opacity="0.25"/>
+    <circle cx="12" cy="20" r="14" fill="#1e1b4b" opacity="0.35"/>
+    <circle cx="28" cy="-28" r="6" fill="#ddd6fe" opacity="0.2"/>
+  </g>
+
+  <!-- WhatsApp-style bubble, left of title -->
+  <g transform="translate(150,150)">
+    <path d="M -46 -40 h 72 a 14 14 0 0 1 14 14 v 38 a 14 14 0 0 1 -14 14 h -50 l -22 20 4 -20 h -4 a 14 14 0 0 1 -14 -14 v -38 a 14 14 0 0 1 14 -14 z"
+          fill="#25D366" opacity="0.95"/>
+    <path d="M -30 -14 l 12 30 8 -18 8 18 12 -30" fill="none" stroke="#0b1026" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- title -->
+  <text x="290" y="150" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="86" font-weight="800" letter-spacing="2" fill="url(#title)">NEBULA BOT</text>
+  <text x="294" y="196" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="26" font-weight="500" fill="#a5b4fc" opacity="0.95">WhatsApp Media &amp; AI Command Center</text>
+  <text x="294" y="232" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="19" fill="#67e8f9" opacity="0.9">Anime VF · Gemini AI · Panel · Cloudflare Tunnel</text>
+
+  <!-- bottom accent line -->
+  <rect x="0" y="294" width="1200" height="6" fill="url(#title)" opacity="0.8"/>
+</svg>
