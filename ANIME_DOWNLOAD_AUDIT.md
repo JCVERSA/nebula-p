@@ -1970,3 +1970,23 @@ subtraction/selftest/RAM-cap runner guards, no-torch/no-UVR-imports guard,
 sha256-pinned installer, orchestration caps/paths/decode contract, command
 routing + degradation + shared locks, VPS surfaces). tsc, eslint 0 errors,
 build OK, py_compile OK, `bash -n` OK.
+
+### 8.49b Fix — `.m` was never registered in production (2026-09-02, fifty-second push)
+
+**Owner report:** `.m` answered "Unknown command" on the VPS. Log showed the
+root cause directly: `[Registry] Skipped unloadable command file: media.ts`.
+In production the 33 commands come from the STATIC built-in list
+(`defaultCommands` in commandRegistry.ts, bundled into dist/server.cjs) —
+disk loading only fills gaps via compiled .mjs artifacts that new source
+files don't have. mediaCommand existed as a file but was never added to that
+list, so the bundled server never registered it (dev/tests loaded it from
+disk, which is why everything passed locally).
+
+**Fix:** `mediaCommand` added to defaultCommands. Regression test
+(tests/registryMedia.test.ts) pins the registration AND the `.m` alias via
+initRegistry/getCommand.
+
+**Re-verification:** production-mode smoke test of the real build in-sandbox
+(`NODE_ENV=production node dist/server.cjs`): media.ts absent from the skip
+list and `[Registry] Ready: 34 commands registered` (was 33). 424/424 tests
+(46 files), tsc, eslint 0 errors, build OK.
