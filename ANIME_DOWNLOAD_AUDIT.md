@@ -1770,3 +1770,46 @@ on that node; anything else = send me the output.
 
 **Verification:** 375/375 tests (41 files, +1 funnel wiring guard with the
 hostName evidence documented), tsc, eslint 0 errors, build OK.
+
+### 8.46 Cross-source fallback wheel — rescue for CDN-blocked episodes (2026-09-01, forty-eighth push)
+
+**Owner decision:** when an episode keeps failing on the primary VF source,
+fall back to another anime source automatically.
+
+**Evidence recap (8.43–8.45):** the funnel resolver now runs everywhere and
+the failing file (Vinland Saga S02E05 on box-1659-u.vmbox.space) 403s EVERY
+variant path × referer from the VPS — a node-level network block no URL
+shape can bypass. The structural weakness: that episode exposed exactly ONE
+mirror, so there was nothing to fall back to inside the source.
+
+**Implementation (`services/animeFallback.ts` + novabox wiring):** the
+secondary catalog (nakanime — already integrated, reachable from the VPS,
+several players per episode on different CDNs, sometimes VF lists of its
+own) is now an automatic rescue wheel:
+- search → best-title match → seasons (matching number, VF-named first) →
+  episode lists, cached per title|season for 10 min so a 12-episode batch
+  pays one lookup, not twelve;
+- mirrors are tiered like the main flow (VF/unlabeled lists first, other
+  languages second); positional list semantics identical to
+  splitMirrorsByLanguage;
+- wired in BOTH flows after all primary mirrors fail: single episode (after
+  the legacy path) and batch (per-episode rescue before marking failed);
+- language honesty: the URL that actually answered is mapped back to its
+  list language — filename and message say what was really delivered
+  (`Anime_VOSTFR_...mp4` + "via la roue de secours — VF indisponible sur le
+  CDN"), and the batch summary counts rescued episodes;
+- gate: `NEBULA_VOSTFR_FALLBACK=0` disables (default ON); documented in
+  `.env.example`, `manage.sh` env assistant and README.
+
+Deliberate choice: no brand-new unknown streaming site — none can be
+verified from the sandbox (egress blocked) and an unverified scraper would
+ship blind. The secondary catalog is proven reachable from this VPS.
+
+**Verification:** 386/386 tests (42 files, +11: VF label detection,
+URL→language mapping, best-result matching, season pick + VF ordering,
+mirror tiering incl. label-less semantics parity, out-of-range no-op,
+resolve + cache call-counts, null on unknown season, VF-first mirror
+ordering, env/wiring guards). tsc, eslint 0 errors, build OK, manage.sh
+syntax OK. Live confirmation on the VPS: re-ask a known-blocked episode —
+the log must show `Cross-source fallback: trying N mirror(s)` then either
+`succeeded via <host> (VF|VOSTFR)` or the honest failure recap.

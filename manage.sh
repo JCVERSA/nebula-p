@@ -366,6 +366,7 @@ ENV_KEYS=(
   "NEBULA_NIM_MODEL|Modèle NIM (défaut meta/llama-3.3-70b-instruct)"
   "NEBULA_AI_PERSONALITY|Remplace TOUTE la personnalité IA (system prompt) — vide = persona Nebula intégrée"
   "NEBULA_AI_MEMORY_TTL_HOURS|Durée de vie (heures) de la mémoire IA par discussion — glissante, 0 = désactivée (défaut 10)"
+  "NEBULA_VOSTFR_FALLBACK|Roue de secours inter-sources : réessaie un épisode sur le catalogue secondaire quand tous les miroirs échouent — 0 = désactivée (défaut activée)"
   "NEBULA_AI_MEMORY_MAX_TURNS|Tours bruts gardés avant compaction en résumé (défaut 20)"
   "OWNER_NUMBER|Numéro WhatsApp propriétaire (indicatif pays + numéro, sans + ni espaces)"
   "PORT|Port du panneau (défaut 3000)"

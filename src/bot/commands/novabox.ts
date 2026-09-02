@@ -10,6 +10,7 @@ import { resolvedFfmpegPath } from "../ffmpeg.js";
 import { registerTempDownload } from "../tempDownloadManager.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
 import { formatFailedEpisodes } from "../services/batchRecap.js";
+import { getCrossSourceFallbackMirrors, languageOfUrl } from "../services/animeFallback.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
 import { isNakanimeUrl, nakanimeSearch, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js";
 import {
@@ -2320,6 +2321,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
     const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string; expiresAt: number }> = [];
     let failedEpisodeCount = 0;
+    let fallbackLangDelivered = 0;
     const downloadedFilePaths: string[] = [];
 
     // Clear session to prevent re-entrant execution
@@ -2421,11 +2423,60 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             downloadUrl: tempDownload.downloadUrl
           });
         } else {
-          if (fs.existsSync(localPath)) {
-            try { fs.unlinkSync(localPath); } catch {}
+          // Cross-source rescue (audit 8.46): try the secondary catalog for
+          // this episode before declaring it failed.
+          let rescued = false;
+          if (process.env.NEBULA_VOSTFR_FALLBACK !== "0") {
+            try {
+              const fb = await getCrossSourceFallbackMirrors(
+                session.animeTitle,
+                parseInt(seasonNum, 10) || 1,
+                epIndex,
+                lang.toUpperCase() === "VF" ? "VF" : "VOSTFR"
+              );
+              if (fb && fb.mirrors.length > 0) {
+                const fbResult = await downloadWithAllMirrorsFallback(fb.mirrors, resolution, localPath, 240000);
+                if (fbResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
+                  const fbLang = languageOfUrl(fb.lists, fb.labels, fbResult.usedUrl) || lang;
+                  const fbMB = fs.statSync(localPath).size / (1024 * 1024);
+                  if (totalMBDownloaded + fbMB > MAX_BATCH_TOTAL_MB) {
+                    try { fs.unlinkSync(localPath); } catch {}
+                    quotaExceeded = true;
+                  } else {
+                    totalMBDownloaded += fbMB;
+                    const fbFilename = sanitizeFilename(`${animeClean}_${fbLang}_${resolution}_${formattedSeason}_${formattedEpisode}`) + ".mp4";
+                    const fbTemp = registerTempDownload(localPath, fbFilename, { ttlMinutes: 120, moveFile: true });
+                    downloadedFilePaths.push(fbTemp.filePath);
+                    generatedLinks.push({
+                      epNum,
+                      downloadUrl: fbTemp.downloadUrl,
+                      sizeMB: fbTemp.sizeMB,
+                      filename: fbFilename,
+                      expiresAt: fbTemp.expiresAt
+                    });
+                    if (fbLang !== lang.toUpperCase()) fallbackLangDelivered++;
+                    updateEpisodeProgress(batchJob.id, epNum, {
+                      status: "completed",
+                      progressPercent: 100,
+                      sizeMB: fbTemp.sizeMB,
+                      downloadUrl: fbTemp.downloadUrl
+                    });
+                    console.log(`[NOVABOX] Episode ${epNum} rescued via cross-source fallback (${fbLang}).`);
+                    rescued = true;
+                  }
+                }
+              }
+            } catch (fbErr: any) {
+              console.warn(`[NOVABOX] Episode ${epNum} cross-source fallback note:`, fbErr?.message);
+            }
           }
-          failedEpisodeCount++;
-          updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: "Stream unavailable" });
+          if (!rescued) {
+            if (fs.existsSync(localPath)) {
+              try { fs.unlinkSync(localPath); } catch {}
+            }
+            failedEpisodeCount++;
+            updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: "Stream unavailable" });
+          }
         }
       } catch (err: any) {
         if (fs.existsSync(localPath)) {
@@ -2555,6 +2606,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           indices.map(i => i + 1),
           generatedLinks.map(g => g.epNum)
         ) +
+        (fallbackLangDelivered > 0
+          ? `🔉 *${fallbackLangDelivered}* épisode(s) livré(s) via la roue de secours (_${fallbackLangDelivered === 1 ? "langue" : "langues"} alternatives_ — VF indisponible sur les CDN).\n`
+          : "") +
         `⏳ *Links Validity:* 2 Hours\n\n` +
         (pageDelivered
           ? `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un seul bouton *« Tout télécharger »* lance tous les épisodes d'un coup (ou bouton par épisode).\n\n`
@@ -2754,6 +2808,36 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     }
   }
 
+  // Cross-source fallback (audit 8.46): when every mirror of the selected
+  // source failed (e.g. a CDN node 403s the VPS for this exact file), try the
+  // same episode on the secondary catalog — its own VF lists first, then the
+  // rest. The delivered language is reported honestly in filename + message.
+  let deliveredLang = lang;
+  if (!downloadSuccess && process.env.NEBULA_VOSTFR_FALLBACK !== "0") {
+    try {
+      const fbSeasonNum = parseInt(session.selectedSeason?.name.match(/\d+/)?.[0] || "01", 10) || 1;
+      const fb = await getCrossSourceFallbackMirrors(
+        session.animeTitle,
+        fbSeasonNum,
+        epIndex,
+        (session.selectedLanguage || "VF").toUpperCase() === "VF" ? "VF" : "VOSTFR"
+      );
+      if (fb && fb.mirrors.length > 0) {
+        console.log(`[NOVABOX] Cross-source fallback: trying ${fb.mirrors.length} mirror(s) from the secondary catalog...`);
+        const fbResult = await downloadWithAllMirrorsFallback(fb.mirrors, resolution, localPath, 240000);
+        if (fbResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
+          downloadSuccess = true;
+          activePlayerName = fbResult.hostName;
+          deliveredLang = languageOfUrl(fb.lists, fb.labels, fbResult.usedUrl) || lang;
+          console.log(`[NOVABOX] Cross-source fallback succeeded via ${fbResult.hostName} (${deliveredLang}).`);
+        }
+      }
+    } catch (fbErr: any) {
+      console.warn("[NOVABOX] Cross-source fallback note:", fbErr?.message);
+    }
+  }
+  const deliveredFilename = deliveredLang !== lang ? filename.replace(`_${lang}_`, `_${deliveredLang}_`) : filename;
+
   // Clear user session to free memory
   clearUserSession(context.sender);
 
@@ -2845,7 +2929,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       // Move file into managed temporary store so the download link remains valid for 2 hours
       let tempDownload: any = null;
       try {
-        tempDownload = registerTempDownload(activeSendPath, filename, {
+        tempDownload = registerTempDownload(activeSendPath, deliveredFilename, {
           ttlMinutes: 120,
           moveFile: true
         });
@@ -2861,13 +2945,13 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       const caption = 
         `📥 *NEBULA NOVABOX DOWNLOAD* 📥\n\n` +
         `🎬 *Anime:* ${session.animeTitle}\n` +
-        `🗣️ *Language:* ${lang}\n` +
+        `🗣️ *Language:* ${deliveredLang}${deliveredLang !== lang ? " _(via la roue de secours — VF indisponible sur le CDN)_" : ""}\n` +
         `📅 *Season:* ${session.selectedSeason?.name}\n` +
         `🎞️ *Episode:* Episode ${epNum}\n` +
         `⚙️ *Resolution:* ${resolution}\n` +
         `📦 *Size:* ${fileSizeMB.toFixed(1)} MB\n` +
         `📺 *Player Source:* ${activePlayerName}\n` +
-        `📄 *Filename:* \`${filename}\`\n\n` +
+        `📄 *Filename:* \`${deliveredFilename}\`\n\n` +
         (tempDownloadLink ? `🚀 *Direct High-Speed Download (Browser/PC):*\n🔗 ${tempDownloadLink}\n⏳ _Valid for 2 Hours_\n\n` : "") +
         (vidmolyUrl ? `• 📺 *Play Ad-Free (${playerSourceLabel(vidmolyUrl)}):* ${vidmolyUrl}\n` : "") +
         `\n🌌 _Nebula Bot - Your ultimate media center_`;
@@ -2892,7 +2976,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         await sock.sendMessage(msg.key.remoteJid, {
           document: { url: activeSendPath },
           mimetype: "video/mp4",
-          fileName: filename
+          fileName: deliveredFilename
         }, { quoted: msg });
         logSendDone("document");
       } else {
@@ -2924,12 +3008,12 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       const fallbackCaption = 
         `📥 *NEBULA NOVABOX DOWNLOAD* 📥\n\n` +
         `🎬 *Anime:* ${session.animeTitle}\n` +
-        `🗣️ *Language:* ${lang}\n` +
+        `🗣️ *Language:* ${deliveredLang}${deliveredLang !== lang ? " _(via la roue de secours — VF indisponible sur le CDN)_" : ""}\n` +
         `📅 *Season:* ${session.selectedSeason?.name}\n` +
         `🎞️ *Episode:* Episode ${epNum}\n` +
         `⚙️ *Resolution:* ${resolution}\n` +
         `📺 *Player Source:* ${activePlayerName}\n` +
-        `📄 *Filename:* \`${filename}\`\n\n` +
+        `📄 *Filename:* \`${deliveredFilename}\`\n\n` +
         (vidmolyUrl ? `• 📺 *Play Ad-Free (${playerSourceLabel(vidmolyUrl)}):* ${vidmolyUrl}\n` : "") +
         `\n🌌 _Nebula Bot - Your ultimate media center_`;
       await context.reply(

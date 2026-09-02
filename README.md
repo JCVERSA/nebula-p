@@ -161,6 +161,7 @@ Built and battle-tested against real mirrors (every fix traced in
 - **VF by default** from `voir-anime.to` (VF guaranteed by URL structure), nakanime VOSTFR fallback, VidMoly-first mirror ranking with Voe/voembed support
 - **Honest labels** — real HLS variant resolutions and sizes; a fat 403 MB "480P" is auto-downgraded to the lightest ≤480p variant (fast-lane size guard)
 - **Container-friendly** — sequential batches, disk-streamed segments with backpressure, capped V8 heap, streaming (STORE) ZIP writer instead of in-RAM archives, startup debris purge
+- **Resilience** — when every mirror of an episode fails (CDN-level 403), the bot retries it on the secondary anime catalog (VF lists first, then VOSTFR; honest language in the filename) — disable with `NEBULA_VOSTFR_FALLBACK=0`
 - **Delivery** — batches >1 episode arrive as ONE offline HTML page: per-episode direct buttons + automatic "Tout télécharger" (temp links 2 h TTL, HTTP range streaming); single episodes still get a plain link; optional season ZIP behind `NEBULA_BATCH_ZIP=1`
 - Resource ceilings: `NEBULA_NOVABOX_MAX_EPISODES` (12), `NEBULA_NOVABOX_MAX_BATCH_MB` (2048), `NEBULA_TEMP_MAX_BYTES` (4 GiB)
 
