@@ -19,6 +19,7 @@ import { getCommand, initRegistry } from "./commandRegistry.js";
 import { BotCommandContext, GroupMember } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
 import { generateTextWithFallback, isAIConfigured } from "./geminiClient.js";
+import { getPersonaPrompt } from "./persona.js";
 import { database } from "./database.js";
 import { inspectMessageSafety } from "./utils/antibot.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
@@ -229,12 +230,11 @@ export async function simulateMessage(senderName: string, text: string): Promise
 
   // Check if starts with prefix
   if (!text.startsWith(prefix)) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey && apiKey !== "MY_GEMINI_API_KEY" && apiKey.trim() !== "") {
+    if (isAIConfigured()) {
       try {
         const aiAnswer = await generateTextWithFallback(
           text,
-          `You are ${config.botName}, an intelligent WhatsApp multi-device bot assistant in direct private chat. Provide helpful, conversational, natural, and crisp responses.`,
+          getPersonaPrompt("dm", config.botName),
           "gemini-3.7-flash"
         );
         addLog(`[Simulator Direct AI] Generated direct reply for "${maskLogText(text)}"`);
@@ -846,7 +846,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
               const answer = await withAIConcurrency(() =>
                 generateTextWithFallback(
                   text,
-                  `You are ${config.botName}, an intelligent WhatsApp multi-device bot assistant. You are chatting directly in a 1-on-1 private conversation. Keep responses helpful, direct, concise, natural, and clean.`,
+                  getPersonaPrompt("dm", config.botName),
                   "gemini-3.7-flash"
                 )
               );

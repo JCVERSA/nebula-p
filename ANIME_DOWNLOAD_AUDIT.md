@@ -1410,3 +1410,37 @@ example — genericized (privacy pass had missed the .tsx).
 
 **Verification:** tsc OK, eslint 0 errors on App.tsx, suite 322/322,
 production build (vite + esbuild) OK.
+
+### 8.37 AI persona — Nebula gets a defined voice (2026-09-01, thirty-ninth push)
+
+**Owner decisions (asked explicitly):** SOBER & PROFESSIONAL character,
+MIRROR the user's language (French default), chat surfaces only (.ai +
+private conversations; internal generations keep their technical prompts),
+tuning via env override (my recommendation, accepted).
+
+**Inspiration, not copying:** structure borrowed from production assistant
+prompts (identity / voice / language / formatting / good-bad examples /
+boundaries) — the leaked Fable-5 document was read for DESIGN ideas; the
+text itself is original and WhatsApp-specific.
+
+**New `src/bot/persona.ts`:** compact (~2 KB) bilingual-compliant persona —
+direct natural prose, no flattery, never invents facts, adult-to-adult tone;
+language mirroring with French default and "tu" register; WhatsApp delivery
+rules (≤ ~120 words by default, *single-asterisk* bold, no markdown headers/
+tables/**, emoji only when clarifying); honesty boundaries (never claims to
+be human, brief non-moralizing refusals, never echoes passwords/PINs).
+Surface suffixes adapt context (.ai command vs 1-on-1 DM). Both engines
+receive it identically (systemInstruction path of Gemini AND the NIM
+fallback).
+
+**Wiring:** the three chat sites now share it — .ai (command surface), the
+DM assistant, AND the "Simulator Direct AI" path, whose Gemini-only gate had
+escaped the 8.35 isAIConfigured sweep (honest miss, fixed here: the NIM
+fallback now covers it too).
+
+**Tuning:** `NEBULA_AI_PERSONALITY` replaces the entire persona (documented
+in .env.example + manage.sh env menu + README) — test personas without a
+deploy via `nebula env set`.
+
+**Suite:** 329/329 (36 files, +7: sections/placeholder/suffix/compactness/
+override + whitespace-ignore + wiring guard on all three surfaces).

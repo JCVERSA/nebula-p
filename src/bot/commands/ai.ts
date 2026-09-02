@@ -1,5 +1,7 @@
 import { BotCommand } from "../types.js";
 import { generateTextWithFallback, isAIConfigured } from "../geminiClient.js";
+import { getPersonaPrompt } from "../persona.js";
+import { getConfig } from "../config.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "../aiQuota.js";
 
 const aiCommand: BotCommand = {
@@ -36,7 +38,7 @@ const aiCommand: BotCommand = {
       const answer = await withAIConcurrency(() =>
         generateTextWithFallback(
           prompt,
-          "You are Nebula Bot, an advanced WhatsApp multi-device bot assistant. Keep responses helpful, structured, concise, and clean for a messaging app interface. Use bolding, bullet points, and emojis appropriately.",
+          getPersonaPrompt("command", getConfig().botName),
           "gemini-3.7-flash"
         )
       );

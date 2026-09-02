@@ -364,6 +364,7 @@ ENV_KEYS=(
   "GEMINI_API_KEY|Clé Gemini pour l'IA (texte/image/transcription)"
   "NVIDIA_NIM_API_KEY|Clé NVIDIA NIM (nvapi-…) — IA de secours si Gemini absent/épuisé (gratuite sur build.nvidia.com)"
   "NEBULA_NIM_MODEL|Modèle NIM (défaut meta/llama-3.3-70b-instruct)"
+  "NEBULA_AI_PERSONALITY|Remplace TOUTE la personnalité IA (system prompt) — vide = persona Nebula intégrée"
   "OWNER_NUMBER|Numéro WhatsApp propriétaire (indicatif pays + numéro, sans + ni espaces)"
   "PORT|Port du panneau (défaut 3000)"
   "NEBULA_VF_DEFAULT|Mettre 0 pour désactiver la VF par défaut (défaut: VF d'abord)"
