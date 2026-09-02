@@ -8,6 +8,7 @@ import os from "os";
 import { spawn } from "child_process";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
 import { registerTempDownload } from "../tempDownloadManager.js";
+import { buildDownloadPage } from "../services/downloadPage.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
 import { isNakanimeUrl, nakanimeSearch, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js";
 import {
@@ -2316,7 +2317,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     });
     updateJobStatus(batchJob.id, "downloading", `Processing ${indices.length} episodes in parallel`);
 
-    const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string }> = [];
+    const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string; expiresAt: number }> = [];
     const downloadedFilePaths: string[] = [];
 
     // Clear session to prevent re-entrant execution
@@ -2406,7 +2407,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             epNum,
             downloadUrl: tempDownload.downloadUrl,
             sizeMB: tempDownload.sizeMB,
-            filename
+            filename,
+            expiresAt: tempDownload.expiresAt
           });
 
           updateEpisodeProgress(batchJob.id, epNum, {
@@ -2502,19 +2504,53 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     await context.react("✅");
 
     if (generatedLinks.length > 0) {
-      const linksText = generatedLinks
-        .map(g => `• 🎬 *Episode ${g.epNum}:* [${g.sizeMB} MB]\n  🔗 ${g.downloadUrl}`)
-        .join("\n\n");
+      // Multi-episode delivery (audit 8.39): ONE offline HTML document with
+      // per-episode buttons + "download all" instead of a wall of links the
+      // user must tap one by one inside WhatsApp. Falls back to the legacy
+      // links message if the document cannot be sent.
+      let pageDelivered = false;
+      if (generatedLinks.length > 1) {
+        try {
+          const expiresAt = generatedLinks.reduce(
+            (min, g) => (g.expiresAt && (!min || g.expiresAt < min) ? g.expiresAt : min),
+            0
+          );
+          const slug = (session.animeTitle || "anime").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "anime";
+          const html = buildDownloadPage({
+            title: `${session.animeTitle} — ${session.selectedSeason?.name || formattedSeason}`,
+            subtitle: `${lang} · ${resolution} · ${generatedLinks.length} épisodes prêts`,
+            entries: generatedLinks.map(g => ({ label: `Épisode ${g.epNum}`, url: g.downloadUrl, sizeMB: g.sizeMB })),
+            expiresAt
+          });
+          await sock.sendMessage(
+            msg.key.remoteJid,
+            {
+              document: Buffer.from(html, "utf-8"),
+              mimetype: "text/html",
+              fileName: `nebula-${slug}-${(session.selectedSeason?.name || formattedSeason || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 20) || "saison"}.html`
+            },
+            { quoted: msg }
+          );
+          pageDelivered = true;
+          console.log(`[NOVABOX] Delivered offline download page (${generatedLinks.length} links) as HTML document.`);
+        } catch (pageErr: any) {
+          console.warn("[NOVABOX] HTML download page could not be sent — legacy links message:", pageErr?.message);
+        }
+      }
 
-      let responseMsg = 
+      let responseMsg =
         `🚀 *NEBULA NOVABOX - BATCH DOWNLOAD COMPLETED* 🚀\n\n` +
         `🎬 *Anime:* ${session.animeTitle}\n` +
         `🗣️ *Language:* ${lang} | ${session.selectedSeason?.name}\n` +
         `⚙️ *Quality:* ${resolution}\n` +
         `📦 *Ready Episodes:* ${generatedLinks.length}/${indices.length}\n` +
         `⏳ *Links Validity:* 2 Hours\n\n` +
-        `📥 *Direct Episode Links:*\n\n` +
-        `${linksText}\n\n`;
+        (pageDelivered
+          ? `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un seul bouton *« Tout télécharger »* lance tous les épisodes d'un coup (ou bouton par épisode).\n\n`
+          : `📥 *Direct Episode Links:*\n\n` +
+            generatedLinks
+              .map(g => `• 🎬 *Episode ${g.epNum}:* [${g.sizeMB} MB]\n  🔗 ${g.downloadUrl}`)
+              .join("\n\n") + "\n\n");
 
       if (zipDownloadUrl) {
         responseMsg += 
