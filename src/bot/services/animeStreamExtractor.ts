@@ -10,7 +10,9 @@ import {
   robustFetchBuffer,
   resolveAbsoluteUrl,
   resolveMediaPlaylistUrl,
-  resolveVidmolyUrlset
+  resolveVidmolyUrlset,
+  markDeadFileSlug,
+  isDeadFileSlug
 } from "./hlsDownloader.js";
 import { animeProxyOptions } from "./scrapingProxy.js";
 
@@ -1172,6 +1174,10 @@ export async function downloadWithAllMirrorsFallback(
 
   for (let i = 0; i < sortedMirrors.length; i++) {
     const mirrorUrl = sortedMirrors[i];
+    if (isDeadFileSlug(mirrorUrl)) {
+      console.warn(`[MIRROR_FALLBACK] Skipping mirror ${i + 1}/${sortedMirrors.length} (file known dead from a recent attempt)`);
+      continue;
+    }
     try {
       console.log(`[MIRROR_FALLBACK] Probing mirror ${i + 1}/${sortedMirrors.length}: ${mirrorUrl}`);
       const extracted = await extractMultiHostStream(mirrorUrl);
@@ -1203,8 +1209,10 @@ export async function downloadWithAllMirrorsFallback(
       }
 
       console.warn(`[MIRROR_FALLBACK] Mirror ${targetStream.hostName} download failed or produced empty file. Trying next mirror...`);
+      markDeadFileSlug(mirrorUrl);
     } catch (err: any) {
       console.warn(`[MIRROR_FALLBACK] Error on mirror ${mirrorUrl}: ${err.message}. Trying next mirror...`);
+      markDeadFileSlug(mirrorUrl);
     }
   }
 
@@ -1294,6 +1302,13 @@ export async function executeDirectOrFfmpegDownload(
 ): Promise<boolean> {
   try {
     if (!stream.url) return false;
+
+    // Dead-file memory (audit 8.47): skip files whose every path×referer
+    // recently failed — a fresh mirror of the SAME file only burns minutes.
+    if (isDeadFileSlug(stream.url)) {
+      console.warn(`[STREAM_EXTRACTOR] Skipping known-dead file: ${stream.url.split("?")[0]}`);
+      return false;
+    }
 
     // Funnel-level urlset guard (audit 8.45): EVERY extraction branch
     // converges here — including the generic last-resort probe, which is the

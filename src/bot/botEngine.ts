@@ -28,6 +28,7 @@ import {
 } from "./services/aiMemory.js";
 import { database } from "./database.js";
 import { inspectMessageSafety } from "./utils/antibot.js";
+import { extractQuotedMediaContent } from "./utils/quotedMedia.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
 import { authorizeCommand, resolveRole } from "./accessControl.js";
 import { getGroupPolicy } from "./groupAccessStore.js";
@@ -951,14 +952,25 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         // Sensible media handling - dynamic buffer downloader (operates on the unwrapped message)
         const mediaDownloader = async (): Promise<Buffer | null> => {
           try {
-            const messageType = Object.keys(messageContent)[0];
+            let messageType = Object.keys(messageContent)[0];
+            let mediaContent: any = messageContent;
             if (!["imageMessage", "videoMessage", "documentMessage", "audioMessage"].includes(messageType)) {
-              return null;
+              // Media toolkit UX (audit 8.48): when the invoking message has no
+              // media of its own, fall back to the QUOTED message's media
+              // ("reply to a video with .m gif").
+              const quoted = extractQuotedMediaContent(messageContent);
+              if (!quoted) return null;
+              messageType =
+                Object.keys(quoted).find(k =>
+                  ["imageMessage", "videoMessage", "documentMessage", "audioMessage"].includes(k)
+                ) || "";
+              if (!messageType) return null;
+              mediaContent = quoted;
             }
 
             addLog(`Downloading media content of type: ${messageType}`);
             const stream = await (sock as any).downloadContentFromMessage(
-              messageContent[messageType as keyof typeof messageContent],
+              mediaContent[messageType],
               messageType.replace("Message", "")
             );
 

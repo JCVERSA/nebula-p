@@ -264,6 +264,54 @@ async function fetchTextOnce(url: string, headers: Record<string, string>, timeo
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Dead-file memory (audit 8.47): the vidmoly family serves the SAME file id
+// from several embed hosts (.biz/.org/...). When a file's EVERY path×referer
+// 403s, retrying it via another host just burns minutes (production log:
+// 34 attempts + two FFmpeg runs for nothing). Remember dead slugs 30 min.
+// ---------------------------------------------------------------------------
+
+const deadFileSlugs = new Map<string, number>();
+const DEAD_SLUG_TTL_MS = 30 * 60 * 1000;
+const DEAD_SLUG_MAX = 200;
+
+/** File id from an embed URL or a CDN media/urlset URL (null when absent). */
+export function extractVidmolyFileSlug(url: string): string | null {
+  try {
+    const embed = url.match(/embed-([a-z0-9]{8,15})\.html/i);
+    if (embed) return embed[1].toLowerCase();
+    const cdn = url.match(/\/([a-z0-9]{10,12})(?=[_,.])/i);
+    if (cdn) return cdn[1].toLowerCase();
+  } catch {}
+  return null;
+}
+
+export function markDeadFileSlug(url: string): void {
+  const slug = extractVidmolyFileSlug(url);
+  if (!slug) return;
+  if (deadFileSlugs.size >= DEAD_SLUG_MAX) {
+    const oldest = [...deadFileSlugs.entries()].sort((a, b) => a[1] - b[1])[0];
+    if (oldest) deadFileSlugs.delete(oldest[0]);
+  }
+  deadFileSlugs.set(slug, Date.now());
+}
+
+export function isDeadFileSlug(url: string): boolean {
+  const slug = extractVidmolyFileSlug(url);
+  if (!slug) return false;
+  const at = deadFileSlugs.get(slug);
+  if (!at) return false;
+  if (Date.now() - at > DEAD_SLUG_TTL_MS) {
+    deadFileSlugs.delete(slug);
+    return false;
+  }
+  return true;
+}
+
+export function clearDeadSlugsForTests(): void {
+  deadFileSlugs.clear();
+}
+
 /**
  * Resolves a VidMoly `_,n,l,.urlset/master.m3u8` URL that 403s on the master
  * path down to a downloadable media playlist, brute-forcing the matrix
@@ -280,6 +328,10 @@ export async function resolveVidmolyUrlset(
   baseHeaders: Record<string, string>
 ): Promise<{ mediaPlaylistUrl: string; headers: Record<string, string> } | null> {
   if (!masterUrl.includes(".urlset/")) return null;
+  if (isDeadFileSlug(masterUrl)) {
+    console.warn(`[VIDMOLY_URLSET] Skipping known-dead file (recent full failure): ${masterUrl.split("?")[0]}`);
+    return null;
+  }
   const referers = getHeaderCandidates(masterUrl, baseHeaders);
   let attempts = 0;
 

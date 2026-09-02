@@ -1813,3 +1813,114 @@ ordering, env/wiring guards). tsc, eslint 0 errors, build OK, manage.sh
 syntax OK. Live confirmation on the VPS: re-ask a known-blocked episode —
 the log must show `Cross-source fallback: trying N mirror(s)` then either
 `succeeded via <host> (VF|VOSTFR)` or the honest failure recap.
+
+### 8.47 Dead-file memory + pointless-compression skip (2026-09-01, forty-ninth push)
+
+**Owner confirmation:** the cross-source wheel WORKS — Vinland Saga S02E05
+was rescued in VF via the secondary catalog (mirror 2 = a different upload
+of the episode on a healthy node, after mirror 1 re-served the same dead
+file id). Owner preference noted: a brand-new site would have been
+preferred over nakanime (past issues); accepted since it is proven
+VPS-reachable, and `animeFallback.ts` is source-agnostic (deps injected) —
+adding a third site later means writing one client, no rewiring.
+
+**Two time sinks visible in that same log, both fixed:**
+1. ~3-4 min retrying a known-dead file: the vidmoly family serves the SAME
+   file id from several embed hosts (.biz/.org/...); mirror 1 of the
+   fallback re-ran the full 34-attempt matrix + two FFmpeg passes on the
+   exact file that had just 403'd everywhere. Fix: dead-file slug memory
+   (`hlsDownloader`, 30-min TTL, 200-entry cap) checked and marked at every
+   retry surface — urlset matrix, funnel engine, mirror loop, novabox
+   ffmpeg path (single + batch). A slug marked from one URL form (embed)
+   is detected in every other form (urlset/media) of the same file.
+2. 121.8 s of futile 480p→480p re-encoding (could only time out; delivery
+   fell back to the raw high-speed link anyway). Fix: an 8s-bounded ffprobe
+   height check — when the downloaded source is already ≤480p tall,
+   compression is skipped and the episode goes straight to link delivery.
+   Probe failure (null) keeps the previous behavior.
+
+**Verification:** 394/394 tests (43 files, +8: slug extraction across the
+three URL forms + negatives, cross-form dead detection incl. the exact
+production case, TTL self-healing with fake timers, compression decision
+table incl. null-probe, wiring guards for all check/mark points). tsc,
+eslint 0 errors, build OK.
+
+### 9.7 Media tooling references evaluated (sadness-splitter, addyosmani/video-compress — 2026-09-02)
+
+Pre-research for the upcoming media-toolkit story (owner-approved direction).
+Both repos cloned and inspected; zero dependencies added, zero code taken.
+
+**DivyanshuChipa/sadness-splitter** — Tauri v2 desktop video suite (Rust +
+FFmpeg). Not a scraper: nothing for the anime-source problem. Retained
+techniques for the bot's future `.v` toolkit: chained `atempo` for speed
+factors >2× (`atempo=2.0,atempo=x/2`), quality GIF recipe
+(`fps+lanczos+palettegen/paletteuse`), aspect-preserving scale+pad, annotated
+CRF scale (≤20 HQ / ≤23 balanced / >23 small). Thumbnail idea rejected:
+base64 vignettes would triple the 8 KB download page against the "optimized"
+requirement.
+
+**addyosmani/video-compress** — browser compressor (React + ffmpeg.wasm).
+The wasm angle is irrelevant server-side (native FFmpeg on the VPS), but the
+**file-size targeting formula** is directly applicable to our WhatsApp
+95-100 MB ceiling: `videoKbps = (targetMB × 8 × 1024) / durationSeconds`
+(their version omits subtracting the audio bitrate — ours will subtract it
+and clamp to sane 480p bounds). Also retained: the percentage→CRF mapping
+`crf = 51 − (pct/100) × 33` for a future `.v compress 50%` UX. Combines with
+the 8.47 ffprobe helper (duration + height already probed) into a
+deterministic "fit under X MB" mode instead of CRF-26-and-hope.
+
+Both fold into the same future story: `.v mp3 | gif | vitesse | trim |
+compress [pct|MB]` on the existing VPS FFmpeg infrastructure — fully
+locally testable, no network dependency.
+
+### 8.48 Media toolkit `.m` + deterministic WhatsApp-fit compression (2026-09-02, fiftieth push)
+
+Implements the direction approved after the two repo evaluations (§9.7:
+size-target formula from addyosmani/video-compress with the audio track
+subtracted — the bug their version has — plus sadness-splitter's chained
+atempo, palettegen GIF and scale+pad recipes; zero code taken, zero deps).
+
+**New: `services/mediaToolkit.ts`** — pure, fully-tested FFmpeg recipe
+builders: `crfFromPercentage` (100%→18 … 0%→51, clamped),
+`videoBitrateKbpsForTargetMb` (audio subtracted FIRST, clamped 120–4000),
+`estimateSizeMb` round-trip, `atempoChain` (per-filter 2.0 limit, factor
+clamped 0.5–4), `speedFilterComplex` (setpts + audio chain, video-only
+variant), `gifVideoFilter` (lanczos+palettegen/paletteuse), `scalePadFilter`,
+`parseTimeSpec` (MM:SS / HH:MM:SS / 1m30 / s), arg builders for mp3/gif/
+speed/trim/compress, `whatsappFitVideoOptions` (deterministic -b:v +
+maxrate + `scale=-2:min(480\,ih)` — never upscales), bounded `probeVideoInfo`
+(duration+height+audio, one call) and `runFfmpegKit` (hard timeout).
+
+**New: `.m` command (media.ts, alias `m`)** — reply-to-media UX: mp3
+extraction (96–320 kbps), quality GIF (12 fps/480px, first 10 s by default,
+`full` capped at 60 s), speed 0.5–4× (audio preserved), lossless trim,
+compression by `50%`/`95mb`/explicit CRF. Outputs ≤90 MB arrive as WhatsApp
+documents; bigger ones as 2 h high-speed links (same infra as anime).
+Process-wide single-flight lock (VPS CPU is a shared cgroup resource).
+
+**Engine: quoted-media fallback** — `context.downloadMedia()` now falls back
+to the QUOTED message's media when the invoking message has none (pure
+helper `utils/quotedMedia.ts`, unwraps ephemeral/viewOnce). This is what
+makes "reply to a video with .m gif" work; existing own-media behavior
+unchanged.
+
+**Novabox: deterministic WhatsApp fit** — the >100 MB compression path now
+probes duration once (8.47's height probe folded into `probeVideoInfo`) and,
+when known, splices `whatsappFitVideoOptions` (target 92 MB, margin under
+the ~95–100 MB cap) in place of the fixed CRF 26: the output size becomes a
+mathematical certainty instead of CRF-and-hope. Unknown duration keeps the
+legacy CRF 26 args; the ≤480p skip (8.47) is preserved.
+
+**Self-review fixed before shipping:** initial splice was ineffective
+(legacy options came after and ffmpeg lets the LAST option win — CRF 26
+would have silently overridden the computed bitrate) and carried a leftover
+empty arg; a `min(480\\,ih)` double-escaping bug was caught by rendering the
+actual value at runtime; the unreachable sub-0.5 atempo branch was removed.
+
+**Verification:** 408/408 tests (44 files, +14: formula table incl. the
+audio-subtraction proof 95 MB/1200 s → 552k and the round-trip, atempo
+chains incl. clamps, time-spec parser, builders incl. gif bounds and
+deterministic fit 1440 s → 427 kbps → 91.9 MB, quoted-media extraction incl.
+viewOnce, wiring guards). tsc, eslint 0 errors, production build OK. FFmpeg
+is not installable in the sandbox (no root) — runtime execution validates on
+the VPS; every arg array is asserted in tests instead.

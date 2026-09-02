@@ -31,7 +31,8 @@ import { bestAnimeMatch, formatAnimeCard } from "../services/jikanClient.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus } from "../batchDownloadManager.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
-import { downloadHlsAppLevel, resolveVidmolyUrlset } from "../services/hlsDownloader.js";
+import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
+import { probeVideoInfo, whatsappFitVideoOptions } from "../services/mediaToolkit.js";
 import {
   resolveBestMirrorStream,
   executeDirectOrFfmpegDownload,
@@ -2165,6 +2166,11 @@ async function inspectHlsStreams(hlsUrl: string, refererUrl: string, originUrl: 
   }
 }
 
+/** True when re-encoding to targetHeight cannot shrink the file (audit 8.47). */
+export function compressionPointless(sourceHeight: number | null, targetHeight: number): boolean {
+  return sourceHeight !== null && sourceHeight > 0 && sourceHeight <= targetHeight;
+}
+
 // Execute high-performance stream download using FFmpeg with safe process isolation
 async function executeFfmpegDownload(
   targetHlsUrl: string,
@@ -2175,6 +2181,10 @@ async function executeFfmpegDownload(
 ): Promise<boolean> {
   // SSRF through downloader: never hand an unvalidated URL to a subprocess.
   if (!(await isPublicFetchTarget(targetHlsUrl, "downloader input"))) {
+    return false;
+  }
+  if (isDeadFileSlug(targetHlsUrl)) {
+    console.warn(`[NOVABOX_FFMPEG] Skipping known-dead file: ${targetHlsUrl.split("?")[0]}`);
     return false;
   }
 
@@ -2386,6 +2396,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             }
 
             success = await executeFfmpegDownload(targetHlsUrl, downloadSourceUrl, originUrl, localPath, 240000);
+            if (!success) markDeadFileSlug(targetHlsUrl);
           }
         }
 
@@ -2805,6 +2816,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       console.log(`[NOVABOX] Final target sub-playlist URL for download: "${targetHlsUrl}"`);
       downloadSuccess = await executeFfmpegDownload(targetHlsUrl, downloadSourceUrl, originUrl, localPath, 240000);
       console.log(`[NOVABOX] Legacy VidMoly ffmpeg download finished. Success: ${downloadSuccess}`);
+      if (!downloadSuccess) markDeadFileSlug(targetHlsUrl);
     }
   }
 
@@ -2852,9 +2864,30 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       // Auto-compress ONLY when the raw file exceeds the 100 MB WhatsApp
       // document ceiling (95-100 MB sends fine as a document — transcoding
       // there was a pure time sink, audit 8.5). x264 veryfast + all cores.
-      const shouldCompress =
+      let fitOptions: string[] | null = null;
+      let shouldCompress =
         fileSizeMB > 100 &&
         (session.forceCompress || resolution === "480P" || resolution === "360P" || resolution.includes("Compress"));
+
+      if (shouldCompress) {
+        // A source already at/below 480p cannot meaningfully shrink by
+        // re-encoding to 480p — the 2-minute encode just times out (production
+        // log: 121.8s wasted) before the raw high-speed-link delivery anyway.
+        const probed = await probeVideoInfo(localPath);
+        if (compressionPointless(probed.height, 480)) {
+          shouldCompress = false;
+          console.log(`[NOVABOX] Source is already ${probed.height}p — compression skipped, delivering via high-speed link.`);
+        } else {
+          // Deterministic WhatsApp fit (audit 8.48): compute the bitrate that
+          // lands the output under the ceiling instead of CRF-26-and-hope.
+          // 92 MB target keeps a safety margin under the ~95-100 MB cap.
+          const fit = whatsappFitVideoOptions(probed.durationSec, 92, 480);
+          if (fit) {
+            fitOptions = fit.options;
+            console.log(`[NOVABOX] Deterministic WhatsApp fit: ${fit.videoKbps} kbps → ${fit.note}.`);
+          }
+        }
+      }
 
       if (shouldCompress) {
         const tComp = Date.now();
@@ -2863,20 +2896,17 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         compressedPath = path.join(os.tmpdir(), "comp_" + filename);
         
         try {
+          // Audit 8.48: when the duration probe succeeded, splice the
+          // deterministic WhatsApp-fit args (computed bitrate + maxrate) in
+          // place of the legacy fixed CRF 26 — the output size is then a
+          // mathematical certainty instead of a coin flip.
           const ffmpegArgs = [
             "-y",
             "-threads",
             "0",
             "-i",
             localPath,
-            "-vf",
-            "scale=-2:480",
-            "-c:v",
-            "libx264",
-            "-crf",
-            "26",
-            "-preset",
-            "veryfast",
+            ...(fitOptions || ["-vf", "scale=-2:480", "-c:v", "libx264", "-crf", "26", "-preset", "veryfast"]),
             "-c:a",
             "aac",
             "-b:a",
