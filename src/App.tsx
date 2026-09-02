@@ -425,6 +425,10 @@ export default function App() {
   const [secretMessage, setSecretMessage] = useState("");
 
   const [ownerSecretStatus, setOwnerSecretStatus] = useState<{ configured: boolean; masked: string | null } | null>(null);
+  const [nimSecretStatus, setNimSecretStatus] = useState<{ configured: boolean; masked: string | null } | null>(null);
+  const [nimSecretValue, setNimSecretValue] = useState("");
+  const [isSavingNimSecret, setIsSavingNimSecret] = useState(false);
+  const [nimSecretMessage, setNimSecretMessage] = useState("");
   const [ownerSecretValue, setOwnerSecretValue] = useState("");
   const [isSavingOwnerSecret, setIsSavingOwnerSecret] = useState(false);
   const [ownerSecretMessage, setOwnerSecretMessage] = useState("");
@@ -779,6 +783,11 @@ export default function App() {
         ? data.secrets.find((s: { name: string }) => s.name === "OWNER_NUMBER")
         : null;
       setOwnerSecretStatus(ownerSecret || null);
+
+      const nimSecret = Array.isArray(data?.secrets)
+        ? data.secrets.find((s: { name: string }) => s.name === "NVIDIA_NIM_API_KEY")
+        : null;
+      setNimSecretStatus(nimSecret || null);
     } catch (e) {}
   };
 
@@ -1113,6 +1122,61 @@ export default function App() {
       setSecretMessage("❌ Could not reach the server to remove the secret.");
     } finally {
       setIsSavingSecret(false);
+    }
+  };
+
+  const saveNimSecret = async () => {
+    if (!nimSecretValue.trim()) return;
+    setIsSavingNimSecret(true);
+    setNimSecretMessage("");
+    try {
+      const res = await fetch("/api/bot/secrets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "NVIDIA_NIM_API_KEY", value: nimSecretValue }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNimSecretValue("");
+        setNimSecretMessage(
+          data.fileSaved
+            ? "✅ NVIDIA key saved to the .env file and applied to the running bot."
+            : "✅ NVIDIA key applied to the running bot (this deployment does not allow writing .env)."
+        );
+        addSystemLog("🔑 NVIDIA_NIM_API_KEY updated from panel.");
+        fetchSecretStatus();
+      } else {
+        setNimSecretMessage(`❌ ${data.error || "Failed to save secret."}`);
+      }
+    } catch (e) {
+      setNimSecretMessage("❌ Could not reach the server to save the secret.");
+    } finally {
+      setIsSavingNimSecret(false);
+    }
+  };
+
+  const clearNimSecret = async () => {
+    setIsSavingNimSecret(true);
+    setNimSecretMessage("");
+    try {
+      const res = await fetch("/api/bot/secrets", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "NVIDIA_NIM_API_KEY" }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNimSecretValue("");
+        setNimSecretMessage("✅ NVIDIA key removed. The AI fallback is disabled; Gemini keeps working.");
+        addSystemLog("🔑 NVIDIA_NIM_API_KEY removed from panel.");
+        fetchSecretStatus();
+      } else {
+        setNimSecretMessage(`❌ ${data.error || "Failed to remove secret."}`);
+      }
+    } catch (e) {
+      setNimSecretMessage("❌ Could not reach the server to remove the secret.");
+    } finally {
+      setIsSavingNimSecret(false);
     }
   };
 
@@ -4424,6 +4488,48 @@ export default function App() {
                         )}
                       </div>
 
+                                            {/* NVIDIA_NIM_API_KEY (AI fallback) */}
+                      <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-bold text-white block">NVIDIA_NIM_API_KEY</span>
+                            <span className="text-[10px] text-zinc-400">Optional — AI fallback when Gemini is unavailable (free key: build.nvidia.com)</span>
+                          </div>
+                          {nimSecretStatus?.configured ? (
+                            <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> Configured ({nimSecretStatus.masked})
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2.5 py-1 rounded-full">
+                              Not Configured
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={nimSecretValue}
+                            onChange={(e) => setNimSecretValue(e.target.value)}
+                            placeholder="nvapi-..."
+                            className="flex-1 px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
+                          />
+                          <button
+                            onClick={saveNimSecret}
+                            disabled={isSavingNimSecret || !nimSecretValue.trim()}
+                            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5"
+                          >
+                            {isSavingNimSecret ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            Save Secret
+                          </button>
+                        </div>
+                        {nimSecretMessage && (
+                          <div className="p-2 bg-white/5 border border-white/5 rounded-lg text-xs text-amber-300 font-medium">
+                            {nimSecretMessage}
+                          </div>
+                        )}
+                      </div>
+
                       {/* OWNER_NUMBER */}
                       <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-3">
                         <div className="flex items-center justify-between">
@@ -4447,7 +4553,7 @@ export default function App() {
                             type="text"
                             value={ownerSecretValue}
                             onChange={(e) => setOwnerSecretValue(e.target.value)}
-                            placeholder="e.g. 2376XXXXXXXX"
+                            placeholder="country code + number, e.g. 2250700000000"
                             className="flex-1 px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
                           />
                           <button
@@ -4791,7 +4897,7 @@ export default function App() {
                         <input
                           type="text"
                           value={formConfig.ownerNumber || ""}
-                          placeholder="e.g. 2376XXXXXXXX"
+                          placeholder="country code + number, e.g. 2250700000000"
                           onChange={(e) => setFormConfig({ ...formConfig, ownerNumber: e.target.value })}
                           className="w-full px-3.5 py-2.5 border border-white/10 rounded-xl text-xs bg-black text-white focus:outline-none focus:border-amber-400 placeholder-zinc-600 transition shadow-sm font-mono"
                         />
@@ -5065,6 +5171,52 @@ export default function App() {
                         )}
                       </div>
 
+                                            {/* NVIDIA_NIM_API_KEY (AI fallback) */}
+                      <div className="space-y-2 border-b border-white/5 pb-4">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-xs text-white">NVIDIA_NIM_API_KEY</span>
+                          {nimSecretStatus?.configured ? (
+                            <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> Configured ({nimSecretStatus.masked})
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2 py-1 rounded-full">Not configured</span>
+                          )}
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          <input
+                            type="password"
+                            value={nimSecretValue}
+                            onChange={(e) => setNimSecretValue(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && saveNimSecret()}
+                            placeholder="Paste your NVIDIA NIM key (nvapi-...)..."
+                            autoComplete="off"
+                            className="flex-1 min-w-[220px] px-3.5 py-2.5 border border-white/10 rounded-xl text-xs bg-black text-white focus:outline-none focus:border-amber-400 transition shadow-sm font-mono"
+                          />
+                          <button
+                            onClick={saveNimSecret}
+                            disabled={isSavingNimSecret || !nimSecretValue.trim()}
+                            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                          >
+                            {isSavingNimSecret ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            Save
+                          </button>
+                          {nimSecretStatus?.configured && (
+                            <button
+                              onClick={clearNimSecret}
+                              disabled={isSavingNimSecret}
+                              title="Remove the NVIDIA key"
+                              className="p-2.5 border border-white/10 hover:bg-rose-500/20 hover:border-rose-500/40 text-zinc-400 hover:text-rose-400 rounded-xl transition shadow-sm cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                        {nimSecretMessage && (
+                          <div className="p-2 bg-white/5 border border-white/5 rounded-lg text-xs text-amber-300 font-medium">{nimSecretMessage}</div>
+                        )}
+                      </div>
+
                       {/* OWNER_NUMBER */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
@@ -5083,7 +5235,7 @@ export default function App() {
                             value={ownerSecretValue}
                             onChange={(e) => setOwnerSecretValue(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && saveOwnerSecret()}
-                            placeholder="e.g. 2376XXXXXXXX"
+                            placeholder="country code + number, e.g. 2250700000000"
                             autoComplete="off"
                             className="flex-1 min-w-[220px] px-3.5 py-2.5 border border-white/10 rounded-xl text-xs bg-black text-white focus:outline-none focus:border-amber-400 transition shadow-sm font-mono"
                           />

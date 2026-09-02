@@ -1,7 +1,39 @@
 import { GoogleGenAI } from "@google/genai";
+import { isNimConfigured, nimChat } from "./nimClient.js";
 
 // Delay helper for exponential backoff
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * True when at least one AI engine is usable (Gemini primary, NVIDIA NIM
+ * fallback — audit 8.35). Callers gating AI features should use this instead
+ * of reading GEMINI_API_KEY directly.
+ */
+export function isAIConfigured(): boolean {
+  return getAIClient() !== null || isNimConfigured();
+}
+
+/**
+ * NIM is text-only (audit 8.35 scope): collapse a multimodal Gemini prompt
+ * (string or parts array) into plain text. Image parts are dropped — the
+ * fallback serves text questions, not vision.
+ */
+function toTextPrompt(prompt: string | any[]): string {
+  if (typeof prompt === "string") return prompt;
+  return (Array.isArray(prompt) ? prompt : [prompt])
+    .map((part: any) => (typeof part === "string" ? part : part?.text || ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** NIM fallback wrapper: skips cleanly when the prompt has no text at all. */
+async function nimFallback(prompt: string | any[], systemInstruction?: string): Promise<string> {
+  const text = toTextPrompt(prompt);
+  if (!text.trim()) {
+    throw new Error("Textless (image-only) prompt — the NVIDIA fallback is text-only.");
+  }
+  return nimChat(text, systemInstruction);
+}
 
 /**
  * Creates an instance of GoogleGenAI using the server's GEMINI_API_KEY
@@ -32,7 +64,12 @@ export async function generateTextWithFallback(
 ): Promise<string> {
   const ai = getAIClient();
   if (!ai) {
-    throw new Error("Gemini API key is not configured. Please add it in Settings > Secrets.");
+    // Primary engine unconfigured — the NVIDIA fallback can carry the request.
+    if (isNimConfigured()) {
+      console.log("🤖 [AI Engine] Gemini not configured — answering via NVIDIA NIM.");
+      return await nimFallback(prompt, systemInstruction);
+    }
+    throw new Error("No AI engine configured. Please add GEMINI_API_KEY or NVIDIA_NIM_API_KEY in Settings > Secrets.");
   }
 
   // List of models to try in sequence if a transient error (503/429) occurs
@@ -77,6 +114,20 @@ export async function generateTextWithFallback(
           break;
         }
       }
+    }
+  }
+
+  // All Gemini models failed — NVIDIA NIM rescue before surfacing an error.
+  if (isNimConfigured()) {
+    console.log("🤖 [AI Engine] Gemini exhausted — falling back to NVIDIA NIM.");
+    try {
+      return await nimFallback(prompt, systemInstruction);
+    } catch (nimErr: any) {
+      const combined = new Error(
+        `Gemini unavailable: ${lastError?.message || String(lastError)} — NVIDIA fallback also failed: ${nimErr?.message || nimErr}`
+      );
+      (combined as any).cause = nimErr;
+      throw combined;
     }
   }
 

@@ -1,5 +1,5 @@
 import { BotCommand } from "../types.js";
-import { generateTextWithFallback } from "../geminiClient.js";
+import { generateTextWithFallback, isAIConfigured } from "../geminiClient.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "../aiQuota.js";
 
 const aiCommand: BotCommand = {
@@ -16,12 +16,11 @@ const aiCommand: BotCommand = {
     }
 
     await context.react("🧠");
-    const apiKey = process.env.GEMINI_API_KEY;
-    
-    if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
+
+    if (!isAIConfigured()) {
       await context.reply(
-        "⚠️ *Gemini API Key is not configured on the server.*\n" +
-        "Please configure your `GEMINI_API_KEY` in the secrets or environment file."
+        "⚠️ *No AI engine configured on the server.*\n" +
+        "Configure `GEMINI_API_KEY` (primary) or `NVIDIA_NIM_API_KEY` (fallback) in the secrets or environment file."
       );
       return;
     }

@@ -362,6 +362,8 @@ ENV_KEYS=(
   "APP_URL|URL publique du panneau (ex: https://bot.exemple.com) — obligatoire pour les liens + validation Host"
   "PANEL_TOKEN|Clé d'accès au panneau (si vide: générée au démarrage et affichée une fois en console)"
   "GEMINI_API_KEY|Clé Gemini pour l'IA (texte/image/transcription)"
+  "NVIDIA_NIM_API_KEY|Clé NVIDIA NIM (nvapi-…) — IA de secours si Gemini absent/épuisé (gratuite sur build.nvidia.com)"
+  "NEBULA_NIM_MODEL|Modèle NIM (défaut meta/llama-3.3-70b-instruct)"
   "OWNER_NUMBER|Numéro WhatsApp propriétaire (indicatif pays + numéro, sans + ni espaces)"
   "PORT|Port du panneau (défaut 3000)"
   "NEBULA_VF_DEFAULT|Mettre 0 pour désactiver la VF par défaut (défaut: VF d'abord)"

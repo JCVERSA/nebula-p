@@ -1324,3 +1324,89 @@ them. Recommended for the public repo: orphan (fresh single-commit) history
 via `git checkout --orphan main`; existing VPS checkouts then re-align with
 `git fetch && git reset --hard origin/main` (runtime state is untracked:
 .env, database/, nebula_auth_info/ are gitignored — verified).
+
+### 8.34 Installer audit & optimization (2026-09-01, thirty-sixth push)
+
+**Scope:** `scripts/install.sh` (243 lines, POSIX sh — verified with dash).
+
+**Findings (evidence-based):**
+- **H1 real defect:** the "already installed" path pulled `origin main` from
+  whatever remote the checkout had — a VPS cloned from the OLD repo
+  (`JCVERSA/p`, branch arena) would silently stay on old code/remote while
+  the installer claims success. Exactly the live migration scenario.
+- M1: Node gate incoherence (installed 22, accepted ≥18; docs/CI say 22).
+- M2: `apt install ffmpeg` without `apt update` when git pre-existed.
+- M3: no disk pre-check; M4: full clone (repo carries a 4.5 MB gif).
+- L1: mojibake on fresh C-locale VPS (seen live on the owner's install);
+  L2: ".env créé" message even on cp failure; L3: cryptic `--dir` error;
+  L4: apt failures hidden by -qq.
+- Non-issues re-verified (no change): PATH profile printf emits literal
+  $PATH (single-quoted); TTY gating; symlink handling.
+
+**Changes:** auto-migration block (set-url + fetch + clean-tree switch to
+main; dirty tree → explicit warn, never resets); `apt_install` helper (lazy
+one-time update + verbose retry); unified Node ≥ 22 gate (one deliberate
+behavior change: pre-existing 18–21 now fails, matching README/CI);
+`LC_ALL=C.UTF-8` best-effort export; disk pre-check (fail <1 GB, warn <2 GB);
+shallow clone `--depth 1 --single-branch` (nebula update pulls fine);
+accurate .env message; `--dir` arg validation; banner shows installed
+commit. POSIX compliance kept (dash + bash -n clean).
+
+**Verification (in-sandbox E2E):** fresh install in /tmp (20 s, clone→
+npm→build→banner, non-root + degraded-ffmpeg paths exercised); idempotent
+re-run (pull --ff-only); forced old-remote migration (p.git → nebula-p,
+branch renamed → auto-switched to main, tree clean); profile PATH line
+emits literal $PATH. Not exercised: root+apt happy path (sandbox egress
+blocks apt) — logic reviewed, failure paths warn-and-continue.
+
+### 8.35 NVIDIA NIM AI fallback (2026-09-01, thirty-seventh push)
+
+**Owner decisions (asked explicitly):** NVIDIA as automatic FALLBACK (Gemini
+stays primary), owner already holds a key, default model
+`meta/llama-3.3-70b-instruct`, text-only scope — images stay Gemini-only.
+
+**Evidence:** NIM is a plain OpenAI-compatible chat-completions API on
+`https://integrate.api.nvidia.com/v1` (verified against the referenced
+free-claude-code provider implementation); free keys at
+build.nvidia.com/settings/api-keys. No new dependency: axios, already in the
+stack.
+
+**Implementation:** new `src/bot/nimClient.ts` (`isNimConfigured`,
+`getNimModel`, `nimChat` with 2-attempt retry on 429/5xx, truthful
+HTTP-status errors, DI'd post for tests). `geminiClient.generateTextWithFallback`
+now falls back to NIM when the Gemini key is absent OR every Gemini model
+failed (combined truthful error when both engines fail); multimodal prompts
+are collapsed to text (image parts dropped — fallback is text-only, honest
+error when prompt is textless). New central `isAIConfigured()` replaces raw
+GEMINI_API_KEY reads at every gate (.ai command, DM assistant, panel
+diagnostics, dynamic-command generation). `NVIDIA_NIM_API_KEY` joined the
+panel Secrets allowlist (masked); env surfaces: manage.sh env menu,
+.env.example (optional), README.
+
+Quotas unchanged: NIM calls happen INSIDE the existing per-user daily budget
+and concurrency cap (fallback inherits them by construction).
+
+**Suite:** 322/322 (35 files, +11: config detection/placeholders/model
+override/secret allowlist; body shape + bearer; 429 retry; truthful errors;
+empty completion; missing key; integration routes-to-NIM, isAIConfigured,
+textless-prompt guard).
+
+### 8.36 Panel secret field for the NVIDIA key (2026-09-01, thirty-eighth push)
+
+**Owner wish:** enter the NVIDIA API key directly in the control panel. The
+BACKEND already accepted it (8.35 allowlist), but the panel UI was
+hardcoded to GEMINI_API_KEY only (fetchSecretStatus picked Gemini/Owner;
+saveSecret always posted GEMINI) — verified in App.tsx before changing.
+
+**Fix:** following the file's existing per-secret convention — new
+nimSecret* state, NVIDIA pick in fetchSecretStatus, saveNimSecret /
+clearNimSecret (applied to the running bot + persisted to .env, masked
+status badge, honest messages), and a dedicated input block in BOTH secret
+surfaces (Settings page and the API Secrets card: password input, Enter to
+save, Save button, trash-to-remove when configured).
+
+**Also:** the OWNER_NUMBER placeholder in the panel was a 237-prefixed
+example — genericized (privacy pass had missed the .tsx).
+
+**Verification:** tsc OK, eslint 0 errors on App.tsx, suite 322/322,
+production build (vite + esbuild) OK.

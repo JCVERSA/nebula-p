@@ -10,10 +10,10 @@ import path from "path";
  * - Values are never returned to the client; only masked status is exposed.
  */
 
-export const ALLOWED_SECRET_NAMES = ["GEMINI_API_KEY", "OWNER_NUMBER"] as const;
+export const ALLOWED_SECRET_NAMES = ["GEMINI_API_KEY", "NVIDIA_NIM_API_KEY", "OWNER_NUMBER"] as const;
 export type SecretName = (typeof ALLOWED_SECRET_NAMES)[number];
 
-const PLACEHOLDER_VALUES = new Set(["MY_GEMINI_API_KEY", "YOUR_API_KEY_HERE"]);
+const PLACEHOLDER_VALUES = new Set(["MY_GEMINI_API_KEY", "MY_NVIDIA_API_KEY", "YOUR_API_KEY_HERE"]);
 
 export function isAllowedSecretName(name: string): name is SecretName {
   return (ALLOWED_SECRET_NAMES as readonly string[]).includes(name);

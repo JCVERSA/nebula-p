@@ -18,7 +18,7 @@ import { getConfig } from "./config.js";
 import { getCommand, initRegistry } from "./commandRegistry.js";
 import { BotCommandContext, GroupMember } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
-import { generateTextWithFallback } from "./geminiClient.js";
+import { generateTextWithFallback, isAIConfigured } from "./geminiClient.js";
 import { database } from "./database.js";
 import { inspectMessageSafety } from "./utils/antibot.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
@@ -830,8 +830,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
 
         // Direct AI response in private chat when not starting with prefix
         if (!isGroup && !isFromMe && !text.startsWith(prefix)) {
-          const apiKey = process.env.GEMINI_API_KEY;
-          if (apiKey && apiKey !== "MY_GEMINI_API_KEY" && apiKey.trim() !== "") {
+          if (isAIConfigured()) {
             const quota = checkAIQuota(actualSenderJid);
             if (!quota.allowed) {
               await sock.sendMessage(senderJid, { text: `⚠️ ${quota.error}` }, { quoted: msg });

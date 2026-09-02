@@ -25,6 +25,7 @@ import {
   deleteSecret,
   maskSecret,
 } from "./src/bot/secrets.js";
+import { isAIConfigured as isAIEngineConfigured } from "./src/bot/geminiClient.js";
 import { createPanelAuth } from "./src/bot/panelAuth.js";
 import { getTempDownload, updateServerBaseUrl, cleanupExpiredZipFiles, getTempStorageStats } from "./src/bot/tempDownloadManager.js";
 import { getGroupPolicy, setGroupPolicy, listGroupPolicies } from "./src/bot/groupAccessStore.js";
@@ -804,9 +805,8 @@ export function createApp(): express.Express {
       });
     }
 
-    // 5. AI Engine Subsystem
-    const apiKey = process.env.GEMINI_API_KEY;
-    const isAiConfigured = Boolean(apiKey && apiKey !== "MY_GEMINI_API_KEY" && apiKey.trim() !== "");
+    // 5. AI Engine Subsystem (Gemini primary, NVIDIA NIM fallback — 8.35)
+    const isAiConfigured = isAIEngineConfigured();
     tests.push({
       name: "Gemini AI Engine Subsystem",
       category: "ai",
@@ -1012,9 +1012,8 @@ export function createApp(): express.Express {
       return res.status(400).json({ error: "Security Guardrail: Prompt contains content that violates safe dynamic generation guidelines." });
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey === "MY_GEMINI_API_KEY" || apiKey.trim() === "") {
-      return res.status(400).json({ error: "Gemini API key is not configured. Please add it to Settings > Secrets." });
+    if (!isAIEngineConfigured()) {
+      return res.status(400).json({ error: "No AI engine configured. Please add GEMINI_API_KEY or NVIDIA_NIM_API_KEY to Settings > Secrets." });
     }
 
     const cleanName = commandName.trim().toLowerCase().replace(/[^a-z0-9]/g, "");

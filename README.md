@@ -56,7 +56,7 @@ The interactive flow defaults to VF too — and never lies about the language ac
 | 🗣️ | **VF by default** — quick mode *and* interactive menus; `.a vostfr` switches back; honest "VF non disponible" when a title has no dub |
 | 🔔 | **New-episode watcher** — `.a watch` on a VF season: cron polling (default every 6 h), quiet hours 23h–7h, WhatsApp notification with the ready-made download command; `.a unwatch <title>` / `.a watchlist` |
 | 📦 | **Batch episodes** — `1-12` ranges, sequential pipeline hardened for ~1 GB containers, per-episode temp links (2 h TTL), optional season ZIP via `NEBULA_BATCH_ZIP=1` |
-| 🤖 | **Gemini AI** — chat, image generation, audio transcription, voice conversations with TTS, per-user daily budget + global concurrency cap |
+| 🤖 | **Gemini AI** — chat, image generation, audio transcription, voice conversations with TTS, per-user daily budget + global concurrency cap; **NVIDIA NIM fallback** keeps `.ai` alive through Gemini outages (text, `meta/llama-3.3-70b-instruct` by default) |
 | 💬 | **WhatsApp multi-device** (Baileys) — QR pairing from the panel, auto-reconnect, bad-session recovery |
 | 🧩 | **39 hand-written commands** — incl. native `.tiktok` / `.instagram` / `.facebook` / `.youtube` downloads, `.w` episode watch, `.rnyt` legacy-coins top-up + sandboxed panel-created ones (no fs/process/network, no restart) — the vendored 145-file legacy corpus is quarantined by default, opt-in via `NEBULA_ENABLE_LEGACY=1` (behind strict ACLs) |
 | 🛡️ | **Group moderation** — antilink, antitag, welcome/goodbye, hidetag broadcasts, RoleGuard per-group access policies |
@@ -173,6 +173,7 @@ Copy `.env.example` to `.env` (or run `./manage.sh env`). Highlights:
 | `APP_URL` | for public links | Public panel URL (e.g. `https://bot.example.com`). Also enables the host-header guard — must match the tunnel hostname exactly |
 | `PANEL_TOKEN` | recommended | Panel access key; exchanged for an HttpOnly session cookie, never stored in the browser. Auto-generated and printed once if unset |
 | `GEMINI_API_KEY` | for AI | Google Gemini key (settable from the panel, masked display) |
+| `NVIDIA_NIM_API_KEY` | optional | NVIDIA NIM key — AI fallback when Gemini is unavailable (free on build.nvidia.com) |
 | `PORT` | no | HTTP port (default 3000) |
 | `NEBULA_VF_DEFAULT` | no | `0` disables VF-by-default |
 | `NEBULA_VOIRANIME_DISABLED` | no | `1` disables the voir-anime.to source |
