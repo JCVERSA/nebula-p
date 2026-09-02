@@ -1,5 +1,5 @@
 /**
- * Offline single-file download page (audit 8.39, 2026-09-01).
+ * Offline single-file download page (audit 8.39, hardened by audit 8.41).
  *
  * Owner idea: instead of N tap-able links inside WhatsApp (whatsapp→chrome→
  * whatsapp ping-pong), the bot sends ONE .html document. Opened once in
@@ -8,15 +8,20 @@
  *
  * Constraints honored here:
  * - The temp-link route already serves `Content-Disposition: attachment`
- *   (+CORS, +Range) — plain hidden-iframe sequential fetches trigger real
- *   downloads without navigation, cross-origin safe, zero JS on the target.
+ *   (+CORS `*`, +Range, +HEAD) — hidden-iframe sequential fetches trigger
+ *   real downloads without navigation, and a HEAD probe lets the page tell
+ *   an expired link (410) from a live one WITHOUT losing itself (audit 8.41:
+ *   a plain <a href> click on an expired link used to navigate the whole
+ *   page to the server's 410 card).
  * - Single self-contained file: inline CSS only, no external asset, works
  *   from file:// (WhatsApp download folder) with no network beyond the
  *   download links themselves.
  * - Project palette (panel identity): zinc-950/#09090b background,
  *   zinc-900/#18181b cards, amber-500/#f59e0b primary, emerald success,
  *   rose danger.
- * - Everything user-derived is HTML-escaped; URLs are attribute-escaped.
+ * - Everything user-derived is HTML-escaped; URLs are attribute-escaped AND
+ *   the JSON url list embedded in the script block escapes `<`/`>` so a
+ *   hostile `</script>` inside a URL can never break out of the script.
  */
 
 export interface DownloadPageEntry {
@@ -55,6 +60,14 @@ function formatSize(sizeMB?: number): string {
   return `${sizeMB >= 1024 ? (sizeMB / 1024).toFixed(2) + " GB" : Math.round(sizeMB) + " MB"}`;
 }
 
+/** JSON literal safe to inline in a <script> block (no `</script>` breakout). */
+function jsonForScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026");
+}
+
 export function buildDownloadPage(options: {
   title: string;
   subtitle?: string;
@@ -75,7 +88,7 @@ export function buildDownloadPage(options: {
           ${size ? `<span class="size">${escapeHtml(size)}</span>` : ""}
           <span class="state" data-state></span>
         </div>
-        <a class="btn small" href="${escapeAttr(e.url)}" download rel="noopener" data-dl="${i}">⬇ Télécharger</a>
+        <a class="btn small" href="${escapeAttr(e.url)}" target="_blank" download rel="noopener" data-dl="${i}">⬇ Télécharger</a>
       </li>`;
     })
     .join("\n");
@@ -118,6 +131,8 @@ export function buildDownloadPage(options: {
                padding:9px 14px; border-radius:10px; white-space:nowrap; }
   .btn.small:hover { background:var(--primary-hover); }
   .item.done { border-color:rgba(52,211,153,.45); }
+  .item.failed { border-color:rgba(244,63,94,.5); }
+  .item.failed .state { color:var(--danger); }
   .hint { margin:12px 2px 0; font-size:11.5px; color:var(--muted); line-height:1.6; }
   .expired { display:none; margin:12px 0; padding:12px 14px; border:1px solid rgba(244,63,94,.5);
              color:var(--danger); background:rgba(244,63,94,.08); border-radius:12px; font-size:13px; }
@@ -138,8 +153,7 @@ export function buildDownloadPage(options: {
 
   <div class="bar">
     <div class="stats" id="stats">
-      <b>${entries.length}</b> épisode(s)${totalSize ? ` · <b>${escapeHtml(totalSize)}</b>` : ""}
-      · expire dans <b id="countdown">…</b>
+      <b>${entries.length}</b> épisode(s)${totalSize ? ` · <b>${escapeHtml(totalSize)}</b>` : ""}${expiresAt ? ` · expire dans <b id="countdown">…</b>` : ""}
     </div>
     <button class="all" id="all" type="button">⬇ Tout télécharger</button>
   </div>
@@ -158,10 +172,11 @@ ${listItems}
 <script>
 (function () {
   "use strict";
-  var urls = ${JSON.stringify(entries.map((e) => e.url))};
+  var urls = ${jsonForScript(entries.map(e => e.url))};
   var expiresAt = ${expiresAt || 0};
   var cd = document.getElementById("countdown");
   var allBtn = document.getElementById("all");
+  var EXPIRED_MSG = "⏳ expiré — redemande au bot";
 
   function fmt(ms) {
     if (ms <= 0) return "0 min";
@@ -171,16 +186,19 @@ ${listItems}
     return h > 0 ? h + " h " + String(m).padStart(2, "0") + " min" : m + " min";
   }
   function tick() {
-    var left = expiresAt ? expiresAt - Date.now() : Infinity;
-    if (left === Infinity) { cd.textContent = "—"; return; }
+    if (!cd || !expiresAt) return;
+    var left = expiresAt - Date.now();
     if (left <= 0) { document.body.classList.add("expired"); cd.textContent = "expiré"; return; }
     cd.textContent = fmt(left);
   }
   tick(); setInterval(tick, 30000);
 
-  function mark(i) {
+  function setState(i, text, failed) {
     var li = document.getElementById("item-" + i);
-    if (li) { li.classList.add("done"); var s = li.querySelector("[data-state]"); if (s) s.textContent = "✓ lancé"; }
+    if (!li) return;
+    var s = li.querySelector("[data-state]");
+    if (s) s.textContent = text;
+    li.classList.add(failed ? "failed" : "done");
   }
 
   function fetchOne(url) {
@@ -193,6 +211,23 @@ ${listItems}
     });
   }
 
+  // HEAD probe (route serves CORS * + HEAD): tells an expired link (410/404)
+  // from a live one so we never lie with "✓ lancé" on a dead link. Probe
+  // errors fall back to a best-effort download attempt.
+  function probe(url) {
+    return fetch(url, { method: "HEAD" })
+      .then(function (r) { return r.status; })
+      .catch(function () { return 0; });
+  }
+
+  function downloadOne(i) {
+    return probe(urls[i]).then(function (status) {
+      if (status === 410 || status === 404) { setState(i, EXPIRED_MSG, true); return "expired"; }
+      setState(i, "✓ lancé", false);
+      return fetchOne(urls[i]).then(function () { return "ok"; });
+    });
+  }
+
   var running = false;
   allBtn.addEventListener("click", function () {
     if (running) return;
@@ -200,21 +235,31 @@ ${listItems}
     allBtn.disabled = true;
     var text = allBtn.textContent;
     allBtn.textContent = "⏳ Téléchargements en cours…";
+    var expired = 0;
     var chain = Promise.resolve();
     urls.forEach(function (url, i) {
-      chain = chain.then(function () { mark(i); return fetchOne(url); });
+      chain = chain.then(function () {
+        return downloadOne(i).then(function (r) { if (r === "expired") expired++; });
+      });
     });
     chain.then(function () {
-      allBtn.textContent = "✅ Tout est lancé";
+      allBtn.textContent = expired > 0
+        ? "⚠️ " + expired + " lien(s) expiré(s) — relance le bot"
+        : "✅ Tout est lancé";
       setTimeout(function () { allBtn.textContent = text; allBtn.disabled = false; running = false; }, 6000);
     });
   });
 
+  // Per-episode clicks stay ON this page: an expired link would otherwise
+  // navigate the whole page to the server's 410 card. href/target are kept
+  // as the no-JS and middle-click fallbacks.
   Array.prototype.forEach.call(document.querySelectorAll("[data-dl]"), function (a) {
-    a.addEventListener("click", function () {
+    a.addEventListener("click", function (ev) {
+      ev.preventDefault();
       var i = parseInt(a.getAttribute("data-dl"), 10);
       var li = document.getElementById("item-" + i);
-      if (li) { var s = li.querySelector("[data-state]"); if (s) s.textContent = "✓ lancé"; }
+      if (li && li.classList.contains("failed")) return;
+      downloadOne(i);
     });
   });
 })();

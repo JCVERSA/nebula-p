@@ -3,9 +3,11 @@ import fs from "fs";
 import { buildDownloadPage, DOWNLOAD_PAGE_PALETTE } from "../src/bot/services/downloadPage.js";
 
 /**
- * Offline download page (audit 8.39): one HTML document instead of a wall of
- * WhatsApp links — per-episode direct buttons + sequential "download all",
- * project palette, self-contained (no external asset), everything escaped.
+ * Offline download page (audit 8.39, hardened by audit 8.41): one HTML
+ * document instead of a wall of WhatsApp links — per-episode direct buttons
+ * + sequential "download all", project palette, self-contained, everything
+ * escaped, expired links detected via HEAD probe instead of navigating the
+ * page to the server's 410 card.
  */
 
 const ENTRIES = [
@@ -48,11 +50,12 @@ describe("downloadPage — content", () => {
     expect(DOWNLOAD_PAGE_PALETTE.primary).toBe("#f59e0b");
   });
 
-  it("offers per-episode buttons with the download attribute and a Tout télécharger action", () => {
+  it("offers per-episode buttons with download + blank fallback and a Tout télécharger action", () => {
     const html = build();
     expect((html.match(/class="btn small"/g) || []).length).toBe(3);
-    expect((html.match(/ download /g) || []).length).toBe(3);
-    expect(html).toContain("id=\"all\"");
+    expect((html.match(/ download rel="noopener"/g) || []).length).toBe(3);
+    expect((html.match(/target="_blank"/g) || []).length).toBe(3);
+    expect(html).toContain('id="all"');
     expect(html).toContain("Tout télécharger");
   });
 
@@ -60,16 +63,19 @@ describe("downloadPage — content", () => {
     const html = build();
     expect(html).toContain("<b>3</b> épisode(s)");
     expect(html).toContain("300 MB"); // 148.4 + 152 + 0
-    expect(html).toContain("id=\"countdown\"");
+    expect(html).toContain('id="countdown"');
     expect(html).toContain("Autoriser");
   });
 
-  it("embeds the expiry timestamp; past expiry equips the expired banner class", () => {
-    const future = build(Date.now() + 3600_000);
-    expect(future).not.toContain("body.expired .all".replace("body.expired .all", "x-never")); // sanity
-    expect(future).toContain("body.expired .all"); // css rule present
-    const past = build(Date.now() - 1000);
-    expect(past).toMatch(/var expiresAt = \d+;/);
+  it("omits the countdown entirely when no expiry is known (no 'expire dans —')", () => {
+    const html = build(0);
+    expect(html).not.toContain('id="countdown"');
+    expect(html).not.toContain("expire dans");
+    expect(html).toMatch(/var expiresAt = 0;/);
+  });
+
+  it("embeds the expiry timestamp for the countdown engine", () => {
+    expect(build(Date.now() - 1000)).toMatch(/var expiresAt = \d+;/);
   });
 
   it("is self-contained: no external stylesheet, script or font", () => {
@@ -84,11 +90,55 @@ describe("downloadPage — content", () => {
   });
 });
 
+describe("downloadPage — 8.41 hardening", () => {
+  const HOSTILE = [
+    { label: "Épisode 1", url: "https://bot.example.com/api/dl/ok1", sizeMB: 10 },
+    {
+      label: "Hostile",
+      url: 'https://bot.example.com/api/dl/x?a=</script><script>alert("pwn")</script>&b=1',
+      sizeMB: 10
+    }
+  ];
+
+  function buildHostile() {
+    return buildDownloadPage({ title: "Test", entries: HOSTILE, expiresAt: Date.now() + 3600_000 });
+  }
+
+  it("neutralizes a </script> breakout inside the embedded URL list", () => {
+    const html = buildHostile();
+    // exactly ONE closing script tag: the page's own
+    expect((html.match(/<\/script>/g) || []).length).toBe(1);
+    // the hostile payload is unicode-escaped inside the JSON literal
+    expect(html).toContain("\\u003c/script\\u003e\\u003cscript\\u003e");
+    expect(html).not.toContain('<script>alert("pwn")</script>');
+  });
+
+  it("probes links with HEAD (410/404 => honest expired state, page preserved)", () => {
+    const html = buildHostile();
+    expect(html).toContain('method: "HEAD"');
+    expect(html).toContain("ev.preventDefault()"); // clicks never navigate the page away
+    expect(html).toContain("expired"); // expired accounting for the download-all button
+    expect(html).toContain("classList.add(failed");
+    expect(html).toContain(".item.failed");
+  });
+});
+
 describe("downloadPage — wiring", () => {
   it("novabox multi-episode delivery uses buildDownloadPage with a legacy fallback", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
     expect(src).toContain("buildDownloadPage({");
     expect(src).toContain("pageDelivered");
     expect(src).toContain("legacy links message");
+  });
+
+  it("skips the HTML page when a season ZIP will be delivered (no double delivery)", () => {
+    const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+    expect(src).toContain("generatedLinks.length > 1 && !zipDownloadUrl");
+  });
+
+  it("tells the user when EVERY episode failed (no silent player-links-only message)", () => {
+    const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+    expect(src).toContain("failedEpisodeCount");
+    expect(src).toContain("Download failed for all");
   });
 });

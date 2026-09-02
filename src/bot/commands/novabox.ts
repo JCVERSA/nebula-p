@@ -2319,6 +2319,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     updateJobStatus(batchJob.id, "downloading", `Processing ${indices.length} episodes in parallel`);
 
     const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string; expiresAt: number }> = [];
+    let failedEpisodeCount = 0;
     const downloadedFilePaths: string[] = [];
 
     // Clear session to prevent re-entrant execution
@@ -2391,6 +2392,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           if (totalMBDownloaded + thisMB > MAX_BATCH_TOTAL_MB) {
             try { fs.unlinkSync(localPath); } catch {}
             quotaExceeded = true;
+            failedEpisodeCount++;
             updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: "Batch byte quota exceeded" });
             return;
           }
@@ -2422,12 +2424,14 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           if (fs.existsSync(localPath)) {
             try { fs.unlinkSync(localPath); } catch {}
           }
+          failedEpisodeCount++;
           updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: "Stream unavailable" });
         }
       } catch (err: any) {
         if (fs.existsSync(localPath)) {
           try { fs.unlinkSync(localPath); } catch {}
         }
+        failedEpisodeCount++;
         updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: err?.message || "Stream error" });
       }
     };
@@ -2510,7 +2514,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       // user must tap one by one inside WhatsApp. Falls back to the legacy
       // links message if the document cannot be sent.
       let pageDelivered = false;
-      if (generatedLinks.length > 1) {
+      // ZIP mode (NEBULA_BATCH_ZIP=1) is an explicit one-archive request — skip
+      // the HTML page then to avoid delivering both (audit 8.41).
+      if (generatedLinks.length > 1 && !zipDownloadUrl) {
         try {
           const expiresAt = generatedLinks.reduce(
             (min, g) => (g.expiresAt && (!min || g.expiresAt < min) ? g.expiresAt : min),
@@ -2566,7 +2572,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             : `🔗 *High-Speed Link:* ${zipDownloadUrl}\n\n`);
       }
 
-      responseMsg += `💡 _Click any link above to start instant high-speed download or stream in your browser._\n🌌 _Nebula Bot - Your ultimate media center_`;
+      responseMsg +=
+        pageDelivered && !zipDownloadUrl
+          ? `🌌 _Nebula Bot - Your ultimate media center_`
+          : `💡 _Click any link above to start instant high-speed download or stream in your browser._\n🌌 _Nebula Bot - Your ultimate media center_`;
 
       await context.reply(responseMsg);
 
@@ -2588,6 +2597,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       return;
     } else {
       // Fallback: Generate full batch episode directory with instant high-speed player streaming links exclusively via VidMoly
+      const failureNotice =
+        failedEpisodeCount > 0
+          ? `❌ *Download failed for all ${failedEpisodeCount} episode(s)* — every mirror was CDN restricted. Player links below as fallback, or retry in a few minutes.\n\n`
+          : "";
       const episodeLinksText = indices.map((idx) => {
         const epN = idx + 1;
         const vUrl = getVidMolyUrl(session.episodes, idx, session.episodeListLabels, session.selectedLanguage);
@@ -2601,7 +2614,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       }).join("\n\n");
 
       return await context.reply(
-        `📥 *NEBULA NOVABOX - BATCH EPISODES READY* 📥\n\n` +
+        `${failureNotice}📥 *NEBULA NOVABOX - BATCH EPISODES READY* 📥\n\n` +
         `🎬 *Anime:* ${session.animeTitle}\n` +
         `🗣️ *Language:* ${lang} | ${session.selectedSeason?.name}\n` +
         `⚙️ *Selected Resolution:* ${resolution}\n` +

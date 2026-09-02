@@ -1571,3 +1571,59 @@ priority, recap formatting incl. the 4/5 log case, dedup, wiring guard).
 tsc, eslint 0 errors, production build OK. Live CDN validation pending on
 the VPS (sandbox egress blocked) — the fix targets the exact observed URL
 shapes.
+
+### 8.41 Full audit of the HTML download-page pipeline (2026-09-01, forty-third push)
+
+**Owner request:** audit the entire HTML output the bot sends — verify there
+are no problems. Audited surface: `services/downloadPage.ts` (generation),
+novabox delivery wiring, the consumed `generatedLinks` data, and the
+temp-link route contract the page relies on.
+
+**Findings and fixes (7):**
+
+1. **`</script>` breakout in the embedded URL list** (defense-in-depth).
+   `var urls = ${JSON.stringify(...)}` does not escape `<`, so a URL
+   containing `</script>` would terminate the script block early. Today the
+   URLs are internally generated (`/api/dl/<hex token>`) so not exploitable
+   via WhatsApp input, but the builder is an exported module. Fixed: the
+   JSON literal now escapes `<`, `>` and `&` (`\u003c`…); verified with a
+   hostile-URL fixture (page contains exactly ONE closing script tag and the
+   payload round-trips through JSON.parse).
+2. **Expired per-episode link destroyed the page.** A plain `<a href>` click
+   on a 410 link navigated the whole page to the server's expiry card (it
+   has no attachment header). Fixed: clicks are intercepted
+   (preventDefault), a HEAD probe (route serves CORS `*` + HEAD) detects
+   410/404 and shows an honest red "⏳ expiré — redemande au bot" state;
+   live links download via the hidden-iframe mechanism. `href` +
+   `target="_blank"` kept as no-JS / middle-click fallbacks.
+3. **"Tout télécharger" lied on expired links** (marked "✓ lancé"
+   blindly). Fixed: every item in the chain is probed first; expired items
+   get the failed style and the button reports "⚠️ N lien(s) expiré(s)".
+   Probe errors degrade to a best-effort download (no false negative).
+4. **Countdown wording with unknown expiry** ("expire dans —"). The
+   countdown span is now rendered only when expiresAt is known.
+5. **Double delivery in ZIP mode:** the HTML page was sent even when a
+   season ZIP would follow. The page is now skipped when `zipDownloadUrl`
+   is set (ZIP mode is an explicit one-archive request).
+6. **Misleading summary hint:** "Click any link above…" was appended even
+   when the message contained no links (page-delivered, no ZIP). Now
+   conditional.
+7. **Total-failure case was silent-ish:** when EVERY episode failed, the
+   user received a "BATCH EPISODES READY" player-links message with no
+   failure mention. A `failedEpisodeCount` (all three failure paths) now
+   prepends "❌ Download failed for all N episode(s) — every mirror was CDN
+   restricted…" to that fallback.
+
+**Checked, no action needed:** title/subtitle/label/size escaping (tested),
+UTF-8 buffer + meta charset, `Content-Disposition: attachment` making the
+cross-origin `download` attribute irrelevant, countdown math + expired
+state, ~8 KB single-file size, mobile viewport, WhatsApp `text/html`
+document delivery with quoted reply, legacy-links fallback on send failure,
+single-episode and ZIP flows, min-expiresAt selection for the countdown.
+
+**Verification:** 363/363 tests (39 files; downloadPage suite grown to 14:
+breakout fixture, HEAD-probe/expired-state wiring, conditional countdown,
+blank-target fallbacks, ZIP gate, all-failed notice). tsc, eslint 0 errors,
+production build OK. Structural validation of a generated page via python
+HTMLParser: balanced tags, exactly one `</script>`, URL list JSON-decodable
+after unescaping, 8.2 KB.
