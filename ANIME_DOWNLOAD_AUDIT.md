@@ -1444,3 +1444,40 @@ deploy via `nebula env set`.
 
 **Suite:** 329/329 (36 files, +7: sections/placeholder/suffix/compactness/
 override + whitespace-ignore + wiring guard on all three surfaces).
+
+### 8.38 Per-conversation persistent AI memory (2026-09-01, fortieth push)
+
+**Owner decisions (asked explicitly):** memory keyed PER CHAT, SLIDING TTL
+(counter restarts on every message; default 10 h of silence, env-tunable),
+raw turns + ROLLING SUMMARY (supermemory-inspired), full controls.
+
+**Inspiration, right-sized:** supermemory's containers (→ per-chat scope),
+distilled memories (→ compaction of old turns into a rolling summary) and
+query-time injection (→ memory block appended to the system prompt);
+supercontext's centralized shared store was evaluated and REJECTED for this
+scale (single bot, ~1 GB container — a JSON store with atomic writes, zero
+new dependencies, matches the existing watch-subscriptions pattern).
+
+**New `src/bot/services/aiMemory.ts`:** `ai_memory.json` per-chat entries
+{turns, summary, lastTs}; `recordExchange` (write-time secret filter —
+password/PIN/API-key-bearing turns are never persisted; turns capped at
+1500 chars, 500 chats, LRU eviction); `getMemoryContext` (sliding-TTL check
+with on-sight expiry cleanup, injection block ≤ 4000 chars = summary + raw
+turns); `compactIfNeeded` (above NEBULA_AI_MEMORY_MAX_TURNS (20), folds
+oldest turns into the rolling summary via `defaultMemorySummarizer` — an
+INTERNAL maintenance call that does not consume the per-user daily quota;
+on failure raw turns are kept, hard-capped at 40); `forgetMemory`;
+`memoryStatus`.
+
+**Wiring:** `.ai` (memory-aware system prompt + record + lazy compaction;
+new `.ai forget` / `.ai oublie` subcommand) and the DM assistant (same
+pattern, keyed by the DM chat). The panel-simulator AI path is deliberately
+NOT wired (ephemeral test surface).
+
+**Env:** `NEBULA_AI_MEMORY_TTL_HOURS` (default 10, 0 = disabled),
+`NEBULA_AI_MEMORY_MAX_TURNS` (default 20) — .env.example, manage.sh env
+menu, README.
+
+**Suite:** 339/339 (37 files, +10: inject/isolation, sliding-TTL keep after
+9.5h+9.5h, expiry wipe, TTL=0, secret filter, compaction fold + failure
+fallback, forget scoping, status line).

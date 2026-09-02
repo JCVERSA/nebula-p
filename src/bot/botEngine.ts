@@ -20,6 +20,12 @@ import { BotCommandContext, GroupMember } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
 import { generateTextWithFallback, isAIConfigured } from "./geminiClient.js";
 import { getPersonaPrompt } from "./persona.js";
+import {
+  getMemoryContext,
+  recordExchange,
+  compactIfNeeded,
+  defaultMemorySummarizer
+} from "./services/aiMemory.js";
 import { database } from "./database.js";
 import { inspectMessageSafety } from "./utils/antibot.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
@@ -843,13 +849,17 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 } catch (pe) {}
               }
               consumeAIQuota(actualSenderJid);
+              const memoryBlock = getMemoryContext(senderJid);
               const answer = await withAIConcurrency(() =>
                 generateTextWithFallback(
                   text,
-                  getPersonaPrompt("dm", config.botName),
+                  getPersonaPrompt("dm", config.botName) + (memoryBlock ? `\n\n${memoryBlock}` : ""),
                   "gemini-3.7-flash"
                 )
               );
+              // Per-conversation memory (audit 8.38) — fire and forget.
+              recordExchange(senderJid, text, answer);
+              compactIfNeeded(senderJid, defaultMemorySummarizer).catch(() => {});
               if (sock && typeof sock.sendPresenceUpdate === "function") {
                 try {
                   await sock.sendPresenceUpdate("paused", senderJid);
