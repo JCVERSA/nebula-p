@@ -1295,6 +1295,25 @@ export async function executeDirectOrFfmpegDownload(
   try {
     if (!stream.url) return false;
 
+    // Funnel-level urlset guard (audit 8.45): EVERY extraction branch
+    // converges here — including the generic last-resort probe, which is the
+    // branch that actually extracts vidmoly embeds in production (hostName
+    // "vidmoly.biz"; the dedicated vidmoly branch gets its embed fetch 403'd
+    // by the referer it uses). Multi-quality urlset masters 403 on some CDN
+    // nodes while variant paths answer — resolve once, for everyone.
+    if (stream.url.includes(".urlset/")) {
+      try {
+        const resolvedUrlset = await resolveVidmolyUrlset(stream.url, stream.headers || {});
+        if (resolvedUrlset) {
+          stream = {
+            ...stream,
+            url: resolvedUrlset.mediaPlaylistUrl,
+            headers: { ...stream.headers, ...resolvedUrlset.headers }
+          };
+        }
+      } catch {}
+    }
+
     // Direct HTTP download for clean MP4 sources
     if (stream.type === "direct_mp4" || stream.url.endsWith(".mp4")) {
       const writer = fs.createWriteStream(outputPath);

@@ -273,7 +273,7 @@ async function fetchTextOnce(url: string, headers: Record<string, string>, timeo
  * 8.40 fix the winning referer existed but was never tried: vmbox.space was
  * not in the CDN family list, so only 3 referers reached the variants).
  */
-export const VIDMOLY_URLSET_ATTEMPT_BUDGET = 26;
+export const VIDMOLY_URLSET_ATTEMPT_BUDGET = 34;
 
 export async function resolveVidmolyUrlset(
   masterUrl: string,
@@ -295,7 +295,9 @@ export async function resolveVidmolyUrlset(
   }
 
   // 2) Derived variant paths (proven shapes first) × referers.
-  const variants = deriveSubVariantUrls(masterUrl).slice(0, 4);
+  // Both urlset letters' proven shapes: `_l` (the rendition single-quality
+  // files use) first, then `_n` — audit 8.45.
+  const variants = deriveSubVariantUrls(masterUrl).slice(0, 6);
   for (const v of variants) {
     for (const h of referers) {
       if (attempts >= VIDMOLY_URLSET_ATTEMPT_BUDGET) break;

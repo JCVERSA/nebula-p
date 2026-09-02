@@ -98,7 +98,7 @@ describe("resolveVidmolyUrlset — master 403 bypass matrix (8.43)", () => {
     const res = await resolveVidmolyUrlset(MASTER, BASE_HEADERS);
     expect(res).toBeNull();
     expect(mockedGet.mock.calls.length).toBeLessThanOrEqual(VIDMOLY_URLSET_ATTEMPT_BUDGET);
-    expect(VIDMOLY_URLSET_ATTEMPT_BUDGET).toBeLessThanOrEqual(30);
+    expect(VIDMOLY_URLSET_ATTEMPT_BUDGET).toBeLessThanOrEqual(40);
   });
 
   it("is a no-op for plain media playlists", async () => {
@@ -124,5 +124,14 @@ describe("urlset wiring (8.43)", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
     expect(src).toContain("resolveVidmolyUrlset(targetHlsUrl");
     expect(src).toContain("resolvedUrlset.headers.Referer) downloadSourceUrl");
+  });
+
+  it("FUNNEL: executeDirectOrFfmpegDownload resolves urlset masters for EVERY branch (8.45)", () => {
+    // Production proof: logs showed host "vidmoly.biz" — the generic
+    // last-resort probe — extracting urlset masters, bypassing the 8.43
+    // branch-level resolver. The funnel covers all branches.
+    const src = fs.readFileSync("src/bot/services/animeStreamExtractor.ts", "utf-8");
+    const funnel = src.slice(src.indexOf("export async function executeDirectOrFfmpegDownload"));
+    expect(funnel.slice(0, 2000)).toContain("resolveVidmolyUrlset(stream.url");
   });
 });

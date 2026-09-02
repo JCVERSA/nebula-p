@@ -1733,3 +1733,40 @@ the engines. Both paths of both flows (single + batch) are now covered.
 **Verification:** 374/374 tests (41 files, +1 wiring guard), tsc, eslint 0
 errors, build OK. Deployment checklist for the VPS: `nebula update` then
 confirm `grep -c VIDMOLY_URLSET dist/server.cjs` ≥ 1 before retesting.
+
+### 8.45 urlset 403 round 4 — the resolver now sits at the funnel (2026-09-01, forty-seventh push)
+
+**Owner retest with 8.44 live** (`grep -c VIDMOLY_URLSET dist = 8`, resolver
+ran and logged `Unresolved after 26 attempt(s)` at the legacy path): E05
+still fails — but the log carried the decisive clue.
+
+**The clue:** `[MIRROR_FALLBACK] Attempting download with host "vidmoly.biz"`
+— the dedicated vidmoly extraction branch reports hostName `"VidMoly"`;
+`"vidmoly.biz"` is the signature of the GENERIC last-resort probe
+(`probeGenericPlayerPage`, hostname of the player URL). In production, the
+vidmoly branch's embed fetch is rejected (its anime-sama referer gets the
+embed page 403'd), so virtually ALL vidmoly extraction flows through the
+generic probe — the one branch the 8.43 resolver was NOT wired into. The
+extraction-time resolution was dead code on the real path; only the 8.44
+legacy-path call ever ran (hence exactly one `[VIDMOLY_URLSET]` log line).
+
+**Fixes:**
+- `executeDirectOrFfmpegDownload` (the funnel EVERY branch converges to,
+  mirror + quick + generic paths alike) now resolves urlset masters itself
+  and merges the winning Referer/Origin into the stream headers before any
+  engine starts. Branch-level coverage no longer matters.
+- Matrix extended modestly: both urlset letters (`_l` then `_n`) proven
+  shapes — 6 variant paths × referers, budget 26 → 34 attempts (still
+  bounded, fast-failing attempts).
+
+**About THIS file (Vinland Saga S02E05 on box-1659-u.vmbox.space):** the
+full matrix genuinely ran and every path×referer 403'd from the VPS. If the
+node blocks at IP/TLS level, no URL shape will fix it — the bot already
+degrades honestly (streaming embed link + explicit failure). Decisive
+one-command diagnostic for the VPS (fresh URL from a retry):
+`curl -so /dev/null -w "%{http_code}\n" -A "Mozilla/5.0" -e "https://vidmoly.biz/" "<variant url>"`
+— 403 from curl + playing fine in the owner's browser = network-level block
+on that node; anything else = send me the output.
+
+**Verification:** 375/375 tests (41 files, +1 funnel wiring guard with the
+hostName evidence documented), tsc, eslint 0 errors, build OK.
