@@ -1523,3 +1523,51 @@ tag balance OK, 3 buttons, sequential URL list parses as JSON, 6.9 KB.
 NOT testable in-sandbox: an actual Chrome download session (egress) — the
 iframe+attachment mechanism is the standard pattern and the route headers
 were verified in source.
+
+### 8.40 Multi-download failures on urlset master playlists — full download-system audit (2026-09-01, forty-second push)
+
+**Owner report:** some episodes fail during multi-download. Production log
+(Gachiakuta S01 E04, vidmoly) showed the exact failure chain:
+`_,n,l,.urlset/master.m3u8` → 403 Forbidden to BOTH engines (Cat-Catch app
+level AND legacy FFmpeg, twice with fresh tokens), episode silently dropped,
+summary only said "Ready Episodes: 4/5".
+
+**Root cause (evidence-based):** every WORKING vidmoly URL in the same batch
+has the shape `{prefix}_{q}/index-v1-a1.m3u8` — the failing episode was the
+only one whose embed exposed a multi-quality `master.m3u8` (urlset). The
+master path 403s (node-level hotlink/token binding) while variant paths stay
+downloadable. The existing `deriveSubVariantUrls` fallback guessed
+`index.m3u8` / `{prefix}_{q}.m3u8` — names that do not exist on this CDN
+family — so every derived candidate also 403'd. Sandbox egress to vidmoly is
+blocked (HTTP 000), so the fix is validated against the exact production
+URLs from the log as fixtures instead of a live download.
+
+**Fixes:**
+1. `hlsDownloader.deriveSubVariantUrls` — derived candidates now lead with
+   the production-proven shape `{prefix}_{q}/index-v1-a1.m3u8` (+ `-f1-`
+   variant), then the legacy guesses, plus a no-letter fallback; signature
+   query (t/s/e/asn tokens) preserved on every candidate.
+2. `hlsDownloader.getHeaderCandidates` (now exported) — the vidmoly referer
+   rotation (vidmoly.biz/to/net, vmpx, ansembed, anime-sama) previously
+   keyed on the URL host containing `vmpx./vidmoly./...`; it now also covers
+   the file-host families observed in production (vmeas., vmget., vmnow.)
+   with `https://vidmoly.biz/` tried first (the actual embed host).
+3. `services/batchRecap.formatFailedEpisodes` — the batch summary now lists
+   exactly which episodes failed and tells the user to re-ask for them in a
+   few minutes, instead of a bare "4/5".
+
+**Not changed (audited, deliberately):** per-episode mirror loop already
+re-probes with a fresh token once (NOVABOX_FFMPEG path) — a third retry adds
+latency without benefit since CDN node choice is deterministic per file;
+JIKAN 504s are metadata-only with a working fallback; Windows console
+mojibake in `nebula logs` is a codepage artifact (use Windows Terminal /
+`chcp 65001`), not a bot defect.
+
+**Verification:** 358/358 tests (39 files, +10: proven-shape derivation with
+the exact failed URL as fixture, token preservation on candidates, legacy
+guesses kept, media-playlist no-op, master.txt legacy branch, referer
+rotation coverage for vmeas/vmget/vmnow/vmpx hosts, base-header merge
+priority, recap formatting incl. the 4/5 log case, dedup, wiring guard).
+tsc, eslint 0 errors, production build OK. Live CDN validation pending on
+the VPS (sandbox egress blocked) — the fix targets the exact observed URL
+shapes.

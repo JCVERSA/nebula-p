@@ -33,8 +33,10 @@ export function resolveAbsoluteUrl(parentUrl: string, relativePath: string): str
 
 /**
  * Builds candidate header configurations for challenging streaming CDNs (VidMoly, VMPX, Smoothpre, etc.)
+ *
+ * Exported for tests (audit 8.40).
  */
-function getHeaderCandidates(url: string, baseHeaders: Record<string, string>): Array<Record<string, string>> {
+export function getHeaderCandidates(url: string, baseHeaders: Record<string, string>): Array<Record<string, string>> {
   const userAgent = baseHeaders["User-Agent"] || baseHeaders["user-agent"] || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
   const standardBrowser: Record<string, string> = {
     "User-Agent": userAgent,
@@ -51,8 +53,24 @@ function getHeaderCandidates(url: string, baseHeaders: Record<string, string>): 
   // Candidate 1: Full base headers merged with browser standard
   candidates.push({ ...standardBrowser, ...baseHeaders });
 
-  // Candidate 2: If VidMoly or VMPX CDN
-  if (lowerUrl.includes("vmpx.") || lowerUrl.includes("vidmoly.") || lowerUrl.includes("ansembed.") || lowerUrl.includes("topembed.")) {
+  // Candidate 2: VidMoly stream family. The embeds live on vidmoly.biz and
+  // serve files from a rotation of CDN hosts (vmpx/vmeas/vmnow/vmget/...)
+  // observed in production logs (audit 8.40) — the file host in the URL is
+  // NOT enough to know which referer the node accepts, so we try them all.
+  if (
+    lowerUrl.includes("vmpx.") ||
+    lowerUrl.includes("vidmoly.") ||
+    lowerUrl.includes("ansembed.") ||
+    lowerUrl.includes("topembed.") ||
+    lowerUrl.includes("vmeas.") ||
+    lowerUrl.includes("vmget.") ||
+    lowerUrl.includes("vmnow.")
+  ) {
+    candidates.push({
+      ...standardBrowser,
+      "Referer": "https://vidmoly.biz/",
+      "Origin": "https://vidmoly.biz"
+    });
     candidates.push({
       ...standardBrowser,
       "Referer": "https://vidmoly.to/",
@@ -102,6 +120,12 @@ function getHeaderCandidates(url: string, baseHeaders: Record<string, string>): 
 
 /**
  * Derives potential sub-variant URLs if a multi-set master playlist returns 403 or is restricted.
+ *
+ * Audit 8.40: episodes served as `_,n,l,.urlset/master.m3u8` sometimes 403 on
+ * the master path while the variant paths stay perfectly downloadable (every
+ * working vidmoly URL in production logs has the shape
+ * `{prefix}_{q}/index-v1-a1.m3u8`). Derived candidates now lead with that
+ * proven shape before the generic guesses.
  */
 export function deriveSubVariantUrls(masterUrl: string): string[] {
   const variants: string[] = [];
@@ -118,9 +142,13 @@ export function deriveSubVariantUrls(masterUrl: string): string[] {
 
         for (const q of qualities) {
           if (!q) continue;
+          // Proven shape on the vidmoly CDN family — try FIRST.
+          variants.push(`${base}${prefix}_${q}/index-v1-a1.${ext}${query}`);
+          variants.push(`${base}${prefix}_${q}/index-f1-v1-a1.${ext}${query}`);
           variants.push(`${base}${prefix}_${q}/index.${ext}${query}`);
           variants.push(`${base}${prefix}_${q}.${ext}${query}`);
         }
+        variants.push(`${base}${prefix}/index-v1-a1.${ext}${query}`);
         variants.push(`${base}${prefix}/index.${ext}${query}`);
       }
     }

@@ -9,6 +9,7 @@ import { spawn } from "child_process";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
 import { registerTempDownload } from "../tempDownloadManager.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
+import { formatFailedEpisodes } from "../services/batchRecap.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
 import { isNakanimeUrl, nakanimeSearch, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js";
 import {
@@ -2544,6 +2545,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         `🗣️ *Language:* ${lang} | ${session.selectedSeason?.name}\n` +
         `⚙️ *Quality:* ${resolution}\n` +
         `📦 *Ready Episodes:* ${generatedLinks.length}/${indices.length}\n` +
+        formatFailedEpisodes(
+          indices.map(i => i + 1),
+          generatedLinks.map(g => g.epNum)
+        ) +
         `⏳ *Links Validity:* 2 Hours\n\n` +
         (pageDelivered
           ? `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un seul bouton *« Tout télécharger »* lance tous les épisodes d'un coup (ou bouton par épisode).\n\n`
