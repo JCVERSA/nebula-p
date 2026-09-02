@@ -1711,3 +1711,25 @@ bounded budget on total failure, no-op for media playlists, `_l`-first
 derivation, extraction-time wiring). tsc, eslint 0 errors, build OK. Live
 confirmation pending on the VPS (sandbox egress blocked): re-ask Vinland
 Saga S02 E05.
+
+### 8.44 urlset 403 round 3 — legacy single-episode path covered + deployment gap identified (2026-09-01, forty-sixth push)
+
+**Owner retest (Vinland Saga S02E05, single episode):** still failing — but
+the log contained ZERO `[VIDMOLY_URLSET]` lines, which the 8.43 code emits
+unconditionally (success OR failure) on any urlset master. Verification via
+the GitHub API: `nebula-p` main WAS already at `3e45dd0` ("8.41-8.43") with
+the resolver present in source. Conclusion: the fix reached GitHub but the
+VPS process was still running the previous build — `nebula update` had not
+taken effect (not run, run before the push, or build step failed).
+
+**Code gap found in the same log (fixed here):** the single-episode flow has
+a SECOND download path ("Direct download failed → legacy VidMoly fallback
+resolution") that re-extracts the stream itself and hands the raw urlset
+master straight to `executeFfmpegDownload` — 8.43 only covered the
+mirror/extraction path. The legacy path now resolves urlset masters through
+`resolveVidmolyUrlset` as well and propagates the winning Referer/Origin to
+the engines. Both paths of both flows (single + batch) are now covered.
+
+**Verification:** 374/374 tests (41 files, +1 wiring guard), tsc, eslint 0
+errors, build OK. Deployment checklist for the VPS: `nebula update` then
+confirm `grep -c VIDMOLY_URLSET dist/server.cjs` ≥ 1 before retesting.

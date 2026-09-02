@@ -30,7 +30,7 @@ import { bestAnimeMatch, formatAnimeCard } from "../services/jikanClient.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus } from "../batchDownloadManager.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
-import { downloadHlsAppLevel } from "../services/hlsDownloader.js";
+import { downloadHlsAppLevel, resolveVidmolyUrlset } from "../services/hlsDownloader.js";
 import {
   resolveBestMirrorStream,
   executeDirectOrFfmpegDownload,
@@ -2709,8 +2709,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   if (!downloadSuccess) {
     console.log(`[NOVABOX] Direct download failed. Attempting legacy VidMoly fallback resolution lookup...`);
     const resolved = await resolveEpisodeStream(session.episodes || {}, epIndex);
-    const downloadSourceUrl = resolved.refererUrl;
-    const originUrl = resolved.originUrl;
+    let downloadSourceUrl = resolved.refererUrl;
+    let originUrl = resolved.originUrl;
     let targetHlsUrl = resolved.hlsUrl;
     console.log(`[NOVABOX] Legacy VidMoly Resolved HLS: "${targetHlsUrl}", Referer: "${downloadSourceUrl}", Origin: "${originUrl}"`);
 
@@ -2730,6 +2730,23 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         } else if (resolution === "1080P") {
           targetHlsUrl = resolveAbsoluteUrl(targetHlsUrl, "index-f3-v1-a1.txt");
         }
+      }
+      // Multi-quality urlset masters 403 on some CDN nodes while their variant
+      // paths answer with the right referer — resolve the pair here too (the
+      // mirror path already does it at extraction time; audit 8.44).
+      if (targetHlsUrl.includes(".urlset/")) {
+        try {
+          const resolvedUrlset = await resolveVidmolyUrlset(targetHlsUrl, {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": downloadSourceUrl,
+            "Origin": originUrl
+          });
+          if (resolvedUrlset) {
+            targetHlsUrl = resolvedUrlset.mediaPlaylistUrl;
+            if (resolvedUrlset.headers.Referer) downloadSourceUrl = resolvedUrlset.headers.Referer;
+            if (resolvedUrlset.headers.Origin) originUrl = resolvedUrlset.headers.Origin;
+          }
+        } catch {}
       }
       console.log(`[NOVABOX] Final target sub-playlist URL for download: "${targetHlsUrl}"`);
       downloadSuccess = await executeFfmpegDownload(targetHlsUrl, downloadSourceUrl, originUrl, localPath, 240000);

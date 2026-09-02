@@ -119,4 +119,10 @@ describe("urlset wiring (8.43)", () => {
     expect(src).toContain("resolveVidmolyUrlset(fileUrl");
     expect(src).toContain("...resolvedUrlset.headers");
   });
+
+  it("the legacy single-episode VidMoly path resolves urlset masters too (8.44)", () => {
+    const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+    expect(src).toContain("resolveVidmolyUrlset(targetHlsUrl");
+    expect(src).toContain("resolvedUrlset.headers.Referer) downloadSourceUrl");
+  });
 });
