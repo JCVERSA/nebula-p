@@ -14,6 +14,7 @@ import {
   runFfmpegKit
 } from "../services/mediaToolkit.js";
 import { registerTempDownload } from "../tempDownloadManager.js";
+import { cleanupUvrFiles, isVocalSeparationAvailable, separateVocals, uvrBusy } from "../services/vocalRemover.js";
 
 /**
  * Nebula media toolkit (audit 8.48): FFmpeg utilities on WhatsApp media.
@@ -44,6 +45,12 @@ _Réponds à une vidéo / un audio avec_ :
 
 *.m compress* _50% | 95mb_
 → compresse (défaut : 95 mb, taille garantie par calcul)
+
+*.m karaoké*
+→ supprime la voix → instrumental (IA de séparation)
+
+*.m voix*
+→ isole la voix → acapella (même moteur IA)
 
 🌌 _Nebula Bot - Your ultimate media center_`;
 
@@ -86,11 +93,19 @@ export const mediaCommand: BotCommand = {
     const [sub = ""] = context.args;
     const cmd = sub.toLowerCase();
 
-    if (!cmd || !["mp3", "gif", "vitesse", "speed", "trim", "compress"].includes(cmd)) {
+    if (!cmd || !["mp3", "gif", "vitesse", "speed", "trim", "compress", "karaoké", "karaoke", "instrumental", "inst", "voix", "vocals", "acapella"].includes(cmd)) {
       return void (await context.reply(USAGE));
     }
-    if (busy.active) {
+    if (busy.active || uvrBusy.active) {
       return void (await context.reply("⏳ Un traitement média est déjà en cours — réessaie dans un instant."));
+    }
+    const isUvr = ["karaoké", "karaoke", "instrumental", "inst", "voix", "vocals", "acapella"].includes(cmd);
+    if (isUvr && !isVocalSeparationAvailable()) {
+      return void (
+        await context.reply(
+          "🔇 *Séparation vocale non installée sur ce serveur.*\n_Lance `nebula setup` sur le VPS pour l'activer (télécharge le modèle IA, ~67 Mo)._"
+        )
+      );
     }
 
     const buffer = await context.downloadMedia?.();
@@ -159,6 +174,28 @@ export const mediaCommand: BotCommand = {
         const r = await runFfmpegKit(buildTrimArgs(inputPath, outputPath, start, end), 120000);
         if (!r.ok || !fs.existsSync(outputPath)) throw new Error(r.stderr || "échec trim");
         await deliver(sock, msg, context, outputPath, "video/mp4", `✂️ *Extrait* ${context.args[1]} → ${context.args[2]} — ${mbOf(outputPath).toFixed(1)} MB`);
+        return;
+      }
+
+      // ---- karaoké / voix (audit 8.49) ----
+      if (isUvr) {
+        const wantInstrumental = ["karaoké", "karaoke", "instrumental", "inst"].includes(cmd);
+        uvrBusy.active = true;
+        let stems: Awaited<ReturnType<typeof separateVocals>> | null = null;
+        try {
+          await context.react("🎤");
+          await context.reply(
+            `🎛️ *Séparation vocale IA en cours...*\n_Piste analysée par le modèle — 1 à 6 minutes selon la durée. Attends le résultat, un seul traitement à la fois._`
+          );
+          stems = await separateVocals(inputPath);
+          const out = wantInstrumental ? stems.instrumentalMp3 : stems.vocalsMp3;
+          const label = wantInstrumental ? "🎚️ *Instrumental (karaoké)*" : "🎤 *Acapella (voix isolée)*";
+          const sizeMB = fs.existsSync(out) ? fs.statSync(out).size / (1024 * 1024) : 0;
+          await deliver(sock, msg, context, out, "audio/mpeg", `${label} — ${stems.seconds.toFixed(0)} s · MP3 192k · ${sizeMB.toFixed(1)} MB`);
+        } finally {
+          uvrBusy.active = false;
+          if (stems) cleanupUvrFiles([stems.vocalsMp3, stems.instrumentalMp3]);
+        }
         return;
       }
 

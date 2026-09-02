@@ -1924,3 +1924,49 @@ deterministic fit 1440 s → 427 kbps → 91.9 MB, quoted-media extraction incl.
 viewOnce, wiring guards). tsc, eslint 0 errors, production build OK. FFmpeg
 is not installable in the sandbox (no root) — runtime execution validates on
 the VPS; every arg array is asserted in tests instead.
+
+### 8.49 Vocal separation IA — `.m karaoké` / `.m voix` (2026-09-02, fifty-first push)
+
+**Owner request:** a voice-remover command built around the
+anjok07/ultimatevocalremovergui ecosystem ("a whole system running behind").
+Feasibility answered honestly BEFORE building: the UVR repo is an unlicensed
+GUI (no LICENSE file) wrapping three engines; only the MDX-Net/ONNX engine
+fits a CPU VPS without PyTorch. ask_user decisions: BOTH stems (karaoké +
+voix), install approved, LIGHT model first, open usage with queue.
+
+**What was built (independent implementation — zero UVR code, only their
+freely distributed model files):**
+- `python/uvr_runner.py` — standalone sidecar: numpy STFT/ISTFT (periodic
+  Hann, COLA overlap-add), chunked processing with n_fft/2 trim margin and
+  hanning cross-fade, model geometry INTROSPECTED from the ONNX graph
+  (channels/n_bins/dim_t; n_fft derived — only hop comes from config, MDX
+  default 1024), vocal spec → iSTFT → vocals; instrumental = mix −
+  compensate·vocals; RLIMIT_AS RAM cap (default 500 MB), line protocol
+  (PROGRESS/DONE/ERROR), `--selftest` for `nebula doctor`. Layout switch
+  (re-im/alt) covers both possible ONNX channel orderings.
+- `scripts/uvr-setup.sh` — best-effort installer: dedicated venv
+  (.uvr-venv), onnxruntime+numpy+soundfile only (no torch), Kim_Vocal_2
+  (66.8 MB) downloaded from huggingface/seanghay mirror with a pinned
+  sha256 (rejects on mismatch), then runs the selftest. Wired into
+  `nebula setup`; `nebula doctor` reports availability.
+- `services/vocalRemover.ts` + `.m karaoké` / `.m voix` — decode to
+  44.1 kHz stereo PCM (ffmpeg), run the sidecar (10-min timeout, progress
+  logged), encode both stems MP3 192k, deliver as documents/links (≤90 MB
+  rule). 8-minute track cap, single-flight shared with the .m toolkit,
+  clean degradation message when not installed
+  (`NEBULA_UVR_DISABLED=1`, `NEBULA_UVR_MODEL` env overrides).
+
+**Sandbox validation (egress to huggingface blocked there):** full pipeline
+proven against a synthetic MDX-geometry ONNX (identity×0.5): vocals =
+0.5·mix to PCM-16 quantization error (max 3.1e-5) over a 12 s stereo mix —
+STFT round-trip, chunk overlap-add, trim/pad bookkeeping and stereo channel
+reconstruction all verified. The E2E run CAUGHT a real bug before shipping
+(mismatched real/imaginary channel pairing) — fixed and re-verified.
+Real-model validation happens on the VPS: `nebula doctor` selftest runs the
+actual Kim_Vocal_2 on a synthetic clip and reports energies/timing.
+
+**Verification:** 423/423 tests (45 files, +15: protocol/geometry/
+subtraction/selftest/RAM-cap runner guards, no-torch/no-UVR-imports guard,
+sha256-pinned installer, orchestration caps/paths/decode contract, command
+routing + degradation + shared locks, VPS surfaces). tsc, eslint 0 errors,
+build OK, py_compile OK, `bash -n` OK.

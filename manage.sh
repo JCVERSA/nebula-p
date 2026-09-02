@@ -341,6 +341,8 @@ cmd_setup() {
   fi
   hdr "Build"
   ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 4 | sed 's/^/    /' ) || die "Build échoué"
+  hdr "Séparation vocale (optionnelle)"
+  bash "${APP_DIR}/scripts/uvr-setup.sh" 2>&1 | sed 's/^/    /'
   ok "Installation terminée — démarre avec: ./manage.sh start"
 }
 
@@ -367,6 +369,8 @@ ENV_KEYS=(
   "NEBULA_AI_PERSONALITY|Remplace TOUTE la personnalité IA (system prompt) — vide = persona Nebula intégrée"
   "NEBULA_AI_MEMORY_TTL_HOURS|Durée de vie (heures) de la mémoire IA par discussion — glissante, 0 = désactivée (défaut 10)"
   "NEBULA_VOSTFR_FALLBACK|Roue de secours inter-sources : réessaie un épisode sur le catalogue secondaire quand tous les miroirs échouent — 0 = désactivée (défaut activée)"
+  "NEBULA_UVR_DISABLED|Désactive la séparation vocale IA (.m karaoké / .m voix) — 1 = désactivée"
+  "NEBULA_UVR_MODEL|Chemin du modèle de séparation vocale (défaut models/uvr/Kim_Vocal_2.onnx)"
   "NEBULA_AI_MEMORY_MAX_TURNS|Tours bruts gardés avant compaction en résumé (défaut 20)"
   "OWNER_NUMBER|Numéro WhatsApp propriétaire (indicatif pays + numéro, sans + ni espaces)"
   "PORT|Port du panneau (défaut 3000)"
@@ -568,6 +572,13 @@ cmd_doctor() {
   [ "${code}" != "000" ] && ok "Panneau local : HTTP ${code}" || warn "Panneau local : pas de réponse (bot arrêté ?)"
   local pub; pub="$(public_url)"
   [ -n "${pub}" ] && { code="$(http_code "${pub}/")"; [ "${code}" != "000" ] && ok "URL publique ${pub} : HTTP ${code}" || warn "URL publique ${pub} : injoignable — tunnel à relancer ?"; }
+
+  # Séparation vocale (8.49)
+  if [ -x "${APP_DIR}/.uvr-venv/bin/python" ] && [ -f "${APP_DIR}/models/uvr/Kim_Vocal_2.onnx" ]; then
+    ok "Séparation vocale installée (.m karaoké / .m voix)"
+  else
+    warn "Séparation vocale non installée — nebula setup (optionnel, ~67 Mo de modèle)"
+  fi
 
   # Débris
   local tmp="${TMPDIR:-/tmp}"
