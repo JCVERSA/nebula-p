@@ -78,7 +78,7 @@ async function subscribeAndConfirm(
     lastSeenEp = Math.max(0, ...((eps || []).map((e) => e.n).filter((n) => n > 0)));
   } catch {
     return context.reply(
-      "❌ Impossible de lire la liste des épisodes sur voiranime pour le moment.\n\n" +
+      "❌ Impossible de lire la liste des épisodes pour le moment.\n\n" +
         "_Réessaie dans quelques minutes :_ `.w " + entry.title + "`"
     );
   }
@@ -162,7 +162,7 @@ const watchCommand: BotCommand = {
 
     // ----- new search -----
     if (process.env.NEBULA_VOIRANIME_DISABLED === "1") {
-      return context.reply("❌ La source voiranime est désactivée sur ce serveur (NEBULA_VOIRANIME_DISABLED=1).");
+      return context.reply("❌ La veille d'épisodes est désactivée sur ce serveur.");
     }
     const query = args.join(" ");
     await context.react("🔍");
@@ -170,12 +170,12 @@ const watchCommand: BotCommand = {
     try {
       results = await voiranimeSearch(query);
     } catch (err: any) {
-      return context.reply("❌ Recherche voiranime échouée (" + (err?.message || "réseau") + "). _Réessaie dans un instant._");
+      return context.reply("❌ Recherche échouée. _Réessaie dans un instant._");
     }
     const vfEntries = results.filter((r) => r.isVf).slice(0, MAX_SHOWN);
     if (vfEntries.length === 0) {
       return context.reply(
-        "❌ Aucune entrée *VF* trouvée pour cette recherche sur voiranime.\n" +
+        "❌ Aucune entrée *VF* trouvée pour cette recherche.\n" +
           "_La veille ne supporte que les saisons VF pour l'instant (les VOSTFR ne sont pas encore surveillables)._"
       );
     }

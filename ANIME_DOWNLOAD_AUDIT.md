@@ -1627,3 +1627,87 @@ blank-target fallbacks, ZIP gate, all-failed notice). tsc, eslint 0 errors,
 production build OK. Structural validation of a generated page via python
 HTMLParser: balanced tags, exactly one `</script>`, URL list JSON-decodable
 after unescaping, 8.2 KB.
+
+### 8.42 Source privacy — the bot never names the private anime sources (2026-09-01, forty-fourth push)
+
+**Owner requirement:** the anime sources (nakanime, voiranime, franime,
+anime-sama) are private — the bot must NEVER mention them in anything it
+sends. Full sweep of every runtime surface (WhatsApp messages, panel UI,
+served HTML, filenames, captions) via a literal scanner (string + template
+literals, comments stripped).
+
+**Findings — 15 user-facing mentions, all fixed:**
+- novabox: watch hint named voiranime/nakanime; franime.fr named in the VF
+  Cloudflare error; searchFailureMessage named anime-sama three times AND
+  leaked the domain in a `curl https://anime-sama.to` verification hint
+  (replaced with `nebula doctor`); "Language switched to VF! (voiranime)"
+  ×2 and "(nakanime)" ×1; "voiranime VF entry" in an error.
+- watch: four messages named voiranime, including one that quoted the
+  NEBULA_VOIRANIME_DISABLED env var name and one that replied raw
+  err.message (DNS/axios errors embed the source domain) — now generic
+  text, details stay in VPS logs.
+- franimeClient: last-resort catalog title `franime #<id>` could surface in
+  the search results list → `Anime #<id>`.
+
+**Deliberately unchanged (internal, never sent):** console.* diagnostics on
+the VPS (they are how we debug — 8.40 was solved through them), client URL
+builders and origins, SSRF host allowlists (urlSafety), HTTP Referer/Origin
+headers (functional requirement), env var NAMES (NEBULA_VOIRANIME_DISABLED
+stays — only its display in user messages was removed), repo dev docs
+(private repo). Panel UI (all TSX), app.ts and server.ts were already clean.
+
+**Regression guard:** `tests/sourcePrivacy.test.ts` scans every string
+literal of every runtime surface on each CI run and fails if a private
+source name appears outside the explicit internal allowlist (console lines,
+URL/regex builders, module specifiers, session-url key prefix, SSRF host
+file). Self-check test proves the scanner flags leaks and passes internals.
+
+**Verification:** 365/365 tests (40 files, +2), tsc, eslint 0 errors,
+production build OK.
+
+### 8.43 urlset 403 round 2 — referer matrix at extraction time (2026-09-01, forty-fifth push)
+
+**Owner report:** "pas toujours au point" — Vinland Saga S02 E05 failed with
+the same urlset-master 403 on `box-1659-u.vmbox.space`. Critical evidence:
+`nebula-p` main was already at `fc01721` ("Fix 8.40") when this happened, so
+the 8.40 fix WAS live and still insufficient.
+
+**Why 8.40 missed this case (three gaps):**
+1. `vmbox.space` (and `vmcld.space`, which served WORKING episodes in the
+   same batch) were not in the CDN-family list, so the full vidmoly referer
+   rotation never applied to them — the derived variants were only tried
+   with the base (embed) referer, a same-host referer and an anime-sama
+   referer.
+2. The sub-variant safety net tried only the first 3 header candidates.
+3. Even when a referer would have worked, nothing propagated a "winning"
+   referer to the download engines.
+
+**Fixes (layered):**
+- `isVidmolyCdnUrl` (new, exported): family detection now matches the
+  `/hls2/` path signature shared by every URL of this CDN family plus all
+  hosts seen in production (vmpx/vmeas/vmget/vmnow/vmbox/vmcld/…) — future
+  host rotations are covered.
+- `resolveVidmolyUrlset` (new, exported): bounded brute-force matrix — the
+   master URL first, then the 4 proven variant shapes × every referer
+   candidate (≤26 attempts, 6s timeouts) — returning the media playlist URL
+   AND the header set that answered.
+- `extractMultiHostStream` (vidmoly branch) resolves urlset masters AT
+   EXTRACTION TIME and propagates the winning referer inside
+   `ExtractedStreamResult.headers`, so track parsing and both download
+   engines (Cat-Catch app-level, legacy FFmpeg) all use the working pair.
+- Variant derivation now favours the LAST urlset letter (`_l`) — the
+   rendition every single-quality file uses in production.
+- `robustFetchText` safety net widened from 3 to 5 header candidates.
+
+If a file 403s on every path×referer (token bound to the master path), the
+episode still fails — but now with an explicit `[VIDMOLY_URLSET] Unresolved
+after N attempt(s)` log line, and the 8.40 failure recap tells the user
+which episodes to re-ask.
+
+**Verification:** 373/373 tests (41 files, +8: family detection incl.
+vmbox/vmcld/hls2 signature + negative cases, mocked-axios matrix proving
+variant bypass with the winning referer, direct-master-referer bypass,
+bounded budget on total failure, no-op for media playlists, `_l`-first
+derivation, extraction-time wiring). tsc, eslint 0 errors, build OK. Live
+confirmation pending on the VPS (sandbox egress blocked): re-ask Vinland
+Saga S02 E05.

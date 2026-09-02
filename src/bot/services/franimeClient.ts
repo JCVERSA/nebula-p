@@ -169,7 +169,7 @@ export async function franimeSearch(query: string, limit = 8): Promise<FranimeSe
       scored.push({
         score: best,
         r: {
-          title: a.title || a.titleO || titles[0] || `franime #${a.id}`,
+          title: a.title || a.titleO || titles[0] || `Anime #${a.id}`,
           subtitle: seasonCount > 0 ? `${seasonCount} saison(s) — VF` : "VF",
           url: `franime:${a.id}`,
           id: a.id

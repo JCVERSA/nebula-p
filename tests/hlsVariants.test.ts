@@ -15,17 +15,18 @@ const FAILED_MASTER =
 const WORKING_VARIANT_SHAPE = "https://prx-1351-ant-20.vmget.online/hls2/01/01913/eegzrr6tfupz_l/index-v1-a1.m3u8";
 
 describe("deriveSubVariantUrls — urlset master 403 fallback (8.40)", () => {
-  it("derives the PROVEN working shape (index-v1-a1.m3u8) for every quality letter, FIRST", () => {
+  it("derives the PROVEN working shape (index-v1-a1.m3u8) for every quality letter, _l FIRST", () => {
     const variants = deriveSubVariantUrls(FAILED_MASTER);
-    // n and l letters, proven shape leading for each
+    // the LAST urlset letter is the rendition every single-quality file uses in
+    // production (`{id}_l/...`) — audit 8.43 reversed the letter order to favour it
     expect(variants[0]).toBe(
-      "https://box-1583-q.vmeas.cloud/hls2/04/01947/dbl9k4d9aaz0_n/index-v1-a1.m3u8?t=UXY0nfJ1g6wxQ3qIYUKxKrTJPOMB_mFWdqN44WN1ExM=&s=1788314620&e=43200&v=&i=0.4&sp=0&asn=400940"
-    );
-    expect(variants).toContain(
       "https://box-1583-q.vmeas.cloud/hls2/04/01947/dbl9k4d9aaz0_l/index-v1-a1.m3u8?t=UXY0nfJ1g6wxQ3qIYUKxKrTJPOMB_mFWdqN44WN1ExM=&s=1788314620&e=43200&v=&i=0.4&sp=0&asn=400940"
     );
+    expect(variants).toContain(
+      "https://box-1583-q.vmeas.cloud/hls2/04/01947/dbl9k4d9aaz0_n/index-v1-a1.m3u8?t=UXY0nfJ1g6wxQ3qIYUKxKrTJPOMB_mFWdqN44WN1ExM=&s=1788314620&e=43200&v=&i=0.4&sp=0&asn=400940"
+    );
     // the derived candidates mirror the exact shape of URLs that succeed in production
-    expect(variants[0]).toMatch(/_n\/index-v1-a1\.m3u8\?t=/);
+    expect(variants[0]).toMatch(/_l\/index-v1-a1\.m3u8\?t=/);
     expect(WORKING_VARIANT_SHAPE).toMatch(/_l\/index-v1-a1\.m3u8$/);
   });
 

@@ -356,8 +356,8 @@ async function handleWatchAction(context: BotCommandContext, session: AnimeSessi
   if (action === "watch") {
     if (!session.voiranimeAnimeUrl) {
       return context.reply(
-        "❌ La veille n'est disponible que sur les saisons *VF de voiranime* pour l'instant.\n" +
-        "_(Les saisons VOSTFR nakanime ne sont pas encore surveillables.)_"
+        "❌ La veille n'est disponible que sur les saisons *VF* pour l'instant.\n" +
+        "_(Les saisons VOSTFR ne sont pas encore surveillables.)_"
       );
     }
     const totalEps = Math.max(0, ...Object.values(session.episodes || {}).map(arr => arr.length));
@@ -765,7 +765,7 @@ async function executeQuickDownloadPipeline(
       if (!anyMirror) {
         clearUserSession(context.sender);
         return context.reply(
-          `❌ *VF indisponible technique:* franime.fr bloque le serveur avec un challenge Cloudflare.\n\n` +
+          `❌ *VF indisponible technique:* la source VF bloque le serveur avec un challenge Cloudflare.\n\n` +
             `*Solution:* active FlareSolverr sur le VPS puis relance:\n` +
             "```\ndocker run -d --name flaresolverr -p 8191:8191 ghcr.io/flaresolverr/flaresolverr:latest\n```\n" +
             `puis ajoute \`FLARESOLVERR_URL=http://localhost:8191/v1\` dans \`.env\` et redémarre.\n\n` +
@@ -919,18 +919,18 @@ function searchFailureMessage(err: any): string {
   if (status === 403 || status === 503) {
     return (
       `❌ *Site inaccessible depuis le serveur (HTTP ${status} — Cloudflare).*\n` +
-      `L'adresse IP de cet hébergeur est bloquée par anime-sama : aucune recherche ne peut aboutir, peu importe le code du bot.\n\n` +
+      `L'adresse IP de cet hébergeur est bloquée par la source : aucune recherche ne peut aboutir, peu importe le code du bot.\n\n` +
       `🔑 *Solutions :*\n` +
       `• Configurer un proxy de sortie : \`NEBULA_ANIME_PROXY=http://host:port\` dans \`.env\` (puis relancer)\n` +
       `• Ou héberger le bot sur un réseau non bloqué\n\n` +
-      `_Vérification sur le serveur : \`curl -sI -A "Mozilla/5.0" https://anime-sama.to | head -3\` → 403 = blocage confirmé._`
+      `_Vérification sur le serveur : \`nebula doctor\` (section réseau) confirme le blocage._`
     );
   }
   if (err?.code === "ECONNABORTED" || /timeout/i.test(err?.message || "")) {
-    return "❌ *Le serveur n'arrive pas à joindre anime-sama (délai dépassé).*\nVérifiez la connexion réseau / le pare-feu du serveur.";
+    return "❌ *Le serveur n'arrive pas à joindre la source (délai dépassé).*\nVérifiez la connexion réseau / le pare-feu du serveur.";
   }
   if (err?.code === "ENOTFOUND" || err?.code === "EAI_AGAIN") {
-    return "❌ *Résolution DNS échouée pour anime-sama.*\nVérifiez le DNS du serveur (/etc/resolv.conf) ou le domaine a encore changé — relancez le doctor.";
+    return "❌ *Résolution DNS échouée pour la source.*\nVérifiez le DNS du serveur (/etc/resolv.conf) ou le domaine a encore changé — relancez le doctor.";
   }
   return "❌ *Erreur:* Échec de la recherche anime. Veuillez réessayer.";
 }
@@ -1165,7 +1165,7 @@ const animeCommand: BotCommand = {
             const vostfrList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
             await context.react("🗣️");
             return context.reply(
-              `🔄 *Language switched to VOSTFR!* (nakanime)\n\n` +
+              `🔄 *Language switched to VOSTFR!*\n\n` +
               `*Available Seasons:*\n${vostfrList}\n\n` +
               `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
             );
@@ -1179,7 +1179,7 @@ const animeCommand: BotCommand = {
             const vfList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
             await context.react("🗣️");
             return context.reply(
-              `🔄 *Language switched to VF!* (voiranime)\n\n` +
+              `🔄 *Language switched to VF!*\n\n` +
               `*Available Seasons:*\n${vfList}\n\n` +
               `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
             );
@@ -1193,7 +1193,7 @@ const animeCommand: BotCommand = {
               const vfList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
               await context.react("🗣️");
               return context.reply(
-                `🔄 *Language switched to VF!* (voiranime)\n\n` +
+                `🔄 *Language switched to VF!*\n\n` +
                 `*Available Seasons:*\n${vfList}\n\n` +
                 `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
               );
@@ -1288,7 +1288,7 @@ const animeCommand: BotCommand = {
             const vaEps = (await voiranimeEpisodes(selectedSeason.url)).filter((e) => e.n > 0);
             if (vaEps.length === 0) {
               clearUserSession(sender);
-              return context.reply(`❌ *Error:* No numbered episodes found on the voiranime VF entry. Session terminated.`);
+              return context.reply(`❌ *Error:* No numbered episodes found on the VF entry. Session terminated.`);
             }
             session.voiranimeAnimeUrl = selectedSeason.url;
             session.voiranimeEpisodes = vaEps;

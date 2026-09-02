@@ -4,7 +4,14 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import crypto from "crypto";
-import { downloadHlsAppLevel, robustFetchText, robustFetchBuffer, resolveAbsoluteUrl, resolveMediaPlaylistUrl } from "./hlsDownloader.js";
+import {
+  downloadHlsAppLevel,
+  robustFetchText,
+  robustFetchBuffer,
+  resolveAbsoluteUrl,
+  resolveMediaPlaylistUrl,
+  resolveVidmolyUrlset
+} from "./hlsDownloader.js";
 import { animeProxyOptions } from "./scrapingProxy.js";
 
 import { resolvedFfmpegPath } from "../ffmpeg.js";
@@ -792,16 +799,31 @@ export async function extractMultiHostStream(playerUrl: string): Promise<Extract
           if (fileUrl) {
             const originMatch = playerUrl.match(/^(https?:\/\/[^/]+)/i);
             const playerOrigin = originMatch ? originMatch[1] : "https://vidmoly.to";
-            const parsedTracks = await fetchHlsTracksAndSizes(fileUrl, playerUrl, playerOrigin);
+            let streamUrl = fileUrl;
+            let streamHeaders: Record<string, string> = {
+              "User-Agent": DEFAULT_USER_AGENT,
+              "Referer": playerUrl,
+              "Origin": playerOrigin
+            };
+            // Multi-quality urlset masters 403 on some CDN nodes while their
+            // variant paths answer fine — resolve to a working media playlist
+            // HERE and propagate the winning referer to every download engine
+            // (audit 8.43; production case: Vinland Saga S02E05 on vmbox.space).
+            if (fileUrl.includes(".urlset/")) {
+              try {
+                const resolvedUrlset = await resolveVidmolyUrlset(fileUrl, streamHeaders);
+                if (resolvedUrlset) {
+                  streamUrl = resolvedUrlset.mediaPlaylistUrl;
+                  streamHeaders = { ...streamHeaders, ...resolvedUrlset.headers };
+                }
+              } catch {}
+            }
+            const parsedTracks = await fetchHlsTracksAndSizes(streamUrl, streamHeaders.Referer, streamHeaders.Origin);
             return {
               hostName: "VidMoly",
-              url: fileUrl,
+              url: streamUrl,
               type: "hls",
-              headers: {
-                "User-Agent": DEFAULT_USER_AGENT,
-                "Referer": playerUrl,
-                "Origin": playerOrigin
-              },
+              headers: streamHeaders,
               availableTracks: parsedTracks
             };
           }

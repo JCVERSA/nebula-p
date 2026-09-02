@@ -32,6 +32,29 @@ export function resolveAbsoluteUrl(parentUrl: string, relativePath: string): str
 }
 
 /**
+ * True for the VidMoly file-CDN family. The embeds live on vidmoly.biz but
+ * serve files from a rotating set of CDN hosts (vmpx/vmeas/vmget/vmnow/
+ * vmbox/vmcld/…). Production logs (audits 8.40 + 8.43) show the family
+ * grows faster than any explicit list, so the `/hls2/` path signature —
+ * present on every URL of this CDN family — is matched too.
+ */
+export function isVidmolyCdnUrl(url: string): boolean {
+  const l = url.toLowerCase();
+  return (
+    l.includes("/hls2/") ||
+    l.includes("vmpx.") ||
+    l.includes("vidmoly.") ||
+    l.includes("ansembed.") ||
+    l.includes("topembed.") ||
+    l.includes("vmeas.") ||
+    l.includes("vmget.") ||
+    l.includes("vmnow.") ||
+    l.includes("vmbox.") ||
+    l.includes("vmcld.")
+  );
+}
+
+/**
  * Builds candidate header configurations for challenging streaming CDNs (VidMoly, VMPX, Smoothpre, etc.)
  *
  * Exported for tests (audit 8.40).
@@ -47,25 +70,17 @@ export function getHeaderCandidates(url: string, baseHeaders: Record<string, str
     "Sec-Fetch-Site": "cross-site"
   };
 
-  const lowerUrl = url.toLowerCase();
   const candidates: Array<Record<string, string>> = [];
 
   // Candidate 1: Full base headers merged with browser standard
   candidates.push({ ...standardBrowser, ...baseHeaders });
 
   // Candidate 2: VidMoly stream family. The embeds live on vidmoly.biz and
-  // serve files from a rotation of CDN hosts (vmpx/vmeas/vmnow/vmget/...)
-  // observed in production logs (audit 8.40) — the file host in the URL is
-  // NOT enough to know which referer the node accepts, so we try them all.
-  if (
-    lowerUrl.includes("vmpx.") ||
-    lowerUrl.includes("vidmoly.") ||
-    lowerUrl.includes("ansembed.") ||
-    lowerUrl.includes("topembed.") ||
-    lowerUrl.includes("vmeas.") ||
-    lowerUrl.includes("vmget.") ||
-    lowerUrl.includes("vmnow.")
-  ) {
+  // serve files from a rotation of CDN hosts (vmpx/vmeas/vmnow/vmget/vmbox/
+  // vmcld/... — see isVidmolyCdnUrl); the file host in the URL is NOT enough
+  // to know which referer the node accepts, so we try them all. Audit 8.43:
+  // vidmoly.biz (the actual embed host) first — it unblocked production 403s.
+  if (isVidmolyCdnUrl(url)) {
     candidates.push({
       ...standardBrowser,
       "Referer": "https://vidmoly.biz/",
@@ -140,9 +155,12 @@ export function deriveSubVariantUrls(masterUrl: string): string[] {
         const query = match[4] || "";
         const base = masterUrl.substring(0, masterUrl.indexOf(`${prefix}_,`));
 
-        for (const q of qualities) {
+        for (const q of [...qualities].reverse()) {
           if (!q) continue;
-          // Proven shape on the vidmoly CDN family — try FIRST.
+          // Proven shape on the vidmoly CDN family — try FIRST. The LAST
+          // letter of the urlset is the rendition every single-quality file
+          // uses in production (`{id}_l/index-v1-a1.m3u8`), so reversing the
+          // letter order favours it (audit 8.43).
           variants.push(`${base}${prefix}_${q}/index-v1-a1.${ext}${query}`);
           variants.push(`${base}${prefix}_${q}/index-f1-v1-a1.${ext}${query}`);
           variants.push(`${base}${prefix}_${q}/index.${ext}${query}`);
@@ -207,7 +225,7 @@ export async function robustFetchText(url: string, headers: Record<string, strin
   // If primary master URL fails, attempt sub-variants if applicable
   const subVariants = deriveSubVariantUrls(url);
   for (const subUrl of subVariants) {
-    for (const h of headerCandidates.slice(0, 3)) {
+    for (const h of headerCandidates.slice(0, 5)) {
       try {
         const resp = await axios.get(subUrl, { headers: h, timeout: 8000, validateStatus: (s) => s === 200, ...animeProxyOptions() });
         if (isValid(resp.data) && resp.data.includes("#EXT")) {
@@ -218,6 +236,84 @@ export async function robustFetchText(url: string, headers: Record<string, strin
     }
   }
 
+  return null;
+}
+
+/**
+ * Single-shot text fetch with ONE header set (axios then native fetch).
+ * Returns null on any failure — callers orchestrate retries.
+ */
+async function fetchTextOnce(url: string, headers: Record<string, string>, timeoutMs = 6000): Promise<string | null> {
+  if (!(await isSafeDownloadUrl(url).catch(() => false))) return null;
+  try {
+    const resp = await axios.get(url, {
+      headers,
+      timeout: timeoutMs,
+      validateStatus: (status) => status === 200,
+      ...animeProxyOptions()
+    });
+    if (typeof resp.data === "string" && resp.data.trim().length > 0) return resp.data;
+  } catch {}
+  try {
+    const resp = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (resp.ok) {
+      const text = await resp.text();
+      if (text.trim().length > 0) return text;
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Resolves a VidMoly `_,n,l,.urlset/master.m3u8` URL that 403s on the master
+ * path down to a downloadable media playlist, brute-forcing the matrix
+ * (derived variant paths × referer candidates) with a bounded attempt
+ * budget. Returns the winning URL AND the header set that worked so callers
+ * can propagate the referer to every download engine (audit 8.43 — in the
+ * 8.40 fix the winning referer existed but was never tried: vmbox.space was
+ * not in the CDN family list, so only 3 referers reached the variants).
+ */
+export const VIDMOLY_URLSET_ATTEMPT_BUDGET = 26;
+
+export async function resolveVidmolyUrlset(
+  masterUrl: string,
+  baseHeaders: Record<string, string>
+): Promise<{ mediaPlaylistUrl: string; headers: Record<string, string> } | null> {
+  if (!masterUrl.includes(".urlset/")) return null;
+  const referers = getHeaderCandidates(masterUrl, baseHeaders);
+  let attempts = 0;
+
+  // 1) The master itself may only need the right referer.
+  for (const h of referers) {
+    if (attempts >= VIDMOLY_URLSET_ATTEMPT_BUDGET) break;
+    attempts++;
+    const content = await fetchTextOnce(masterUrl, h, 6000);
+    if (content && content.includes("#EXT")) {
+      console.log(`[VIDMOLY_URLSET] Master unblocked with referer ${h.Referer || "(base)"}.`);
+      return { mediaPlaylistUrl: masterUrl, headers: h };
+    }
+  }
+
+  // 2) Derived variant paths (proven shapes first) × referers.
+  const variants = deriveSubVariantUrls(masterUrl).slice(0, 4);
+  for (const v of variants) {
+    for (const h of referers) {
+      if (attempts >= VIDMOLY_URLSET_ATTEMPT_BUDGET) break;
+      attempts++;
+      const content = await fetchTextOnce(v, h, 6000);
+      if (content && content.includes("#EXT")) {
+        console.log(
+          `[VIDMOLY_URLSET] Master 403 bypassed: variant ${v.split("?")[0].split("/").pop()} answers with referer ${h.Referer || "(base)"}.`
+        );
+        return { mediaPlaylistUrl: v, headers: h };
+      }
+    }
+    if (attempts >= VIDMOLY_URLSET_ATTEMPT_BUDGET) break;
+  }
+
+  console.warn(
+    `[VIDMOLY_URLSET] Unresolved after ${attempts} attempt(s) (${variants.length} variant shape(s) × ${referers.length} referer(s)): ${masterUrl.split("?")[0]}`
+  );
   return null;
 }
 
