@@ -25,7 +25,8 @@ import {
   voiranimeEpisodes,
   voiranimeEpisodePlayer,
   resolveVoiranimeSeason,
-  type VoiranimeEpisode
+  type VoiranimeEpisode,
+  type VoiranimeSearchResult
 } from "../services/voiranimeClient.js";
 import { bestAnimeMatch, formatAnimeCard } from "../services/jikanClient.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
@@ -85,6 +86,8 @@ interface AnimeSession {
   selectedVariantUrl?: string;
   selectedVariantHeaders?: Record<string, string>;
   languageForcedByUser?: boolean; // true after an explicit .a vf / .a vostfr
+  userSearchQuery?: string; // 8.55: raw user query — voir-anime indexes romaji,
+  // nakanime returns French titles; the VF probe needs BOTH as candidates.
   singleStreamDetected?: {
     label: string;
     resolution: string;
@@ -485,36 +488,65 @@ export function sortVfEntriesBySeason<T extends { title: string; slug?: string }
   return [...entries].sort((a, b) => seasonOf(a) - seasonOf(b));
 }
 
-export async function wireVoiranimeVfSeasons(session: AnimeSession, title: string): Promise<boolean> {
+/** 8.55: normalize titles across catalogs — users type "Komyushō" (ō) while
+ * sites index the Hepburn romanization "Komyushou". Macron vowels become
+ * their doubled Hepburn form (ō→ou, ū→uu, ā→aa, ī→ii, ē→ee) and remaining
+ * diacritics are stripped, so the WordPress substring search hits either way. */
+export function foldTitleDiacritics(s: string): string {
+  return s
+    .replace(/[ōŌ]/g, "ou").replace(/[ūŪ]/g, "uu").replace(/[āĀ]/g, "aa")
+    .replace(/[īĪ]/g, "ii").replace(/[ēĒ]/g, "ee")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+export async function wireVoiranimeVfSeasons(
+  session: AnimeSession,
+  title: string,
+  extraCandidates: string[] = []
+): Promise<boolean> {
   if (process.env.NEBULA_VOIRANIME_DISABLED === "1") return false;
-  let vaResults: Awaited<ReturnType<typeof voiranimeSearch>> | null = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      vaResults = await voiranimeSearch(title);
-      break;
-    } catch (err: any) {
-      const reason = err?.response?.status ? `HTTP ${err.response.status}` : (err?.code || err?.message || String(err));
-      if (attempt === 1) {
-        console.warn(`[NOVABOX] voiranime VF probe failed (${reason}) — retrying once…`);
-        await new Promise(r => setTimeout(r, 1500));
-      } else {
-        console.warn(`[NOVABOX] voiranime VF probe failed twice (${reason}) — catalogue path`);
-        return false;
+  // 8.55: catalogs disagree on titles — nakanime returns French titles
+  // ("Komi cherche ses mots") while voir-anime indexes romaji ("Komi-san wa,
+  // Komyushou desu."). Probing with the catalog title alone misses real VF
+  // entries. Candidates: catalog title first, then the user's raw query.
+  const seen = new Set<string>();
+  const candidates: string[] = [];
+  for (const cand of [title, ...extraCandidates]) {
+    const folded = foldTitleDiacritics(String(cand || "").trim());
+    const key = folded.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    candidates.push(folded);
+  }
+  for (const candidate of candidates) {
+    let vaResults: Awaited<ReturnType<typeof voiranimeSearch>> | null = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        vaResults = await voiranimeSearch(candidate);
+        break;
+      } catch (err: any) {
+        const reason = err?.response?.status ? `HTTP ${err.response.status}` : (err?.code || err?.message || String(err));
+        if (attempt === 1) {
+          console.warn(`[NOVABOX] voiranime VF probe failed on "${candidate}" (${reason}) — retrying once…`);
+          await new Promise(r => setTimeout(r, 1500));
+        } else {
+          console.warn(`[NOVABOX] voiranime VF probe failed twice on "${candidate}" (${reason})`);
+        }
       }
     }
+    if (!vaResults) continue; // network error on this candidate → try the next
+    const vfEntries = sortVfEntriesBySeason(vaResults.filter((r) => r.isVf));
+    if (vfEntries.length === 0) continue; // no VF under this title → next candidate
+    session.seasons = vfEntries.map((e, i) => ({ name: e.title, subPath: `${i}`, url: e.url, isVoiranime: true }));
+    session.languages = ["VF", "VOSTFR"]; // VOSTFR reachable via `.a vostfr` (nakanime rebuild)
+    session.selectedLanguage = "VF";
+    session.voiranimeAnimeUrl = vfEntries[0]!.url;
+    console.log(`[NOVABOX] voiranime VF interactive path: ${vfEntries.length} season entry(ies) via "${candidate}" [${vfEntries.map(e => e.title).join(" | ")}]`);
+    return true;
   }
-  if (!vaResults) return false;
-  const vfEntries = sortVfEntriesBySeason(vaResults.filter((r) => r.isVf));
-  if (vfEntries.length === 0) {
-    console.log(`[NOVABOX] voiranime has no VF entry for "${title}" — nakanime VOSTFR path`);
-    return false;
-  }
-  session.seasons = vfEntries.map((e, i) => ({ name: e.title, subPath: `${i}`, url: e.url, isVoiranime: true }));
-  session.languages = ["VF", "VOSTFR"]; // VOSTFR reachable via `.a vostfr` (nakanime rebuild)
-  session.selectedLanguage = "VF";
-  session.voiranimeAnimeUrl = vfEntries[0]!.url;
-  console.log(`[NOVABOX] voiranime VF interactive path: ${vfEntries.length} season entry(ies) for "${title}" [${vfEntries.map(e => e.title).join(" | ")}]`);
-  return true;
+  console.log(`[NOVABOX] voiranime has no VF entry for "${title}" (probed: ${[...seen].join(" | ")}) — catalogue path`);
+  return false;
 }
 
 /**
@@ -647,9 +679,33 @@ async function executeQuickDownloadPipeline(
       (quickParams.language === "VF" || (!quickParams.language && process.env.NEBULA_VF_DEFAULT !== "0")) &&
       process.env.NEBULA_VOIRANIME_DISABLED !== "1";
     if (wantsVfByDefault) {
+      // 8.55: multi-candidate title probing — the catalog title (often French)
+      // frequently misses voir-anime's romaji-indexed VF entries (production
+      // evidence: "Komi cherche ses mots" vs "Komi-san wa, Komyushou desu.").
       try {
-        const vaResults = await voiranimeSearch(chosenAnime.title);
-        const vfEntries = sortVfEntriesBySeason(vaResults.filter((r) => r.isVf));
+        const quickSeen = new Set<string>();
+        let vfEntries: VoiranimeSearchResult[] = [];
+        let vfVia = "";
+        for (const cand of [chosenAnime.title, quickParams.animeQuery, quickParams.canonicalQuery]) {
+          const folded = foldTitleDiacritics(String(cand || "").trim());
+          const k = folded.toLowerCase();
+          if (!k || quickSeen.has(k)) continue;
+          quickSeen.add(k);
+          try {
+            const vaResults = await voiranimeSearch(folded);
+            const vf = sortVfEntriesBySeason(vaResults.filter((r) => r.isVf));
+            if (vf.length > 0) {
+              vfEntries = vf;
+              vfVia = folded;
+              break;
+            }
+          } catch (probeErr: any) {
+            console.warn(`[NOVABOX] voiranime VF path probe failed on "${folded}" (${probeErr?.message || probeErr})`);
+          }
+        }
+        if (vfEntries.length === 0) {
+          console.log(`[NOVABOX] voiranime has no VF entry for "${chosenAnime.title}" (probed: ${[...quickSeen].join(" | ")}) — using nakanime`);
+        }
         const vaSeason = resolveVoiranimeSeason(vfEntries, targetSeasonNum);
         if (vaSeason) {
           const vaEps = (await voiranimeEpisodes(vaSeason.url)).filter((e) => e.n > 0);
@@ -663,11 +719,11 @@ async function executeQuickDownloadPipeline(
             session.voiranimeEpisodes = vaEps;
             session.episodeListLabels = {};
             session.episodes = { 1: new Array(vaEps.length).fill("") };
-            console.log(`[NOVABOX] voiranime VF path: "${vaSeason.title}" (${vaEps.length} eps)`);
+            console.log(`[NOVABOX] voiranime VF path: "${vaSeason.title}" (${vaEps.length} eps) via "${vfVia}"`);
           } else {
             console.log(`[NOVABOX] voiranime entry has no numbered episodes — using nakanime`);
           }
-        } else {
+        } else if (vfEntries.length > 0) {
           console.log(`[NOVABOX] voiranime has no VF entry for s${targetSeasonNum} of this title — using nakanime`);
         }
       } catch (err: any) {
@@ -1096,7 +1152,7 @@ const animeCommand: BotCommand = {
           let filteredSeasons: AnimeSession["seasons"];
           let vfAvailable = false;
 
-          if (process.env.NEBULA_VF_DEFAULT !== "0" && (await wireVoiranimeVfSeasons(session, chosen.title))) {
+          if (process.env.NEBULA_VF_DEFAULT !== "0" && (await wireVoiranimeVfSeasons(session, chosen.title, [session.userSearchQuery || ""]))) {
             defaultLang = "VF";
             filteredSeasons = session.seasons;
           } else {
@@ -1230,7 +1286,7 @@ const animeCommand: BotCommand = {
 
           if (langChoice === "VF" && !session.languages.includes("VF")) {
             // VF not registered from nakanime — last chance: voiranime (audit 8.17)
-            if (await wireVoiranimeVfSeasons(session, session.animeTitle)) {
+            if (await wireVoiranimeVfSeasons(session, session.animeTitle, [session.userSearchQuery || ""])) {
               session.languageForcedByUser = true;
               session.step = "season";
               const vfList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
@@ -1241,7 +1297,10 @@ const animeCommand: BotCommand = {
                 `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
               );
             }
-            return context.reply(`❌ *Unavailable Language:* The language *VF* is not available for this anime.`);
+            return context.reply(
+              `❌ *Aucune VF trouvée:* cet anime n'a pas de version française sur les sources du bot (voir-anime + catalogue).\n` +
+              `La *VOSTFR* reste disponible — c'est la seule version qui existe pour ce titre.`
+            );
           }
 
           if (!session.languages.includes(langChoice)) {
@@ -1817,6 +1876,7 @@ const animeCommand: BotCommand = {
           animeUrl: chosen.url,
           languages: [],
           seasons: [],
+          userSearchQuery: searchQuery, // 8.55: raw query for VF title matching
           timer: null
         };
         setUserSession(sender, newSession);
@@ -1878,6 +1938,7 @@ const animeCommand: BotCommand = {
         animeUrl: "",
         languages: [],
         seasons: [],
+        userSearchQuery: searchQuery, // 8.55: raw query for VF title matching
         timer: null
       };
 

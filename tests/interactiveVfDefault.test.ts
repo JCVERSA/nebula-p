@@ -6,7 +6,7 @@ vi.mock("../src/bot/services/voiranimeClient.js", async (importOriginal) => {
 });
 
 import { voiranimeSearch } from "../src/bot/services/voiranimeClient.js";
-import { seasonScreenLanguageHint, wireVoiranimeVfSeasons } from "../src/bot/commands/novabox.js";
+import { foldTitleDiacritics, seasonScreenLanguageHint, wireVoiranimeVfSeasons } from "../src/bot/commands/novabox.js";
 
 const mockedSearch = vi.mocked(voiranimeSearch);
 
@@ -173,5 +173,75 @@ describe("wireVoiranimeVfSeasons (audit 8.54: season order + retry)", () => {
     const wired = await pending;
     expect(wired).toBe(false);
     expect(session.selectedLanguage).toBe("VOSTFR"); // untouched
+  });
+});
+
+/**
+ * Audit 8.55 — production evidence `.a Komi-san wa, Komyushō desu`: nakanime
+ * returns FRENCH titles ("Komi cherche ses mots") while voir-anime indexes
+ * ROMAJI ("Komi-san wa, Komyushou desu."). Probing with the catalog title
+ * alone missed the real VF entry (verified: voir-anime carries 12 VF eps).
+ * The probe now walks candidates: catalog title → user's raw query, with
+ * diacritics folded (Komyushō → Komyusho).
+ */
+describe("wireVoiranimeVfSeasons multi-candidate (audit 8.55)", () => {
+  const newSession: any = (q?: string) => ({
+    animeTitle: "Komi cherche ses mots",
+    animeUrl: "https://nakanime.tv/anime/41/komi",
+    languages: ["VOSTFR"],
+    selectedLanguage: "VOSTFR",
+    seasons: [],
+    userSearchQuery: q
+  });
+
+  beforeEach(() => mockedSearch.mockReset());
+  afterEach(() => {
+    delete process.env.NEBULA_VOIRANIME_DISABLED;
+    vi.useRealTimers();
+  });
+
+  it("falls through to the user's raw query when the catalog title finds no VF", async () => {
+    mockedSearch
+      // candidate 1: catalog French title → results exist but VOSTFR-only
+      .mockResolvedValueOnce([
+        { title: "Komi cherche ses mots", url: "https://voir-anime.to/anime/komi-cherche-ses-mots/", slug: "komi-cherche-ses-mots", isVf: false }
+      ])
+      // candidate 2: user romaji query → VF entry found
+      .mockResolvedValueOnce([
+        { title: "Komi-san wa, Komyushou desu. (VF)", url: "https://voir-anime.to/anime/komi-san-wa-komyushou-desu-vf/", slug: "komi-san-wa-komyushou-desu-vf", isVf: true }
+      ]);
+    const session = newSession("Komi-san wa, Komyushō desu");
+    const wired = await wireVoiranimeVfSeasons(session, session.animeTitle, [session.userSearchQuery]);
+    expect(wired).toBe(true);
+    expect(session.selectedLanguage).toBe("VF");
+    expect(session.voiranimeAnimeUrl).toContain("komi-san-wa-komyushou-desu-vf");
+    expect(mockedSearch).toHaveBeenCalledTimes(2);
+    // the macron ō was folded before hitting the site search
+    expect(mockedSearch).toHaveBeenLastCalledWith("Komi-san wa, Komyushou desu");
+  });
+
+  it("folds macrons/diacritics (Komyushō → Komyusho, déterminé → determine)", () => {
+    expect(foldTitleDiacritics("Komyushō desu")).toBe("Komyushou desu");
+    expect(foldTitleDiacritics("déterminé")).toBe("determine");
+  });
+
+  it("does not re-probe duplicate candidates (folded-case insensitive)", async () => {
+    mockedSearch.mockResolvedValue([
+      { title: "Komi cherche ses mots", url: "https://voir-anime.to/anime/komi-cherche-ses-mots/", slug: "komi-cherche-ses-mots", isVf: false }
+    ]);
+    const session = newSession("Komi cherche ses mots");
+    const wired = await wireVoiranimeVfSeasons(session, session.animeTitle, [session.userSearchQuery, "KOMI CHERCHE SES MOTS"]);
+    expect(wired).toBe(false);
+    expect(mockedSearch).toHaveBeenCalledTimes(1); // all candidates were the same
+  });
+
+  it("reports every probed candidate in the miss log", async () => {
+    const warn = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockedSearch.mockResolvedValue([]);
+    const session = newSession("Komi-san wa, Komyushō desu");
+    const wired = await wireVoiranimeVfSeasons(session, session.animeTitle, [session.userSearchQuery]);
+    expect(wired).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("probed: komi cherche ses mots | komi-san wa, komyushou desu"));
+    warn.mockRestore();
   });
 });

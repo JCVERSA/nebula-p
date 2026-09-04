@@ -1271,8 +1271,9 @@ now slices its input to the same cap internally (the route guard remains).
    (branch `main`) regardless; the owner pushes releases there manually and
    will then privatize `p`. Post-merge of PR #1 remains: CI green on main,
    tag `v2.9.x`.
-2. **trace.moe live verification** — sandbox egress blocks it; verify on the
-   VPS with `.trace` + a real screenshot when convenient.
+2. **trace.moe** — CLOSED (8.56): the unwired trace.ts command + tracemoe
+   client were removed with the dead-code cleanup; revisit only if the owner
+   asks for an anime-screenshot identifier as a new feature.
 3. **Status quo decisions (documented, do not re-litigate without need):**
    M1 app.ts monolith (1 722 lines), M2 three HTTP stacks, M5 in-memory
    registries (batch jobs, panel sessions, economy RAM-first by design).
@@ -2191,3 +2192,100 @@ whether 8.53's "nakanime search:" line appears.
 **Tests:** interactiveVfDefault.test.ts +4 (relevance-order sort, Saison-N
 sort, retry-then-wire, double-failure fallback) → 11 in file; suite 451/451
 (47 files), tsc, eslint 0 errors, prettier clean.
+
+### 8.55 Fix — VF by default: cross-catalog title matching (2026-09-03, fifty-seventh push)
+
+**Owner evidence (`.a Komi-san wa, Komyushō desu`):** selection showed
+VOSTFR-default and `.a vf` answered "VF not available" — yet voir-anime
+CARRIES the show in VF. Web research confirmed it: voir-anime hosts
+"Komi-san wa, Komyushou desu. (VF)" (12 eps, Netflix dub) — indexed under
+the ROMAJI title, while nakanime returns the FRENCH title ("Komi cherche
+ses mots"). The probe searched voir-anime with the catalog's French title
+and found nothing. Root cause: title mismatch between catalogs, not a
+missing VF.
+
+**Fix — multi-candidate title probing:**
+- `wireVoiranimeVfSeasons(session, title, extraCandidates)` walks
+  [catalog title → user's raw query (session.userSearchQuery, persisted at
+  search time in all interactive sessions)], first candidate with VF
+  entries wins; a candidate that returns results-but-no-VF or errors falls
+  through to the next instead of failing the whole probe.
+- `foldTitleDiacritics()`: macrons → Hepburn doubles (ō→ou, ū→uu, ā→aa,
+  ī→ii, ē→ee) then NFD-strip — the owner's "Komyushō desu" now probes
+  "Komyushou desu", which is what the site indexes.
+- Quick pipeline (`.a titre 1`): same candidate walk
+  (title → animeQuery → canonicalQuery).
+- `.a vf` manual switch uses the same candidates; when NOTHING has the VF
+  the message is now honest: "Aucune VF trouvée … la VOSTFR reste
+  disponible — c'est la seule version qui existe pour ce titre."
+- Miss log lists every probed candidate for production diagnosis.
+
+**Reality note for the owner:** VF will now be found whenever it EXISTS on
+voir-anime (romaji or French title). But some animes have NO French dub at
+all (most seasonal simulcasts are sub-only) — for those, VOSTFR is the only
+thing any source can deliver; the bot says so honestly instead of failing.
+
+**Tests:** interactiveVfDefault.test.ts → 15 in file (+4: candidate
+fall-through with macron folding, fold units, dedupe of identical
+candidates, miss-log contents); searchOrder wiring pin updated for the new
+signature. Suite 455/455 (48 files), tsc, eslint 0 errors, prettier clean.
+
+### 8.56 Cleanup — full audit execution P1 (2026-09-03, fifty-eighth push)
+
+Owner approved the full-audit execution plan. Block P1 (this push):
+
+1. **Double boot init fixed** — server.ts AND botEngine both called
+   initRegistry() (visible as a duplicated [Bridge]+[Registry] block in every
+   production boot log). initRegistry gains a registryInitialized flag +
+   isRegistryReady() export; botEngine now skips when the registry is ready.
+   initRegistry itself stays re-initializable (tests reset through it).
+2. **`.rnyt` removed** — it credited +3000 coins into the LEGACY economy
+   ledger that nothing debits anymore (the debiting code lived in the
+   quarantined corpus). Command + test deleted.
+3. **Legacy corpus REMOVED** — 145 vendored CJS command files + utils
+   (src/bot/imported/), importedBridge.ts, bridgeAcl.ts, their tests, the
+   NEBULA_ENABLE_LEGACY flag (.env.example) and the "Vendored Command Bridge"
+   checkup entry. Rationale (audit H2): unaudited third-party code with raw
+   exec() calls, one flag away from execution; ~15 duplicates of native
+   commands; zero production use since 8.x. This removes the exec() surface
+   entirely. Sticker (.s) will be rewritten natively (P3).
+
+Verification: 444/444 tests (46 files — 2 deleted), tsc, eslint 0 errors,
+prettier clean. app.test.ts checkup pin updated (bridge entry must NOT
+resurrect; Command Registry Validation stays authoritative).
+
+### 8.56 Cleanup — audit execution P2 (2026-09-03, fifty-ninth push)
+
+1. **Dead command files removed** — facebook/instagram/tiktok/youtube/trace
+   existed on disk but were never registered in production (their function is
+   covered by `.dl`/`.m`); socialPlatforms.ts (shared helper) and
+   tracemoeClient.ts went with them, plus their tests. Repo/prod coherence
+   restored; the inverse-8.49b trap (files that LOOK wired) is gone.
+2. **CI quality gates** — eslint (0 errors enforced; warnings visible) and
+   prettier --check added as CI steps; actions bumped checkout/setup-node
+   v4 → v5 (kills the Node-20 deprecation annotation, backlog §9.7 closed).
+
+Verification: tsc clean, eslint 0 errors, prettier clean, tests green
+pre-commit (final count in the P3 push).
+
+### 8.56 Cleanup — audit execution P3 (2026-09-03, sixtieth push)
+
+1. **Native `.s` sticker** (owner-approved rewrite replacing the legacy one):
+   reply-to-image/video → WebP sticker via the system ffmpeg and the shared
+   runFfmpegKit runner — zero new dependency. Image: ≤512 px rgba WebP q90;
+   video: capped 6 s, 12 fps, animated WebP loop 0. Busy-flag, temp cleanup,
+   graceful French errors; already-a-sticker detected honestly. Custom EXIF
+   pack names = documented follow-up (WhatsApp accepts plain WebP).
+   Registered in defaultCommands + registry/args guard tests (8.49b lesson).
+2. **App.tsx extraction slice #1**: the command/category matching predicate,
+   duplicated across FIVE JSX blocks (pCat), moved to
+   src/utils/commandCategory.ts (commandMatchesCategory) — first incremental
+   step of the monolith plan (M3), zero behaviour change, unit-tested.
+3. **CI gates** (eslint + prettier --check, actions v5) are prepared in
+   docs/CI_NEXT.md: the sandbox GitHub App token lacks the `workflows`
+   permission, so the ci.yml edit could not be pushed from here — the owner
+   applies it once via the GitHub web UI (content provided verbatim).
+
+Verification: 430/430 tests (46 files), tsc, eslint 0 errors, prettier
+clean, production smoke `Ready: 24 commands` (34 − 10 fun/utility − .rnyt
++ sticker).

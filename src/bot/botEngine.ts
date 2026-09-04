@@ -15,7 +15,7 @@ import pino from "pino";
 import { Boom } from "@hapi/boom";
 import fs from "fs";
 import { getConfig } from "./config.js";
-import { getCommand, initRegistry } from "./commandRegistry.js";
+import { getCommand, initRegistry, isRegistryReady } from "./commandRegistry.js";
 import { BotCommandContext, GroupMember } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
 import { generateTextWithFallback, isAIConfigured } from "./geminiClient.js";
@@ -417,7 +417,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
   }
 
   try {
-    await initRegistry();
+    if (!isRegistryReady()) await initRegistry(); // 8.56: server.ts already init at boot
 
     // Auth state directory
     const authDir = process.env.NEBULA_AUTH_DIR || "nebula_auth_info";

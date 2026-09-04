@@ -31,7 +31,6 @@ import { getTempDownload, updateServerBaseUrl, cleanupExpiredZipFiles, getTempSt
 import { getGroupPolicy, setGroupPolicy, listGroupPolicies } from "./src/bot/groupAccessStore.js";
 import { DEFAULT_GROUP_POLICY } from "./src/bot/accessControl.js";
 import { getAuditEvents, clearAudit, recordAudit } from "./src/bot/auditTrail.js";
-import { getBridgeLoadSummary } from "./src/bot/importedBridge.js";
 import { getAIUsageSummary } from "./src/bot/aiQuota.js";
 import { loadSubscriptions, saveSubscriptions, sanitizeWatchSubscriptions } from "./src/bot/services/episodeWatchService.js";
 import {
@@ -680,19 +679,6 @@ export function createApp(): express.Express {
         malformedCommands++;
       }
     }
-
-    const bridge = getBridgeLoadSummary();
-    tests.push({
-      name: "Vendored Command Bridge",
-      category: "registry",
-      status: bridge.skipped === 0 ? "pass" : "warn",
-      latencyMs: 1,
-      message:
-        bridge.skipped === 0
-          ? `${bridge.loaded} imported commands loaded; no missing native dependencies.`
-          : `${bridge.skipped} vendored commands skipped (missing native dependencies / load errors). This is expected if whatsapp-rust-bridge is not installed — the menu omits them.`,
-      details: { loaded: bridge.loaded, skipped: bridge.skipped, skippedFiles: bridge.skippedFiles.slice(0, 12) },
-    });
 
     tests.push({
       name: "Command Registry Validation",

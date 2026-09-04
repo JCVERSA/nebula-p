@@ -22,12 +22,11 @@ import helpCommand from "./commands/help.js";
 import swebCommand from "./commands/sweb.js";
 import videoCommand from "./commands/video.js";
 import mediaCommand from "./commands/media.js";
-import renewYouTubeCommand from "./commands/renewYouTube.js";
+import stickerCommand from "./commands/sticker.js";
 import watchCommand from "./commands/watch.js";
 import animeCommand from "./commands/novabox.js";
 import accessCommand from "./commands/access.js";
 import { getCompiledPath } from "./commandCompiler.js";
-import { loadImportedCommands } from "./importedBridge.js";
 
 /**
  * Normalizes multi-level categories into a structured parent category
@@ -97,7 +96,7 @@ const defaultCommands = [
   swebCommand,
   videoCommand,
   mediaCommand,
-  renewYouTubeCommand,
+  stickerCommand,
   watchCommand,
   animeCommand,
   accessCommand,
@@ -178,18 +177,18 @@ async function loadCommandModule(name: string): Promise<BotCommand | null> {
  * (Re)builds the registry: static built-ins first, then every command file
  * found on disk that does not collide with a built-in name.
  */
+/** True once initRegistry() has completed (call sites skip double boot init). */
+export function isRegistryReady(): boolean {
+  return registryInitialized;
+}
+
+let registryInitialized = false;
+
 export async function initRegistry(): Promise<void> {
   commandsMap.clear();
 
-  // 1. Register imported and bridged commands first
-  try {
-    const importedCmds = loadImportedCommands();
-    importedCmds.forEach(register);
-  } catch (err: any) {
-    console.error("[Registry] Failed to load bridged commands:", err.message);
-  }
-
-  // 2. Register static built-in commands next so they take precedence over imported ones
+  // Register the static built-ins (audit 8.56: the 145-file legacy corpus and
+  // its CJS bridge were REMOVED — owner decision; native commands only).
   defaultCommands.forEach(register);
 
   const builtinNames = new Set(defaultCommands.map((cmd) => cmd.name.toLowerCase()));
@@ -234,6 +233,7 @@ export async function initRegistry(): Promise<void> {
   }
 
   updateGlobalCommands();
+  registryInitialized = true;
   console.log(`[Registry] Ready: ${uniqueCommands().length} commands registered.`);
 }
 

@@ -1,3 +1,4 @@
+import { commandMatchesCategory } from "./utils/commandCategory";
 import { useState, useEffect, useRef, FormEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -3338,10 +3339,7 @@ export default function App() {
                               {CATEGORY_LIST.map((cat) => {
                                 const count = cat === "All"
                                   ? commands.length
-                                  : commands.filter(c => {
-                                      const pCat = (c.parentCategory || c.category).toLowerCase();
-                                      return pCat === cat.toLowerCase() || c.category.toLowerCase() === cat.toLowerCase();
-                                    }).length;
+                                  : commands.filter(c => commandMatchesCategory(c, cat)).length;
                                 return (
                                   <button
                                     key={cat}
@@ -3375,10 +3373,7 @@ export default function App() {
                                   cmd.name.toLowerCase().includes(cmdSearchQuery.toLowerCase()) ||
                                   cmd.description.toLowerCase().includes(cmdSearchQuery.toLowerCase()) ||
                                   cmd.category.toLowerCase().includes(cmdSearchQuery.toLowerCase());
-                                const pCat = (cmd.parentCategory || cmd.category).toLowerCase();
-                                const matchesCat = cmdCategoryFilter === "All" ||
-                                  pCat === cmdCategoryFilter.toLowerCase() ||
-                                  cmd.category.toLowerCase() === cmdCategoryFilter.toLowerCase();
+                                const matchesCat = cmdCategoryFilter === "All" || commandMatchesCategory(cmd, cmdCategoryFilter);
                                 return matchesSearch && matchesCat;
                               })
                               .map((cmd) => {
@@ -3420,10 +3415,7 @@ export default function App() {
                                 cmd.name.toLowerCase().includes(cmdSearchQuery.toLowerCase()) ||
                                 cmd.description.toLowerCase().includes(cmdSearchQuery.toLowerCase()) ||
                                 cmd.category.toLowerCase().includes(cmdSearchQuery.toLowerCase());
-                              const pCat = (cmd.parentCategory || cmd.category).toLowerCase();
-                              const matchesCat = cmdCategoryFilter === "All" ||
-                                pCat === cmdCategoryFilter.toLowerCase() ||
-                                cmd.category.toLowerCase() === cmdCategoryFilter.toLowerCase();
+                              const matchesCat = cmdCategoryFilter === "All" || commandMatchesCategory(cmd, cmdCategoryFilter);
                               return matchesSearch && matchesCat;
                             }).length === 0 && (
                               <div className="p-4 text-center text-xs text-zinc-500 italic">
@@ -3577,10 +3569,7 @@ export default function App() {
                           {CATEGORY_LIST.map((cat) => {
                             const count = cat === "All"
                               ? commands.length
-                              : commands.filter(c => {
-                                  const pCat = (c.parentCategory || c.category).toLowerCase();
-                                  return pCat === cat.toLowerCase() || c.category.toLowerCase() === cat.toLowerCase();
-                                }).length;
+                              : commands.filter(c => commandMatchesCategory(c, cat)).length;
                             return (
                               <button
                                 key={cat}
@@ -3615,10 +3604,7 @@ export default function App() {
                             <tbody className="divide-y divide-white/5 text-xs">
                               {commands
                                 .filter((cmd) => {
-                                  const pCat = (cmd.parentCategory || cmd.category).toLowerCase();
-                                  const matchesCategory = docSelectedCategory === "All" ||
-                                    pCat === docSelectedCategory.toLowerCase() ||
-                                    cmd.category.toLowerCase() === docSelectedCategory.toLowerCase();
+                                  const matchesCategory = docSelectedCategory === "All" || commandMatchesCategory(cmd, docSelectedCategory);
                                   const matchesSearch =
                                     cmd.name.toLowerCase().includes(docSearchQuery.toLowerCase()) ||
                                     cmd.description.toLowerCase().includes(docSearchQuery.toLowerCase()) ||

@@ -100,7 +100,7 @@ describe("source order wiring (the 8.49b lesson: pin the wiring, not just the un
   it("the selection handler probes voiranime BEFORE parsing the catalog seasons", () => {
     const source = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");
     const handler = source.slice(source.indexOf("const chosen = results[choiceIndex];"));
-    const wirePos = handler.indexOf("await wireVoiranimeVfSeasons(session, chosen.title)");
+    const wirePos = handler.indexOf("await wireVoiranimeVfSeasons(session, chosen.title");
     const parsePos = handler.indexOf("await parseSeasons(chosen.url)");
     expect(wirePos).toBeGreaterThanOrEqual(0);
     expect(parsePos).toBeGreaterThan(wirePos);
