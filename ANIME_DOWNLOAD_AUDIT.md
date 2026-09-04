@@ -2111,3 +2111,47 @@ cosmetic, bump queued in backlog.
 tsc clean, eslint 0 errors, `bash -n` OK, prod smoke `Ready: 34 commands`,
 logrotate heredoc expansion checked, lock logic exercised, ritual mirror
 validated (0-diff tree).
+
+### 8.53 Fix — source order: voiranime default, nakanime first-class, anime-sama last resort (2026-09-03, fifty-fifth push)
+
+**Owner report (new container):** `.a vinland` logged "anime-sama search failed
+(403), trying nakanime fallback..." before showing a VOSTFR-default season
+screen. Owner expectation: voiranime is THE default source, nakanime is the
+fallback (VF in particular), anime-sama should not lead the chain.
+
+**Analysis.** The chain had grown organically: search = anime-sama → nakanime;
+voiranime was only probed AFTER selection+catalog parse (8.17 VF wiring).
+anime-sama is chronically Cloudflare-403 from VPS IP ranges (R3, again today),
+so every search paid a dead 8 s round trip before the fallback that always
+won anyway. voiranime cannot BE the search source (search results feed
+parseSeasons, a catalog-page parser), but it can be the FIRST thing that
+happens at selection — which is what "voiranime par défaut" means in practice.
+
+**Fix:**
+1. `searchAnime`: nakanime FIRST (works from the VPS, no CF wall), anime-sama
+   demoted to LAST resort (tried when nakanime is empty OR fails; both-fail
+   still rejects — no silent empty results).
+2. Selection handler: `wireVoiranimeVfSeasons` now runs BEFORE the catalog
+   parse — when voir-anime.to carries the title in VF, the session starts on
+   its VF seasons and the catalog page is not even fetched (`.a vostfr`
+   rebuilds lazily from session.animeUrl, unchanged). VF chain is therefore
+   voiranime → nakanime VF lists, matching the owner's intent. VOSTFR keeps
+   coming from the catalog lists (nakanime) — making nakanime VF-only would
+   kill VOSTFR entirely since anime-sama is unreachable from the VPS.
+3. `wireVoiranimeVfSeasons` failure log now carries the HTTP status
+   ("voiranime VF probe failed (HTTP 403)") so a Cloudflare-blocked container
+   is diagnosable at a glance — relevant because the new container's IP range
+   may be blocked (fresh .env also lacks NEBULA_ANIME_PROXY).
+4. `.env.example` documents NEBULA_ANIME_PROXY (http/socks5) — the escape
+   hatch when the container IP is CF-blocked.
+
+**Tests:** tests/searchOrder.test.ts (7) — nakanime-first (sama never
+contacted when nakanime answers), sama fallback on empty AND on throw,
+both-fail rejects, plus wiring pins (voiranime probed before parseSeasons,
+nakanimeSearch before searchAnimeSama, proxy documented). Full suite
+447/447 (47 files).
+
+**Expected VPS log after deploy:** `[NOVABOX] nakanime search: N result(s)`
+with no 403 noise; for VF-carrying titles `[NOVABOX] voiranime VF interactive
+path: N season entry(ies)`. If Vinland Saga still lands VOSTFR-default, the
+new log will say exactly why (no VF entry vs HTTP 403 → set NEBULA_ANIME_PROXY).

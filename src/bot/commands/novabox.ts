@@ -150,21 +150,29 @@ async function isPublicFetchTarget(rawUrl: string, label: string): Promise<boole
   return false;
 }
 
-// Search Anime Catalog (anime-sama first; nakanime mirror as automatic
-// fallback when anime-sama is unreachable — e.g. Cloudflare 403 on the
-// host's IP range, see ANIME_DOWNLOAD_AUDIT.md R3)
+// Search Anime Catalog (audit 8.53: nakanime FIRST — it works from the VPS
+// (no Cloudflare wall); anime-sama is demoted to LAST resort because it is
+// chronically 403 from the host IP range, see ANIME_DOWNLOAD_AUDIT.md R3).
+// voiranime is not a search source — results feed parseSeasons (catalog
+// pages); voiranime is probed FIRST at selection time as the VF-by-default
+// source (audit 8.53), with nakanime's VF lists as its fallback.
 // Exported for scripts/anime-repro.ts (one-shot pipeline replay used to debug
 // `.a` failures on the live host — see scripts/anime-repro.ts header).
 export async function searchAnime(query: string) {
   try {
-    return await searchAnimeSama(query);
-  } catch (err: any) {
-    console.warn(`[NOVABOX] anime-sama search failed (${err?.response?.status || err?.code || err?.message}), trying nakanime fallback...`);
     const naka = await nakanimeSearch(query);
     if (naka.length > 0) {
-      console.log(`[NOVABOX] nakanime fallback returned ${naka.length} result(s) for "${query}"`);
+      console.log(`[NOVABOX] nakanime search: ${naka.length} result(s) for "${query}"`);
       return naka;
     }
+    console.log(`[NOVABOX] nakanime search returned 0 results for "${query}" — trying anime-sama last resort...`);
+  } catch (err: any) {
+    console.warn(`[NOVABOX] nakanime search failed (${err?.response?.status || err?.code || err?.message}), trying anime-sama last resort...`);
+  }
+  try {
+    return await searchAnimeSama(query);
+  } catch (err: any) {
+    console.warn(`[NOVABOX] anime-sama search failed too (${err?.response?.status || err?.code || err?.message})`);
     throw err;
   }
 }
@@ -477,7 +485,8 @@ export async function wireVoiranimeVfSeasons(session: AnimeSession, title: strin
     console.log(`[NOVABOX] voiranime VF interactive path: ${vfEntries.length} season entry(ies) for "${title}"`);
     return true;
   } catch (err: any) {
-    console.warn(`[NOVABOX] voiranime VF probe failed: ${err?.message || err} — nakanime path`);
+    const reason = err?.response?.status ? `HTTP ${err.response.status}` : (err?.code || err?.message || String(err));
+    console.warn(`[NOVABOX] voiranime VF probe failed (${reason}) — catalogue path`);
     return false;
   }
 }
@@ -1051,25 +1060,30 @@ const animeCommand: BotCommand = {
         await context.reply(`✨ *Selected:* *${chosen.title}*\n🔗 Connecting to anime database...`);
 
         try {
-          // Parse available seasons
-          const seasons = await parseSeasons(chosen.url);
-          if (seasons.length === 0) {
-            clearUserSession(sender);
-            return context.reply("❌ *Error:* Unable to locate any seasons/episodes on this Anime page. Session terminated.");
-          }
-
-          // VF BY DEFAULT (audit 8.17): probe voiranime FIRST — the honest
-          // VF-by-structure source — before falling back to nakanime logic.
+          // VF BY DEFAULT (audit 8.53): voiranime est LA source par défaut —
+          // sondée AVANT le téléchargement du catalogue. Si elle porte
+          // l'anime en VF, la session démarre sur ses saisons VF et le
+          // catalogue n'est même pas parsé (`.a vostfr` le fera à la demande
+          // via session.animeUrl). Sinon: catalogue nakanime/anime-sama +
+          // heuristique VF de ses listes.
           let defaultLang = "VOSTFR";
-          let filteredSeasons = seasons;
+          let filteredSeasons: AnimeSession["seasons"];
           let vfAvailable = false;
 
           if (process.env.NEBULA_VF_DEFAULT !== "0" && (await wireVoiranimeVfSeasons(session, chosen.title))) {
             defaultLang = "VF";
             filteredSeasons = session.seasons;
           } else {
+            // Parse available seasons (catalog page)
+            const seasons = await parseSeasons(chosen.url);
+            if (seasons.length === 0) {
+              clearUserSession(sender);
+              return context.reply("❌ *Error:* Unable to locate any seasons/episodes on this Anime page. Session terminated.");
+            }
             // Deriving available languages (nakanime path)
+            filteredSeasons = seasons;
             const languages = ["VOSTFR"];
+
 
             // Check if VF exists on season 1
             const s1 = seasons[0];
