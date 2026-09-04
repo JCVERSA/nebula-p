@@ -468,27 +468,53 @@ export function seasonScreenLanguageHint(defaultLang: string, vfAvailable: boole
  * This helper probes voiranime and wires the session to its VF seasons,
  * mirroring the quick pipeline (audit 8.10). Keeps session.animeUrl pointing
  * at the nakanime page so `.a vostfr` can rebuild the VOSTFR season list.
+ *
+ * Audit 8.54 — two production fixes: (1) voir-anime.to lists its entries in
+ * SEARCH-RELEVANCE order, which once showed "Hana-Kimi 2" as s1 of
+ * "Hana-Kimi" — seasons are now sorted by their real trailing number
+ * (unnumbered title = season 1 first, then 2, 3, …). (2) The probe retries
+ * once: a transient Cloudflare challenge on the first hit must not silently
+ * demote the whole session to VOSTFR when the VF entry exists.
  */
+export function sortVfEntriesBySeason<T extends { title: string; slug?: string }>(entries: T[]): T[] {
+  const seasonOf = (e: T): number => {
+    const hay = `${e.title} ${e.slug || ""}`.toLowerCase();
+    const m = hay.match(/(?:s|saison|season)[ .-]?(\d{1,2})(?!\d)/) || hay.match(/(?:^|[^0-9])(\d{1,2})(?![0-9])/);
+    return m ? Number(m[1]) : 1; // unnumbered entry = the show's season 1
+  };
+  return [...entries].sort((a, b) => seasonOf(a) - seasonOf(b));
+}
+
 export async function wireVoiranimeVfSeasons(session: AnimeSession, title: string): Promise<boolean> {
   if (process.env.NEBULA_VOIRANIME_DISABLED === "1") return false;
-  try {
-    const vaResults = await voiranimeSearch(title);
-    const vfEntries = vaResults.filter((r) => r.isVf);
-    if (vfEntries.length === 0) {
-      console.log(`[NOVABOX] voiranime has no VF entry for "${title}" — nakanime VOSTFR path`);
-      return false;
+  let vaResults: Awaited<ReturnType<typeof voiranimeSearch>> | null = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      vaResults = await voiranimeSearch(title);
+      break;
+    } catch (err: any) {
+      const reason = err?.response?.status ? `HTTP ${err.response.status}` : (err?.code || err?.message || String(err));
+      if (attempt === 1) {
+        console.warn(`[NOVABOX] voiranime VF probe failed (${reason}) — retrying once…`);
+        await new Promise(r => setTimeout(r, 1500));
+      } else {
+        console.warn(`[NOVABOX] voiranime VF probe failed twice (${reason}) — catalogue path`);
+        return false;
+      }
     }
-    session.seasons = vfEntries.map((e, i) => ({ name: e.title, subPath: `${i}`, url: e.url, isVoiranime: true }));
-    session.languages = ["VF", "VOSTFR"]; // VOSTFR reachable via `.a vostfr` (nakanime rebuild)
-    session.selectedLanguage = "VF";
-    session.voiranimeAnimeUrl = vfEntries[0]!.url;
-    console.log(`[NOVABOX] voiranime VF interactive path: ${vfEntries.length} season entry(ies) for "${title}"`);
-    return true;
-  } catch (err: any) {
-    const reason = err?.response?.status ? `HTTP ${err.response.status}` : (err?.code || err?.message || String(err));
-    console.warn(`[NOVABOX] voiranime VF probe failed (${reason}) — catalogue path`);
+  }
+  if (!vaResults) return false;
+  const vfEntries = sortVfEntriesBySeason(vaResults.filter((r) => r.isVf));
+  if (vfEntries.length === 0) {
+    console.log(`[NOVABOX] voiranime has no VF entry for "${title}" — nakanime VOSTFR path`);
     return false;
   }
+  session.seasons = vfEntries.map((e, i) => ({ name: e.title, subPath: `${i}`, url: e.url, isVoiranime: true }));
+  session.languages = ["VF", "VOSTFR"]; // VOSTFR reachable via `.a vostfr` (nakanime rebuild)
+  session.selectedLanguage = "VF";
+  session.voiranimeAnimeUrl = vfEntries[0]!.url;
+  console.log(`[NOVABOX] voiranime VF interactive path: ${vfEntries.length} season entry(ies) for "${title}" [${vfEntries.map(e => e.title).join(" | ")}]`);
+  return true;
 }
 
 /**
@@ -623,7 +649,7 @@ async function executeQuickDownloadPipeline(
     if (wantsVfByDefault) {
       try {
         const vaResults = await voiranimeSearch(chosenAnime.title);
-        const vfEntries = vaResults.filter((r) => r.isVf);
+        const vfEntries = sortVfEntriesBySeason(vaResults.filter((r) => r.isVf));
         const vaSeason = resolveVoiranimeSeason(vfEntries, targetSeasonNum);
         if (vaSeason) {
           const vaEps = (await voiranimeEpisodes(vaSeason.url)).filter((e) => e.n > 0);

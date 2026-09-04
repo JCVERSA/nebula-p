@@ -2155,3 +2155,39 @@ nakanimeSearch before searchAnimeSama, proxy documented). Full suite
 with no 403 noise; for VF-carrying titles `[NOVABOX] voiranime VF interactive
 path: N season entry(ies)`. If Vinland Saga still lands VOSTFR-default, the
 new log will say exactly why (no VF entry vs HTTP 403 → set NEBULA_ANIME_PROXY).
+
+### 8.54 Fix — VF default hardened: season order + probe retry (2026-09-03, fifty-sixth push)
+
+**Owner evidence (`.a hana-kimi`):** season screen defaulted to VOSTFR even
+though voir-anime.to carries the VF entries — proven by the SAME session's
+`.a vf` moments later, which wired VF successfully ("Hana-Kimi 2",
+"Hana-Kimi"). voir-anime.to is reachable from the container; the initial
+probe failed while a manual one succeeded → transient failure (CF challenge
+on the first hit is the prime suspect) silently demoting the session.
+
+**Second bug in the same transcript:** the VF season list came in
+SEARCH-RELEVANCE order — "Hana-Kimi 2" was offered as *s1*: typing `.a s1`
+would have downloaded season 2.
+
+**Fix:**
+1. `sortVfEntriesBySeason()` — VF entries sorted by their real season number
+   (unnumbered title = season 1 first, then explicit "Saison/s/season N" or
+   trailing-N markers). Applied to BOTH the interactive wiring and the quick
+   pipeline (`.a titre 1`).
+2. `wireVoiranimeVfSeasons` retries the probe once (1.5 s back-off): a
+   transient challenge no longer demotes the session to VOSTFR. Two failures
+   → honest fallback to the catalogue path (log carries the HTTP status).
+3. Success log now lists the wired season order (`[titre | titre 2 …]`) so a
+   mis-order is visible in production logs immediately.
+
+**Still open (diagnosis with the owner):** why the very first probe failed —
+candidates: (a) transient CF challenge (now retried), (b) NEBULA_VF_DEFAULT=0
+in the new container's .env (would fully explain it — selection gate skips
+the probe while the manual `.a vf` path doesn't check that var), (c) 8.53 not
+yet deployed on the container. Owner was asked for `grep -E
+"VF_DEFAULT|VOIRANIME" .env`, the `[NOVABOX] voiranime` log lines, and
+whether 8.53's "nakanime search:" line appears.
+
+**Tests:** interactiveVfDefault.test.ts +4 (relevance-order sort, Saison-N
+sort, retry-then-wire, double-failure fallback) → 11 in file; suite 451/451
+(47 files), tsc, eslint 0 errors, prettier clean.

@@ -98,3 +98,80 @@ describe("wireVoiranimeVfSeasons (audit 8.17)", () => {
     expect(mockedSearch).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Audit 8.54 — production evidence `.a hana-kimi`: voir-anime.to lists its
+ * entries in SEARCH-RELEVANCE order, so "Hana-Kimi 2" was offered as s1 of
+ * "Hana-Kimi" (typing `.a s1` would have downloaded season 2!). Entries must
+ * be sorted by their real season number. Also: a transient Cloudflare
+ * challenge on the probe silently demoted sessions to VOSTFR even though the
+ * VF entry existed — the probe now retries once.
+ */
+describe("wireVoiranimeVfSeasons (audit 8.54: season order + retry)", () => {
+  const newSession: any = () => ({
+    animeTitle: "Hana-Kimi",
+    animeUrl: "https://nakanime.tv/anime/37/hana-kimi",
+    languages: ["VOSTFR"],
+    selectedLanguage: "VOSTFR",
+    seasons: [{ name: "Saison 1", subPath: "s1/vostfr", url: "https://nakanime.tv/anime/37/hana-kimi/vostfr/s1/" }]
+  });
+
+  beforeEach(() => {
+    mockedSearch.mockReset();
+    delete process.env.NEBULA_VOIRANIME_DISABLED;
+    vi.useRealTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.NEBULA_VOIRANIME_DISABLED;
+  });
+
+  it("sorts VF entries by real season number (Hana-Kimi 2 listed after Hana-Kimi)", async () => {
+    mockedSearch.mockResolvedValue([
+      { title: "Hana-Kimi 2", url: "https://voir-anime.to/anime/hana-kimi-2-vf/", slug: "hana-kimi-2-vf", isVf: true },
+      { title: "Hana-Kimi", url: "https://voir-anime.to/anime/hana-kimi-vf/", slug: "hana-kimi-vf", isVf: true }
+    ]);
+    const session = newSession();
+    const wired = await wireVoiranimeVfSeasons(session, "Hana-Kimi");
+    expect(wired).toBe(true);
+    expect(session.seasons.map((s: any) => s.name)).toEqual(["Hana-Kimi", "Hana-Kimi 2"]);
+    expect(session.voiranimeAnimeUrl).toContain("hana-kimi-vf"); // season 1 entry first
+  });
+
+  it("sorts explicit 'Saison N' markers too", async () => {
+    mockedSearch.mockResolvedValue([
+      { title: "Truc Saison 3", url: "https://voir-anime.to/anime/truc-saison-3-vf/", slug: "truc-saison-3-vf", isVf: true },
+      { title: "Truc Saison 1", url: "https://voir-anime.to/anime/truc-saison-1-vf/", slug: "truc-saison-1-vf", isVf: true },
+      { title: "Truc Saison 2", url: "https://voir-anime.to/anime/truc-saison-2-vf/", slug: "truc-saison-2-vf", isVf: true }
+    ]);
+    const session = newSession();
+    await wireVoiranimeVfSeasons(session, "Truc");
+    expect(session.seasons.map((s: any) => s.name)).toEqual(["Truc Saison 1", "Truc Saison 2", "Truc Saison 3"]);
+  });
+
+  it("retries once on a transient probe failure and still wires VF", async () => {
+    mockedSearch
+      .mockRejectedValueOnce(Object.assign(new Error("cf challenge"), { response: { status: 503 } }))
+      .mockResolvedValue([
+        { title: "Hana-Kimi", url: "https://voir-anime.to/anime/hana-kimi-vf/", slug: "hana-kimi-vf", isVf: true }
+      ]);
+    vi.useFakeTimers();
+    const session = newSession();
+    const pending = wireVoiranimeVfSeasons(session, "Hana-Kimi");
+    await vi.advanceTimersByTimeAsync(1600); // let the 1.5 s back-off elapse
+    const wired = await pending;
+    expect(wired).toBe(true);
+    expect(session.selectedLanguage).toBe("VF");
+  });
+
+  it("gives up after two failures and falls back to the catalogue path", async () => {
+    mockedSearch.mockRejectedValue(Object.assign(new Error("blocked"), { response: { status: 403 } }));
+    vi.useFakeTimers();
+    const session = newSession();
+    const pending = wireVoiranimeVfSeasons(session, "Hana-Kimi");
+    await vi.advanceTimersByTimeAsync(1600);
+    const wired = await pending;
+    expect(wired).toBe(false);
+    expect(session.selectedLanguage).toBe("VOSTFR"); // untouched
+  });
+});
