@@ -66,7 +66,7 @@ const videoCommand: BotCommand = {
   category: "Media",
   description: "Download and convert YouTube videos using ytdl-core and ffmpeg with automated multi-tunnel fallback",
   usage: ".video <youtube-url>",
-  aliases: ["ytvideo", "ytmp4"],
+  aliases: ["ytvideo", "ytmp4", "ytv", "ytvid"], // ytv/ytvid: legacy muscle memory (8.57)
   execute: async (sock, msg, context) => {
     try {
       const args = context.args;

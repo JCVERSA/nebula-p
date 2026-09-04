@@ -24,7 +24,7 @@ const downloadCommand: BotCommand = {
   category: "Utilities",
   description: "Download video or audio from YouTube, TikTok, Instagram, Twitter, Facebook, etc.",
   usage: ".download [audio/video/mp3] <url> [quality: 144/240/360/480/720/1080/max]",
-  aliases: ["dl", "music"],
+  aliases: ["dl", "music", "ytm", "yta", "mp3"], // ytm/yta/mp3: YouTube audio shortcuts (8.57)
   execute: async (sock, msg, context) => {
     const args = context.args;
 

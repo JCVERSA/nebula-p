@@ -23,6 +23,9 @@ import swebCommand from "./commands/sweb.js";
 import videoCommand from "./commands/video.js";
 import mediaCommand from "./commands/media.js";
 import stickerCommand from "./commands/sticker.js";
+import tiktokCommand from "./commands/tiktok.js";
+import instagramCommand from "./commands/instagram.js";
+import ytSearchCommand from "./commands/ytsearch.js";
 import watchCommand from "./commands/watch.js";
 import animeCommand from "./commands/novabox.js";
 import accessCommand from "./commands/access.js";
@@ -97,6 +100,9 @@ const defaultCommands = [
   videoCommand,
   mediaCommand,
   stickerCommand,
+  tiktokCommand,
+  instagramCommand,
+  ytSearchCommand,
   watchCommand,
   animeCommand,
   accessCommand,

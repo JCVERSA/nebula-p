@@ -2289,3 +2289,24 @@ pre-commit (final count in the P3 push).
 Verification: 430/430 tests (46 files), tsc, eslint 0 errors, prettier
 clean, production smoke `Ready: 24 commands` (34 − 10 fun/utility − .rnyt
 + sticker).
+
+### 8.57 Feature — owner-activated commands: ytv, ytm, yts, tiktok, instagram (2026-09-03, sixty-first push)
+
+**Owner request:** activate `.ytv`, `.ytm`, `.yts`, `.tiktok`, `.instagram`.
+
+- `.ytv` / `.ytvid` → aliases on the NATIVE `video` command (YouTube video).
+- `.ytm` / `.yta` / `.mp3` → aliases on the NATIVE `download` command (audio).
+- `.tiktok` (+tt/ttdl/tiktokdl) and `.instagram` (+ig/igdl) → the 8.26 thin
+  wrappers (socialPlatforms.ts, delegating to the hardened `.download`
+  pipeline) restored from git and — unlike before — REGISTERED in
+  defaultCommands (the 8.49b lesson). facebook/youtube stay matcher-only
+  entries: `.dl`/`.ytv` already cover them, and unwired command files are
+  the dead-file trap removed in P2a.
+- `.yts` / `.yt` / `.youtubelink` / `.recherche` → NEW ytsearch command
+  using the already-present (previously unused) `yt-search` dependency —
+  zero new dependency; ambient .d.ts (no types package), 20 s hard timeout
+  (yt-search has none built-in), French result card with .ytv/.ytm hints.
+
+**Verification:** 441/441 tests (48 files; +registrySocial, +socialPlatforms
+restored/adapted), tsc, eslint 0 errors, prettier clean, prod smoke
+`[Registry] Ready: 27 commands`.
