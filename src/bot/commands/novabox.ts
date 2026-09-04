@@ -33,6 +33,7 @@ import { createBatchJob, updateEpisodeProgress, updateJobStatus } from "../batch
 import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
 import { probeVideoInfo, whatsappFitVideoOptions } from "../services/mediaToolkit.js";
+import { enforceMemoryHeadroom } from "../services/memoryGuard.js";
 import {
   resolveBestMirrorStream,
   executeDirectOrFfmpegDownload,
@@ -2345,6 +2346,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     const CONCURRENCY_LIMIT = Math.max(1, Number(process.env.NEBULA_BATCH_CONCURRENCY || 1));
     let totalMBDownloaded = 0;
     let quotaExceeded = false;
+    // 8.51: when RSS is still CRITICAL after the headroom pauses, launching
+    // another ~120 MB episode pipeline is how the kernel OOM-killer ended the
+    // 8.50 batch. Stop claiming new episodes and tell the user to re-ask.
+    let memoryStop = false;
 
     const processEpisodeTask = async (i: number) => {
       if (quotaExceeded) return;
@@ -2512,15 +2517,27 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     };
     const worker = async () => {
       while (nextEpisodeIdx < indices.length) {
-        if (quotaExceeded) break;
+        if (quotaExceeded || memoryStop) break;
         const currentIdx = nextEpisodeIdx++;
         await processEpisodeTask(currentIdx);
         gcBetweenEpisodes();
+        // 8.50 OOM hardening: heavy batches (~120 MB/episode) pushed RSS into
+        // the ~954 MB cgroup ceiling and the kernel killed the bot mid-batch.
+        // Observe the footprint and back off when pressure rises.
+        const level = await enforceMemoryHeadroom(`batch episode ${currentIdx + 1}/${indices.length} done`);
+        if (level === "critical") {
+          console.warn(`[NOVABOX] Memory guard: RSS critical after headroom wait — deferring remaining episodes.`);
+          memoryStop = true;
+          break;
+        }
       }
     };
 
     const workers = Array.from({ length: Math.min(CONCURRENCY_LIMIT, indices.length) }, () => worker());
     await Promise.all(workers);
+    // Episodes never claimed by a worker = deferred by the memory guard (an
+    // episode claimed and failed is NOT deferred — it is reported as failed).
+    const memoryDeferredCount = memoryStop ? indices.length - nextEpisodeIdx : 0;
 
     // If season zip was requested and multiple files downloaded, create a Season ZIP archive
     let zipDownloadUrl = "";
@@ -2563,9 +2580,18 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         console.warn("[NOVABOX] Batch zip packaging note:", err.message);
       }
     } else if (generatedLinks.length > 0) {
-      updateJobStatus(batchJob.id, "completed", "Batch download ready");
+      updateJobStatus(
+        batchJob.id,
+        "completed",
+        memoryDeferredCount > 0 ? `Batch ready (partiel — ${memoryDeferredCount} épisode(s) différé(s) par la garde mémoire)` : "Batch download ready"
+      );
     } else {
-      updateJobStatus(batchJob.id, "failed", "No streams could be resolved", "All streams CDN restricted");
+      updateJobStatus(
+        batchJob.id,
+        "failed",
+        memoryDeferredCount > 0 ? "Memory guard deferred all episodes" : "No streams could be resolved",
+        memoryDeferredCount > 0 ? "Pression RAM critique — réessaye dans quelques minutes" : "All streams CDN restricted"
+      );
     }
 
     await context.react("✅");
@@ -2617,6 +2643,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           indices.map(i => i + 1),
           generatedLinks.map(g => g.epNum)
         ) +
+        (memoryDeferredCount > 0
+          ? `🛡️ *Garde mémoire:* ${memoryDeferredCount} épisode(s) non lancé(s) pour protéger le bot (pression RAM critique). Les épisodes livrés ci-dessus sont intacts — redemande les épisodes manquants dans quelques minutes.\n`
+          : "") +
         (fallbackLangDelivered > 0
           ? `🔉 *${fallbackLangDelivered}* épisode(s) livré(s) via la roue de secours (_${fallbackLangDelivered === 1 ? "langue" : "langues"} alternatives_ — VF indisponible sur les CDN).\n`
           : "") +
@@ -2663,7 +2692,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     } else {
       // Fallback: Generate full batch episode directory with instant high-speed player streaming links exclusively via VidMoly
       const failureNotice =
-        failedEpisodeCount > 0
+        memoryDeferredCount > 0
+          ? `🛡️ *Garde mémoire:* pression RAM critique — aucun épisode n'a été lancé pour protéger le bot. Redemande dans quelques minutes.\n\n`
+          : failedEpisodeCount > 0
           ? `❌ *Download failed for all ${failedEpisodeCount} episode(s)* — every mirror was CDN restricted. Player links below as fallback, or retry in a few minutes.\n\n`
           : "";
       const episodeLinksText = indices.map((idx) => {
@@ -3081,6 +3112,12 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       `⚠️ *Direct file download is temporarily unavailable.* Here are your streaming & download links:\n\n` + caption
     );
   }
+
+  // 8.51: single-episode pipelines churn ~2x episode size in Buffers too —
+  // run the same headroom check as the batch worker so sequential single
+  // downloads across a long session also give the kernel room to reclaim.
+  // (The batch path returns above — its guard runs per episode instead.)
+  await enforceMemoryHeadroom(`single E${String(epNum).padStart(2, "0")} done`);
 }
 
 

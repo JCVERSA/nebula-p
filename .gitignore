@@ -12,3 +12,7 @@ nebula_auth_info/
 src/bot/commands/.compiled/
 .test-tmp/
 recovery/
+
+# Python byte-code (uvr runner)
+__pycache__/
+*.pyc

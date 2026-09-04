@@ -6,7 +6,7 @@
 #
 #  Commandes : start | stop | restart | status | update | setup | clone
 #              env [list|set|get|unset|edit] | logs [filtre] | clean
-#              doctor | version
+#              doctor | watchdog | version
 # ============================================================================
 set -uo pipefail
 
@@ -62,6 +62,13 @@ is_running() { [ -n "$(bot_pids)" ]; }
 # réintroduirait la contention mémoire que l'update est justement censé éviter.
 UPDATE_LOCK_DIR="${TMPDIR:-/tmp}/nebula-update.lock"
 UPDATE_LOCK_STALE_MIN=15    # au-delà: verrou considéré comme débris (update planté)
+
+# --- Verrou watchdog (audit 8.51) -------------------------------------------
+# Cron tire chaque minute ; npm peut mettre >60 s à faire apparaître le
+# process node sur un conteneur throttled. Sans verrou, deux watchdogs
+# qui se chevauchent verraient tous deux « bot arrêté » → DEUX bots.
+WATCHDOG_LOCK_DIR="${TMPDIR:-/tmp}/nebula-watchdog.lock"
+WATCHDOG_LOCK_STALE_MIN=3   # un démarrage (npm + attente HTTP 45 s) ne dure jamais aussi longtemps
 
 update_lock_held() {        # 0 = un update FRAIS est en cours
   [ -d "${UPDATE_LOCK_DIR}" ] || return 1
@@ -144,6 +151,9 @@ wait_http() { # $1 = URL, $2 = timeout s → 0 si répondu
 # START / STOP / RESTART
 # ---------------------------------------------------------------------------
 cmd_start() {
+  # 8.50: glibc arena fragmentation balloons RSS under Buffer churn in the
+  # ~954 MB cgroup (OOM kill mid-batch). Two arenas bound the fragmentation.
+  export MALLOC_ARENA_MAX="${NEBULA_MALLOC_ARENA_MAX:-2}"
   require_repo
   # Ne pas relancer le bot pendant une mise à jour (verrou posé par cmd_update).
   # Exit 0 pour que le watchdog cron reste silencieux. Le flag interne
@@ -314,11 +324,39 @@ cmd_update() {
   hdr "Build"
   ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 6 | sed 's/^/    /' ) || update_fail "Build échoué"
 
+  hdr "Rotation du log (audit 8.51)"
+  install_logrotate
+
   hdr "Redémarrage"
   if [ "${was_running}" = "yes" ]; then
     cmd_restart
   else
     info "Le bot était arrêté — relance avec: ./manage.sh start"
+  fi
+}
+
+# 8.51 : rotation hebdomadaire du log du bot (idempotent — appelé par setup
+# ET update : l'owner ne passe QUE par update en routine).
+# copytruncate : le bot garde son fd ouvert, il ne faut PAS déplacer le fichier.
+# Heredoc NON quoté : le chemin est résolu ICI (logrotate ne fait aucune
+# expansion shell — un heredoc quoté écrirait un literal ${...} invalide).
+install_logrotate() {
+  local lr="/etc/logrotate.d/nebula-bot"
+  if command -v logrotate >/dev/null 2>&1 && cat > "${lr}" 2>/dev/null <<LR
+${LOG_FILE}
+{
+  weekly
+  rotate 4
+  compress
+  missingok
+  notifempty
+  copytruncate
+}
+LR
+  then
+    ok "Rotation hebdomadaire du log installée (${lr}, 4 semaines conservées, compressé)"
+  else
+    warn "logrotate indisponible — surveille la taille de ${LOG_FILE} (./manage.sh clean ne le gère pas)"
   fi
 }
 
@@ -343,6 +381,8 @@ cmd_setup() {
   ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 4 | sed 's/^/    /' ) || die "Build échoué"
   hdr "Séparation vocale (optionnelle)"
   bash "${APP_DIR}/scripts/uvr-setup.sh" 2>&1 | sed 's/^/    /'
+  hdr "Rotation du log (audit 8.51)"
+  install_logrotate
   ok "Installation terminée — démarre avec: ./manage.sh start"
 }
 
@@ -563,11 +603,41 @@ cmd_doctor() {
   fi
   local avail; avail="$(df -Pk / 2>/dev/null | awk 'NR==2{print int($4/1048576)}')"
   [ -n "${avail}" ] && { [ "${avail}" -ge 2 ] && ok "Disque: ${avail} Go libres" || { ko "Disque: ${avail} Go libres (<2 Go) — ./manage.sh clean"; fails=$((fails+1)); }; }
+  # 8.51 : sans rotation, /root/bot.log finit par remplir le disque.
+  local botlog_size; botlog_size="$(du -m "${LOG_FILE}" 2>/dev/null | awk '{print $1}')"
+  if [ -f /etc/logrotate.d/nebula-bot ]; then
+    ok "Rotation du log active (logrotate hebdo)${botlog_size:+ — log actuel: ${botlog_size} Mo}"
+  else
+    if [ -n "${botlog_size}" ] && [ "${botlog_size}" -ge 200 ]; then
+      warn "Log ${LOG_FILE} = ${botlog_size} Mo SANS rotation — nebula setup (audit 8.51)"
+    else
+      info "Log non rotaté — nebula setup installe logrotate (audit 8.51)"
+    fi
+  fi
 
   # Build / process / réseau
   echo
   [ -f "${APP_DIR}/dist/server.cjs" ] && ok "Build présent (dist/server.cjs)" || { ko "Pas de build — ./manage.sh update"; fails=$((fails+1)); }
   is_running && ok "Bot en cours d'exécution (PID $(bot_pids | tr '\n' ' '))" || warn "Bot arrêté — ./manage.sh start"
+  # 8.50 : preuve que la protection OOM est active sur le process QUI TOURNE.
+  # 8.51 : npm start spawn aussi un wrapper `sh -c` que pgrep matche — ses
+  # /proc sont ceux du shell (RSS ~2 Mo, meaningless). On vise le vrai node.
+  local pid pid_
+  pid=""
+  for pid_ in $(bot_pids); do
+    if [ "$(cat "/proc/${pid_}/comm" 2>/dev/null)" = "node" ]; then pid="${pid_}"; break; fi
+  done
+  [ -z "${pid}" ] && pid="$(bot_pids | head -1)"
+  if [ -n "${pid}" ] && [ -r "/proc/${pid}/environ" ]; then
+    local bot_env; bot_env="$(tr '\0' '\n' < "/proc/${pid}/environ" 2>/dev/null || true)"
+    if echo "${bot_env}" | grep -q '^MALLOC_ARENA_MAX='; then
+      ok "Arenas glibc bridées (MALLOC_ARENA_MAX=$(echo "${bot_env}" | grep '^MALLOC_ARENA_MAX=' | cut -d= -f2))"
+    else
+      warn "Bot lancé sans MALLOC_ARENA_MAX — ./manage.sh restart (protection OOM 8.50)"
+    fi
+    local vmrss; vmrss="$(awk '/^VmRSS:/{print $2}' "/proc/${pid}/status" 2>/dev/null)"
+    [ -n "${vmrss}" ] && info "RSS actuel du bot : $((vmrss/1024)) Mo (pause batch à 700 Mo)"
+  fi
   local code; code="$(http_code "http://127.0.0.1:${PORT}/")"
   [ "${code}" != "000" ] && ok "Panneau local : HTTP ${code}" || warn "Panneau local : pas de réponse (bot arrêté ?)"
   local pub; pub="$(public_url)"
@@ -589,6 +659,26 @@ cmd_doctor() {
   [ "${fails}" -eq 0 ] && ok "Diagnostic global : RIEN DE BLOQUANT 🎉" || ko "${fails} problème(s) bloquant(s) à corriger."
   [ "${fails}" -gt 0 ] && exit 1
   return 0
+}
+
+cmd_watchdog() {
+  # 8.50: un OOM kill du cgroup a laissé le bot éteint jusqu'à intervention
+  # manuelle. Prévu pour cron (* * * * *) : ne relance que s'il est vraiment mort.
+  if is_running; then
+    exit 0
+  fi
+  # 8.51: jamais deux démarrages concurrents (voir WATCHDOG_LOCK_DIR ci-dessus).
+  if [ -d "${WATCHDOG_LOCK_DIR}" ]; then
+    local wl_age=$(( ( $(date +%s) - $(stat -c %Y "${WATCHDOG_LOCK_DIR}" 2>/dev/null || echo 0) ) / 60 ))
+    if [ "${wl_age}" -lt "${WATCHDOG_LOCK_STALE_MIN}" ]; then
+      exit 0   # une autre tentative de démarrage est en cours
+    fi
+    rm -rf "${WATCHDOG_LOCK_DIR}"   # verrou périmé (tentative morte) — on reprend la main
+  fi
+  mkdir "${WATCHDOG_LOCK_DIR}" 2>/dev/null || exit 0
+  trap 'rmdir "${WATCHDOG_LOCK_DIR}" 2>/dev/null' EXIT
+  echo "$(date '+%F %T') watchdog: bot down — restarting" >> "${LOG_DIR:-/root}/nebula_watchdog.log"
+  cmd_start
 }
 
 cmd_version() {
@@ -627,6 +717,7 @@ ${C_BOLD}Maintenance${C_RESET}
    ${C_BOLD}clean${C_RESET}      Purge les temporaires orphelins (staging >1h, liens expirés >3h)
    ${C_BOLD}doctor${C_RESET}     Diagnostic complet (node, ffmpeg, .env, RAM, disque, réseau…)
    ${C_BOLD}version${C_RESET}    Révision git du script + de l'app
+   ${C_BOLD}watchdog${C_RESET}  Vérifie que le bot tourne, sinon le relance (pour cron)
 
 ${C_DIM}Installé via scripts/install.sh → commande « nebula » disponible partout.${C_RESET}
 EOF
@@ -647,6 +738,7 @@ case "${1:-help}" in
   logs)    shift || true; cmd_logs "$@" ;;
   clean)   shift || true; cmd_clean "$@" ;;
   doctor)  shift || true; cmd_doctor "$@" ;;
+  watchdog) cmd_watchdog "$@" ;;
   version) shift || true; cmd_version "$@" ;;
   help|--help|-h) cmd_help ;;
   *) ko "Commande inconnue: $1"; echo; cmd_help; exit 1 ;;

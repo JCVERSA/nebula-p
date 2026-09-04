@@ -1288,6 +1288,16 @@ now slices its input to the same cap internally (the route guard remains).
    conversations); CANDIDATE dev tool for the next major audit of this repo
    (god nodes would quantify M1's coupling; cross-file links speed up
    call-site mapping). Neither added as a dependency.
+7. **(8.51) CI actions Node-20 deprecation** — actions/checkout@v4 +
+   setup-node@v4 show a deprecation annotation (forced to Node 24).
+   Cosmetic; bump both to the current majors in a quiet window.
+8. **(8.51) Watchdog scope** — restarts a DEAD bot only; an alive-but-wedged
+   event loop is NOT restarted (a kill during a live batch would be worse).
+   Revisit only if a hang is ever observed in production.
+9. **(8.51) Owner sync ritual is canonical now** —
+   `git fetch <p> arena/01a05555-p && git read-tree -u --reset FETCH_HEAD &&
+   git commit -m "…" && git push origin main` (propagates deletions, unlike
+   `git checkout FETCH_HEAD -- .`; validated 0-diff in a mirror).
 
 **Suite:** 311/311 (34 files). tsc OK. eslint (now incl. scripts/) 0 errors.
 
@@ -1990,3 +2000,114 @@ initRegistry/getCommand.
 (`NODE_ENV=production node dist/server.cjs`): media.ts absent from the skip
 list and `[Registry] Ready: 34 commands registered` (was 33). 424/424 tests
 (46 files), tsc, eslint 0 errors, build OK.
+
+### 8.50 Fix — OOM resilience for heavy batches (2026-09-03, fifty-third push)
+
+**Owner report:** after the 8.49b update (log confirmed `Ready: 34 commands`),
+a 4-episode Vinland Saga batch (each 110-125 MB, HLS 79-157 segments, all
+downloads successful, 5.7 s/segment) was `Killed` by the kernel mid-E14 —
+"le bot s'est éteint tout seul". Container cgroup limit: ~954 MB.
+
+**Audit of the usual suspects — all individually bounded:** hlsDownloader
+(segment concurrency 8, streamed disk writes, tempDir cleanup, batch
+concurrency already pinned to 1 via NEBULA_BATCH_CONCURRENCY), robustFetchBuffer
+(axios arraybuffer, no double buffers). No leak in any single episode.
+
+**Diagnosis — RSS drift, not a leak:** `--max-old-space-size=384` caps the V8
+heap ONLY. External memory (net Buffers for segment concatenation, ~120 MB of
+transient buffers per episode) plus glibc's per-thread arenas (up to 8×Ncores
+arenas that fragment and never return pages to the OS) made the process RSS
+creep upward across episodes until it hit the cgroup ceiling. Node never saw
+an allocation failure — the kernel OOM-killer just shot it (plain `Killed`,
+no stack, no exit handler).
+
+**Fix (defense in depth):**
+1. `MALLOC_ARENA_MAX=2` exported in `cmd_start` (override: NEBULA_MALLOC_ARENA_MAX)
+   — bounds arena fragmentation; standard mitigation for long-lived Node in
+   tight cgroups.
+2. `enforceMemoryHeadroom()` (src/bot/services/memoryGuard.ts) called in the
+   novabox batch worker after EVERY episode: logs `[MEM] … rss=X MB — level`;
+   at ≥700 MB forces GC + two 5 s pauses (bounded ~12 s) so the kernel reclaims
+   before the next episode; critical threshold 820 MB (still below the 954 MB
+   ceiling).
+3. `./manage.sh watchdog` — cron command (`* * * * *`) that restarts the bot
+   only when actually down (respects the update lock; each restart dated in
+   /root/nebula_watchdog.log). The bot must NEVER stay dead.
+4. `doctor` now reads /proc/PID/environ + VmRSS of the running bot: verifies
+   MALLOC_ARENA_MAX is really active on the live process (not just in the
+   script) and shows the live RSS.
+
+**Tests:** tests/memoryGuard.test.ts (10) — threshold classification, bounded
+back-off (max 2 GC attempts, no infinite loop), recovery path, log signature,
+plus WIRING guards: novabox worker must call `enforceMemoryHeadroom(` and
+manage.sh must ship MALLOC_ARENA_MAX + the watchdog case (the 8.49b lesson:
+green locally ≠ wired in production).
+
+**Verification:** 434/434 tests (47 files), tsc clean, eslint 0 errors,
+`bash -n manage.sh` OK. Docs: MIGRATION_NOUVEAU_VPS.md cron block updated to
+`manage.sh watchdog`.
+
+**Expected VPS behaviour after deploy:** `[MEM]` line after each batch episode
+in the log; RSS that used to climb monotonically should plateau or saw-tooth
+around the pauses; even in the worst case, watchdog restarts the bot within
+60 s and logs the event.
+
+### 8.51 Audit — ultra-complete review + anticipated failures (2026-09-03, fifty-fourth push)
+
+Scope: re-read every 8.50 change plus its blast radius (deploy path, cron,
+restarts, logs, disk), hunting for the NEXT failure before the owner hits it.
+
+**Findings fixed in this push:**
+
+1. **Watchdog could start TWO bots.** Cron fires every minute while
+   `cmd_start` waits up to 45 s on HTTP; on a throttled container npm can
+   take >60 s to surface the node process, so an overlapping watchdog also
+   saw "bot down" → double start. Fixed with a mkdir lock
+   (`/tmp/nebula-watchdog.lock`, staleness 3 min, trap cleanup) — validated
+   functionally: fresh lock → skip, stale lock → purge + proceed.
+2. **Batch ran into the OOM anyway at critical.** The 8.50 guard pauses but
+   kept launching ~120 MB episode pipelines even when RSS stayed critical
+   after the wait. Now `memoryStop`: workers stop claiming episodes, the
+   recap tells the user exactly which episodes were deferred ("Garde
+   mémoire … redemande dans quelques minutes"), and the 0-links path no
+   longer misreports a memory deferral as "CDN restricted".
+   Deferred count = `indices.length - nextEpisodeIdx` after Promise.all —
+   exact and race-free vs CONCURRENCY>1.
+3. **Single-episode flow had no guard.** Sequential single downloads churn
+   the same ~2x episode size in Buffers across a long session.
+   `enforceMemoryHeadroom("single EXX done")` now runs at the end of the
+   single path (the batch path returns earlier — its guard is per episode).
+4. **Doctor read the wrong /proc.** `npm start` spawns an `sh -c` wrapper
+   that pgrep also matches; `head -1` could inspect the shell (RSS ~2 MB)
+   instead of node. Doctor now selects the pid whose comm is "node".
+5. **Unbounded bot log.** nohup writes /root/bot.log forever; a full disk
+   takes down everything. `nebula setup` now installs
+   /etc/logrotate.d/nebula-bot (weekly, 4 rotations, compress,
+   copytruncate — required because nohup keeps its fd). Doctor reports
+   rotation status + current log size (warns ≥200 Mo unrotated). Heredoc
+   pitfall avoided: logrotate does no shell expansion, so the heredoc is
+   UNQUOTED on purpose to bake the resolved path.
+6. **Owner sync ritual did not propagate deletions.**
+   `git checkout FETCH_HEAD -- .` never deletes files removed upstream
+   (that's why 8.50 needed a manual `git rm` for the .pyc). Canonical
+   ritual is now `git fetch … && git read-tree -u --reset FETCH_HEAD &&
+   git commit && git push` — validated end-to-end in a sandbox mirror:
+   resulting tree 0-line diff vs FETCH_HEAD, deletions included.
+
+**Checked and clean (no action):** secrets scan over all 498 tracked files
+(no keys/tokens/PEM); no .env/dist/models/venv tracked; cgroup_max_mb
+handles v1+v2; cmd_restart routes through cmd_start (env export kept);
+`--expose-gc` in npm start makes the guard's gc() real in prod; in-memory
+batch registry (M5) means an OOM-killed batch vanishes cleanly instead of
+leaving phantom jobs; update-lock still shields watchdog during updates.
+
+**Known limitations (documented, deliberate):** watchdog only restarts a
+DEAD process — a wedged-but-alive event loop is not restarted (restarting
+a live batch would kill it; revisit only if a hang is ever observed).
+CI annotation: actions/checkout+setup-node target Node 20 (forced to 24) —
+cosmetic, bump queued in backlog.
+
+**Verification:** 439/439 tests (47 files, +5 wiring/lock/logrotate guards),
+tsc clean, eslint 0 errors, `bash -n` OK, prod smoke `Ready: 34 commands`,
+logrotate heredoc expansion checked, lock logic exercised, ritual mirror
+validated (0-diff tree).
