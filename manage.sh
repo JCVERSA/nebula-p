@@ -28,7 +28,17 @@ APP_DIR="$(cd "$(dirname "${NEBULA_SRC}")" && pwd)"   # le script vit dans le d�
 ENV_FILE="${APP_DIR}/.env"
 LOG_FILE="${LOG_FILE:-/root/bot.log}"
 TUNNEL_LOG="${TUNNEL_LOG:-/root/tunnel.log}"
+# 8.52 : le .env est la source de vérité pour le port du panneau. Certains
+# conteneurs exportent PORT (ex. 6080 = bureau web noVNC) et dotenv n'écrase
+# JAMAIS une variable déjà présente → le bot héritait du port du bureau web
+# et crashait en EADDRINUSE. Ordre de priorité : .env > environnement > 3000.
+_port_from_env="$(sed -n 's/^[[:space:]]*PORT[[:space:]]*=[[:space:]]*"\{0,1\}\([0-9]\{2,5\}\)"\{0,1\}[[:space:]]*$/\1/p' "${ENV_FILE}" 2>/dev/null | tail -n 1)"
+if [ -n "${_port_from_env}" ]; then
+  PORT="${_port_from_env}"
+fi
 PORT="${PORT:-3000}"
+export PORT
+unset _port_from_env
 NODE_PATTERN="dist/server[.]cjs"
 AGE_STAGING_MIN=60      # débris cat_catch_*/batch_zip_* plus vieux que ça → purge
 AGE_TEMP_H=3            # fichiers nebula_temp_downloads plus vieux que ça → purge

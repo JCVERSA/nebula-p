@@ -6,17 +6,7 @@ import pingCommand from "./commands/ping.js";
 import menuCommand from "./commands/menu.js";
 import aiCommand from "./commands/ai.js";
 import imageCommand from "./commands/image.js";
-import jokeCommand from "./commands/joke.js";
-import quoteCommand from "./commands/quote.js";
 import ownerCommand from "./commands/owner.js";
-import dareCommand from "./commands/dare.js";
-import truthCommand from "./commands/truth.js";
-import waifuCommand from "./commands/waifu.js";
-import roastCommand from "./commands/roast.js";
-import rpsCommand from "./commands/rps.js";
-import triviaCommand from "./commands/trivia.js";
-import weatherCommand from "./commands/weather.js";
-import calcCommand from "./commands/calc.js";
 import defineCommand from "./commands/define.js";
 import downloadCommand from "./commands/download.js";
 import translateCommand from "./commands/translate.js";
@@ -92,17 +82,7 @@ const defaultCommands = [
   helpCommand,
   aiCommand,
   imageCommand,
-  jokeCommand,
-  quoteCommand,
   ownerCommand,
-  dareCommand,
-  truthCommand,
-  waifuCommand,
-  roastCommand,
-  rpsCommand,
-  triviaCommand,
-  weatherCommand,
-  calcCommand,
   defineCommand,
   downloadCommand,
   translateCommand,

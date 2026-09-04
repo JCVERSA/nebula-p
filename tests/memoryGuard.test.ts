@@ -173,4 +173,13 @@ describe("8.50/8.51 wiring (the 8.49b lesson: green locally ≠ wired in product
     expect(script).toContain("copytruncate");
     expect(script).toContain("Rotation du log active (logrotate hebdo)");
   });
+
+  it("8.52: the panel port comes from .env first (containers exporting PORT must not win)", () => {
+    const script = fs.readFileSync("manage.sh", "utf8");
+    // .env wins over the container environment (ex: web-desktop PORT=6080),
+    // else environment, else 3000 — and it is exported so npm start + the
+    // app + wait_http/doctor all agree on the same port.
+    expect(script).toContain("_port_from_env");
+    expect(script).toMatch(/^export PORT$/m);
+  });
 });

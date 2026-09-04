@@ -3242,7 +3242,7 @@ export default function App() {
 
                     <Card title="Quick Send" icon={Zap}>
                       <div className="flex flex-wrap gap-2">
-                        {[".ping", ".menu", ".joke", ".quote", ".truth", ".dare", ".roast me", ".rps rock", ".weather Bafoussam"].map((cmd) => (
+                        {[".ping", ".menu", ".anime", ".download", ".translate", ".media", ".w", ".sweb"].map((cmd) => (
                           <button
                             key={cmd}
                             onClick={() => simulateCommandFromDoc(cmd)}
@@ -3442,7 +3442,7 @@ export default function App() {
                               <label className="text-[10px] font-bold text-zinc-300">Command Trigger</label>
                               <input
                                 type="text"
-                                placeholder="e.g. quote"
+                                placeholder="e.g. salut"
                                 value={aiCmdName}
                                 onChange={(e) => setAiCmdName(e.target.value)}
                                 className="w-full px-3 py-2 border border-white/10 bg-black text-zinc-100 rounded-lg text-xs focus:outline-none focus:border-amber-400 placeholder-zinc-600 font-mono"
@@ -3473,7 +3473,7 @@ export default function App() {
                             <div className="space-y-1">
                               <label className="text-[10px] font-bold text-zinc-300">AI Prompt Instruction</label>
                               <textarea
-                                placeholder="e.g. Fetches a funny quote and responds in WhatsApp"
+                                placeholder="e.g. Salue le groupe et répond dans WhatsApp"
                                 value={aiPrompt}
                                 onChange={(e) => setAiPrompt(e.target.value)}
                                 rows={2}

@@ -271,7 +271,7 @@ export async function simulateMessage(senderName: string, text: string): Promise
   let replyImageUrl: string | undefined = undefined;
   let reactionEmoji: string | undefined = undefined;
 
-  // Mock sock + msg so commands that send directly (roast, hidetag, download) work too.
+  // Mock sock + msg so commands that send directly (hidetag, download) work too.
   const mockSock = createMockSocket({
     replyText: () => replyText,
     setReply: (t) => { replyText = t; },

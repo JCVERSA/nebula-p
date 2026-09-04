@@ -125,13 +125,13 @@ describe("Simulation playground", () => {
     expect(res.body.text).toContain("Nebula Bot - Status");
   });
 
-  it("runs .roast me without crashing (mock sock)", async () => {
+  it("runs .help without crashing (mock sock)", async () => {
     const res = await request(app)
       .post("/api/bot/simulate")
       .set(auth)
-      .send({ senderName: "Tester", text: ".roast me" });
+      .send({ senderName: "Tester", text: ".help" });
     expect(res.status).toBe(200);
-    expect(res.body.text).toContain("Nebula Roast");
+    expect(res.body.text).toContain("Nebula Engine");
   });
 
   it("runs .menu with the command directory", async () => {

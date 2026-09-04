@@ -47,9 +47,7 @@ const menuCommand: BotCommand = {
       menuText += `🔮 *AI & CREATIVE*\n`;
       menuText += ` ├ \`${config.prefix}ai <prompt>\` - Ask Gemini AI\n`;
       menuText += ` ├ \`${config.prefix}image <prompt>\` - Generate AI image\n`;
-      menuText += `🔮 *FUN & UTILITY*\n`;
-      menuText += ` ├ \`${config.prefix}joke\` - Get a random joke\n`;
-      menuText += ` ├ \`${config.prefix}quote\` - Inspiring quotes\n`;
+      menuText += ` ├ \`${config.prefix}translate <text>\` - Translate text\n`;
       menuText += `🔮 *OWNER*\n`;
       menuText += ` ├ \`${config.prefix}owner\` - Owner tools (prefix, name, image, channel)\n`;
     }
