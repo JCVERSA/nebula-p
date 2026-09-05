@@ -15,5 +15,5 @@ export function formatFailedEpisodes(requestedEpNums: number[], deliveredEpNums:
   const failed = [...new Set(requestedEpNums)].filter(n => !delivered.has(n));
   if (failed.length === 0) return "";
   const list = failed.map(n => `Episode ${n}`).join(", ");
-  return `❌ *Failed:* ${list} — stream unavailable on every mirror (CDN). Ask again for these episodes only in a few minutes.\n`;
+  return `❌ *Épisodes échoués :* ${list} — la source les refuse pour le moment.\n🔁 Redemande ces épisodes dans quelques minutes.\n`;
 }

@@ -71,7 +71,7 @@ const videoCommand: BotCommand = {
     try {
       const args = context.args;
       if (args.length === 0) {
-        await context.reply("❌ *Usage:* `.video <youtube-url>`\n\nExample: `.video https://www.youtube.com/watch?v=dQw4w9WgXcQ`");
+        await context.reply("❌ *Usage:* `.ytv <lien YouTube>`\n\nExemple : `.ytv https://youtu.be/dQw4w9WgXcQ`");
         return;
       }
 
@@ -83,17 +83,17 @@ const videoCommand: BotCommand = {
       try {
         parsedUrl = new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`);
       } catch {
-        await context.reply("❌ *Error:* Invalid YouTube URL. Please provide a valid watch or short URL.");
+        await context.reply("❌ *Lien YouTube invalide.*\nEnvoie un lien youtube.com/watch ou youtu.be.");
         return;
       }
       const allowedHosts = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "music.youtube.com"]);
       if (!allowedHosts.has(parsedUrl.hostname.toLowerCase()) || !(await isSafeDownloadUrl(parsedUrl.toString()))) {
-        await context.reply("❌ *Error:* Invalid or blocked YouTube URL. Please provide a valid watch or short URL.");
+        await context.reply("❌ *Lien YouTube invalide ou refusé.*\nEnvoie un lien youtube.com/watch ou youtu.be.");
         return;
       }
 
       await context.react("⏳");
-      await context.reply("⏳ *Fetching video metadata...* Please wait.");
+      await context.reply("⏳ *Récupération de la vidéo...* Un instant.");
 
       let info: any = null;
       let ytdlFailed = false;
@@ -121,7 +121,7 @@ const videoCommand: BotCommand = {
           return;
         } else {
           await context.react("❌");
-          await context.reply("❌ *Failed to download video:* YouTube restrictions prevented media stream extraction. Try using `.download <url>` with alternative quality.");
+          await context.reply("❌ *YouTube refuse ce téléchargement pour le moment.*\n\n🔄 Réessaie, ou tente `.dl <lien>`.");
           return;
         }
       }
@@ -132,7 +132,7 @@ const videoCommand: BotCommand = {
       // Limit to 10 minutes to avoid high resource consumption
       if (durationSecs > 600) {
         await context.react("⚠️");
-        await context.reply("⚠️ *Error:* Video duration exceeds 10 minutes! Please provide a shorter video.");
+        await context.reply("⚠️ *Vidéo trop longue* (max 10 minutes).\nEnvoie une vidéo plus courte.");
         return;
       }
 
@@ -155,7 +155,7 @@ const videoCommand: BotCommand = {
           return;
         }
         await context.react("❌");
-        await context.reply("❌ *Error:* No suitable format with both audio and video found.");
+        await context.reply("❌ *Aucun format exploitable pour cette vidéo.*\n🔄 Réessaie plus tard ou tente `.dl <lien>`.");
         return;
       }
 
@@ -165,7 +165,7 @@ const videoCommand: BotCommand = {
         const sizeMB = sizeBytes / (1024 * 1024);
         if (sizeMB > 50) {
           await context.react("⚠️");
-          await context.reply(`⚠️ *Error:* Video file size (~${sizeMB.toFixed(1)} MB) is too large. WhatsApp media limit is 50MB.`);
+          await context.reply(`⚠️ *Vidéo trop lourde* (~${sizeMB.toFixed(1)} Mo — max 50 Mo pour un envoi direct).\nTente \`.dl <lien>\` pour un lien de téléchargement.`);
           return;
         }
       }
@@ -195,7 +195,7 @@ const videoCommand: BotCommand = {
         const actualSizeMB = stats.size / (1024 * 1024);
         if (actualSizeMB > 50) {
           await context.react("⚠️");
-          await context.reply(`⚠️ *Error:* Downloaded file size (${actualSizeMB.toFixed(1)} MB) exceeds the 50MB limit.`);
+          await context.reply(`⚠️ *Fichier trop lourd* (${actualSizeMB.toFixed(1)} Mo — max 50 Mo).\nTente \`.dl <lien>\` pour un lien de téléchargement.`);
           return;
         }
 
@@ -252,7 +252,7 @@ const videoCommand: BotCommand = {
     } catch (error: any) {
       console.error("[Video Command Error]:", error);
       await context.react("❌");
-      await context.reply(`❌ *Failed to download or process video:* ${error.message || error}`);
+      await context.reply(`❌ *Le téléchargement a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   }
 };

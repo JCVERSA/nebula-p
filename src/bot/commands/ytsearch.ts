@@ -64,7 +64,7 @@ const ytSearchCommand: BotCommand = {
       await context.reply(formatYtResults(res.videos || [], query));
     } catch (err: any) {
       console.warn("[YTSEARCH] failed:", err?.message || err);
-      await context.reply("❌ La recherche YouTube a échoué (YouTube bloque parfois le serveur). Réessaie dans un instant.");
+      await context.reply("❌ La recherche YouTube a échoué (blocage temporaire).\n🔄 Réessaie dans un instant.");
     }
   }
 };

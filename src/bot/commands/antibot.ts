@@ -10,11 +10,11 @@ const antibotCommand: BotCommand = {
   aliases: ["botprotect", "nobots"],
   execute: async (sock, msg, context) => {
     if (!context.sender.endsWith("@g.us")) {
-      return context.reply("❌ *Error:* This command can only be used in group chats.");
+      return context.reply("❌ *Cette commande fonctionne uniquement dans un groupe.*");
     }
 
     if (!context.isAdmin && !context.isOwner) {
-      return context.reply("⚠️ *Access Denied:* Only group administrators can configure antibot protection.");
+      return context.reply("⚠️ *Accès refusé :* seuls les administrateurs du groupe peuvent configurer la protection antibot.");
     }
 
     try {
@@ -93,7 +93,7 @@ const antibotCommand: BotCommand = {
       );
     } catch (error: any) {
       console.error("Antibot command error:", error);
-      await context.reply(`❌ *Error:* Failed to configure antibot: ${error?.message || error}`);
+      await context.reply(`❌ *La configuration antibot a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   }
 };

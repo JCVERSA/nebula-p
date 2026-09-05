@@ -9,11 +9,11 @@ const demoteCommand: BotCommand = {
   aliases: ["removeadmin", "unadmin"],
   execute: async (sock, msg, context) => {
     if (!context.sender.endsWith("@g.us")) {
-      return context.reply("❌ *Error:* This command can only be used in group chats.");
+      return context.reply("❌ *Cette commande fonctionne uniquement dans un groupe.*");
     }
 
     if (!context.isAdmin && !context.isOwner) {
-      return context.reply("⚠️ *Access Denied:* Only group administrators can demote members.");
+      return context.reply("⚠️ *Accès refusé :* seuls les administrateurs du groupe peuvent rétrograder un membre.");
     }
 
     try {
@@ -53,7 +53,7 @@ const demoteCommand: BotCommand = {
       await context.reply(`👤 *Demotion Applied:* @${targetNumber} has been returned to regular member privileges.`);
     } catch (error: any) {
       console.error("Demote command error:", error);
-      await context.reply(`❌ *Failed to demote member:* ${error?.message || error}`);
+      await context.reply(`❌ *La rétrogradation a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   },
 };

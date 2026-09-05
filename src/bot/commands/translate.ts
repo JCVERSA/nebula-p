@@ -40,7 +40,7 @@ const translateCommand: BotCommand = {
     }
 
     if (!textToTranslate || textToTranslate.trim() === "") {
-      return context.reply("❌ Please provide some text to translate or reply to a message.");
+      return context.reply("❌ *Écris le texte à traduire* (ou réponds à un message).\n\nExemple : `.tr en Bonjour tout le monde`");
     }
 
     await context.react("🌐");
@@ -54,7 +54,7 @@ const translateCommand: BotCommand = {
       await context.reply(`🌐 *Translation (${targetLang})*\n\n${translation}`);
     } catch (err: any) {
       console.error("Translation command error:", err);
-      await context.reply(`❌ *Translation failed:* ${err.message || err}`);
+      await context.reply(`❌ *La traduction a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   }
 };

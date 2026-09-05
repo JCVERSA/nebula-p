@@ -26,7 +26,7 @@ const command: BotCommand = {
   usage: ".access [mode|deny|allow|admin <entries...>]",
   execute: async (_sock, _msg, context) => {
     if (!context.isOwner) {
-      await context.reply("❌ *Access Denied:* RoleGuard management is owner-only.");
+      await context.reply("❌ *Accès refusé :* gestion réservée au propriétaire du bot.");
       return;
     }
     if (!context.args || context.args.length === 0) {

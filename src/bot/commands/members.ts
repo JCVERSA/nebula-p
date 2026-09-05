@@ -9,7 +9,7 @@ const membersCommand: BotCommand = {
   aliases: ["memberlist", "groupmembers", "listmembers"],
   execute: async (sock, msg, context) => {
     if (!context.sender.endsWith("@g.us")) {
-      return context.reply("❌ *Error:* This command can only be used inside group chats.");
+      return context.reply("❌ *Cette commande fonctionne uniquement dans un groupe.*");
     }
 
     try {
@@ -75,7 +75,7 @@ const membersCommand: BotCommand = {
       await context.reply(text);
     } catch (error: any) {
       console.error("Members command error:", error);
-      await context.reply(`❌ *Error fetching members:* ${error?.message || error}`);
+      await context.reply(`❌ *Impossible de récupérer la liste des membres.*\n🔄 Réessaie dans un instant.`);
     }
   },
 };

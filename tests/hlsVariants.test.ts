@@ -80,7 +80,7 @@ describe("formatFailedEpisodes — batch recap (8.40)", () => {
 
   it("lists exactly the missing episodes (log case: E4 of 2-6 missing)", () => {
     const line = formatFailedEpisodes([2, 3, 4, 5, 6], [2, 3, 5, 6]);
-    expect(line).toContain("*Failed:*");
+    expect(line).toContain("*Épisodes échoués :*"); // 8.58: message utilisateur FR
     expect(line).toContain("Episode 4");
     expect(line).not.toContain("Episode 5");
   });

@@ -7,11 +7,11 @@ const hidetag: BotCommand = {
   usage: ".hidetag <message> (or reply to media)",
   execute: async (sock, msg, context) => {
     if (!context.sender.endsWith("@g.us")) {
-      return context.reply("❌ *Error:* This command can only be used in group chats.");
+      return context.reply("❌ *Cette commande fonctionne uniquement dans un groupe.*");
     }
 
     if (!context.isAdmin && !context.isOwner) {
-      return context.reply("⚠️ *Access Denied:* Only group administrators can tag all members.");
+      return context.reply("⚠️ *Accès refusé :* seuls les administrateurs du groupe peuvent mentionner tous les membres.");
     }
 
     try {
@@ -78,7 +78,7 @@ const hidetag: BotCommand = {
 
     } catch (error: any) {
       console.error("HideTag command error:", error);
-      await context.reply(`❌ *Error:* Failed to tag group members.\nReason: ${error.message || error}`);
+      await context.reply(`❌ *Le tagroup a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   }
 };

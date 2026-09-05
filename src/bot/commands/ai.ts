@@ -31,7 +31,7 @@ const aiCommand: BotCommand = {
     }
 
     if (!prompt) {
-      await context.reply("❌ Please provide a prompt or question!\nExample: `.ai Explain Quantum Computing in 3 sentences`");
+      await context.reply("❌ *Pose ta question après la commande.*\n\nExemple : `.ai Explique-moi les trous noirs en 3 phrases`");
       return;
     }
 
@@ -74,7 +74,7 @@ const aiCommand: BotCommand = {
       );
     } catch (error: any) {
       console.error("Gemini AI Command Error:", error);
-      await context.reply(`❌ *Error contacting Gemini AI:* ${error.message || error}`);
+      await context.reply(`❌ *L\u2019IA est momentanément indisponible.*\n🔄 Réessaie dans un instant.`);
     }
   }
 };

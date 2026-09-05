@@ -2310,3 +2310,27 @@ clean, production smoke `Ready: 24 commands` (34 − 10 fun/utility − .rnyt
 **Verification:** 441/441 tests (48 files; +registrySocial, +socialPlatforms
 restored/adapted), tsc, eslint 0 errors, prettier clean, prod smoke
 `[Registry] Ready: 27 commands`.
+
+### 8.58 UX — user-facing messages rewritten (2026-09-03, sixty-second push)
+
+**Owner report:** the search-blocked error told the user to "configure
+NEBULA_ANIME_PROXY in .env and run nebula doctor" — admin instructions
+sent to a WhatsApp end user. Rule adopted: **user messages are simple,
+friendly and actionable (French); the technical cause goes to the log**
+(`nebula logs`) next to the reply.
+
+Rewritten (~55 messages across 17 command files + batchRecap):
+- searchFailureMessage: 403/503 → "La recherche est bloquée par le site
+  pour le moment… réessaie dans quelques minutes" (HTTP status + proxy
+  hint logged, never replied); timeout/DNS/default branches likewise.
+- novabox: seasons/episodes load failures, batch limit, all-episodes-
+  failed, file-send fallback, direct-download-unavailable, connecting.
+- Raw error leaks removed from replies (video, download, ai, image,
+  translate, moderation family) — every one had an existing
+  console.error/warn kept as the diagnostic channel.
+- English → French across download/video/sweb/ai/image/translate/define/
+  owner/watch + the moderation family (antibot/antilink/antitag/demote/
+  hidetag/kick/promote/members/access): usage examples, access-denied
+  notices, action prompts.
+- Tests updated where they pinned the old English (downloadPage,
+  hlsVariants). 441/441 (48 files), tsc, eslint 0 errors, prettier clean.

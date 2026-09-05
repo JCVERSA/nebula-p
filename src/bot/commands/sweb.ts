@@ -9,7 +9,7 @@ const swebCommand: BotCommand = {
   execute: async (sock, msg, context) => {
     try {
       if (context.args.length === 0) {
-        await context.reply("❌ Please provide a website URL!\n\nExample: `.sweb https://github.com` or `.ssweb google.com`");
+        await context.reply("❌ *Il manque l\u2019adresse du site.*\n\nExemple : `.sweb https://github.com` ou `.ssweb google.com`");
         return;
       }
 
@@ -23,22 +23,22 @@ const swebCommand: BotCommand = {
       // Simple regex validation for URLs
       const urlPattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/i;
       if (!urlPattern.test(url)) {
-        await context.reply("❌ Please provide a valid website URL!");
+        await context.reply("❌ *Adresse de site invalide.*");
         return;
       }
 
       await context.react("📸");
-      await context.reply(`⏳ *Capturing webpage screenshot of:* ${url}\n_Please wait a moment..._`);
+      await context.reply(`⏳ *Capture du site en cours…*\n${url}\n_Un instant…_`);
 
       // Use microlink screenshot API
       const screenshotUrl = `https://api.microlink.io/?url=${encodeURIComponent(url)}&screenshot=true&embed=screenshot.url`;
       // M11: explicit third-party disclosure
-      await context.reply("ℹ️ Screenshot request sent to a third-party rendering service (microlink.io — the page URL you provided is forwarded to them).");
+      await context.reply("ℹ️ La capture passe par un service externe de rendu (microlink.io) — l\u2019adresse que tu envoies lui est transmise.");
 
       await context.reply(`📸 *Screenshot of ${url}:*`, screenshotUrl);
     } catch (error: any) {
       console.error("SSWeb command error:", error);
-      await context.reply(`❌ Failed to screenshot website: ${error.message || error}`);
+      await context.reply(`❌ *La capture a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   }
 };

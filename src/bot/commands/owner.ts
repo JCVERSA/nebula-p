@@ -12,7 +12,7 @@ const ownerCommand: BotCommand = {
     // Check if user is owner
     if (!context.isOwner) {
       await context.react("❌");
-      await context.reply("⚠️ *Access Denied:* This command is restricted to the bot owner.");
+      await context.reply("⚠️ *Accès refusé :* commande réservée au propriétaire du bot.");
       return;
     }
 
@@ -55,7 +55,7 @@ const ownerCommand: BotCommand = {
 
       case "setimage":
         if (!value || !value.startsWith("http")) {
-          await context.reply("❌ Please provide a valid URL starting with http/https!");
+          await context.reply("❌ Envoie une adresse valide commençant par http/https.");
           return;
         }
         updateConfig({ botImage: value });

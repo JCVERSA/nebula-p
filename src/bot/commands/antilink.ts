@@ -8,11 +8,11 @@ const antilink: BotCommand = {
   usage: ".antilink <on/off/set/get>",
   execute: async (sock, msg, context) => {
     if (!context.sender.endsWith("@g.us")) {
-      return context.reply("❌ *Error:* This command can only be used in group chats.");
+      return context.reply("❌ *Cette commande fonctionne uniquement dans un groupe.*");
     }
 
     if (!context.isAdmin && !context.isOwner) {
-      return context.reply("⚠️ *Access Denied:* Only group administrators can configure antilink protection.");
+      return context.reply("⚠️ *Accès refusé :* seuls les administrateurs du groupe peuvent configurer la protection antilien.");
     }
 
     try {
@@ -53,12 +53,12 @@ const antilink: BotCommand = {
 
       if (opt === "set") {
         if (args.length < 2) {
-          return context.reply("⚠️ *Please specify an action:* `.antilink set delete` or `.antilink set kick`.");
+          return context.reply("⚠️ *Précise l\u2019action :* `.antilink set delete` ou `.antilink set kick`.");
         }
 
         const actionOpt = args[1].toLowerCase();
         if (actionOpt !== "delete" && actionOpt !== "kick") {
-          return context.reply("❌ *Invalid action.* Choose either *delete* (removes the link message) or *kick* (removes the sender).");
+          return context.reply("❌ *Action invalide.* Choisis *delete* (supprime le message contenant un lien) ou *kick* (expulse l\u2019auteur).");
         }
 
         database.updateGroupSettings(context.sender, {
@@ -79,7 +79,7 @@ const antilink: BotCommand = {
 
     } catch (error: any) {
       console.error("Antilink command error:", error);
-      await context.reply(`❌ *Error:* Failed to configure antilink.\nReason: ${error.message || error}`);
+      await context.reply(`❌ *La configuration antilien a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   }
 };

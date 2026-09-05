@@ -139,6 +139,6 @@ describe("downloadPage — wiring", () => {
   it("tells the user when EVERY episode failed (no silent player-links-only message)", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
     expect(src).toContain("failedEpisodeCount");
-    expect(src).toContain("Download failed for all");
+    expect(src).toContain("Téléchargement impossible pour les"); // 8.58: message utilisateur FR
   });
 });

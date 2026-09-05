@@ -51,13 +51,13 @@ const downloadCommand: BotCommand = {
 
     if (firstArg === "audio" || firstArg === "mp3") {
       if (!secondArg) {
-        return context.reply("❌ *Error:* Please provide a valid media URL.\nExample: `.download audio https://youtube.com/watch?v=...`");
+        return context.reply("❌ *Il manque le lien.*\n\nExemple : `.dl audio https://youtube.com/watch?v=...`");
       }
       audioOnly = true;
       mediaUrl = secondArg;
     } else if (firstArg === "video") {
       if (!secondArg) {
-        return context.reply("❌ *Error:* Please provide a valid media URL.\nExample: `.download video https://youtube.com/watch?v=...`");
+        return context.reply("❌ *Il manque le lien.*\n\nExemple : `.dl video https://youtube.com/watch?v=...`");
       }
       mediaUrl = secondArg;
       if (args[2]) {
@@ -79,13 +79,13 @@ const downloadCommand: BotCommand = {
 
     // Validate URL syntax
     if (!mediaUrl.startsWith("http://") && !mediaUrl.startsWith("https://")) {
-      return context.reply("❌ *Error:* Please enter a valid URL starting with http:// or https://");
+      return context.reply("❌ *Lien invalide.*\nEnvoie une adresse complète commençant par http:// ou https://");
     }
 
     // SSRF guard: never fetch private/internal/loopback destinations
     if (!(await isSafeDownloadUrl(mediaUrl))) {
       return context.reply(
-        "❌ *Error:* This URL is blocked for security reasons (private, internal, or non-http(s) destination)."
+        "❌ *Ce lien n\u2019est pas autorisé.*\nEnvoie un lien public direct (http/https) — les liens privés ou internes sont refusés."
       );
     }
 
@@ -161,7 +161,8 @@ const downloadCommand: BotCommand = {
 
     if (!downloadUrl && pickerUrls.length === 0) {
       await context.react("❌");
-      return context.reply(`❌ *Failed to fetch media.*\n\n*Reason:* ${errorMsg}\n\n_Note: Please make sure the post is public and the platform is supported._`);
+      console.warn(`[Downloader] all sources failed: ${errorMsg}`);
+      return context.reply(`❌ *Impossible de récupérer ce média.*\n\n🔄 Réessaie dans un instant, et vérifie que la publication est *publique*.`);
     }
 
     try {
@@ -262,9 +263,8 @@ const downloadCommand: BotCommand = {
       console.error("[Downloader] Error sending media:", err);
       await context.react("❌");
       await context.reply(
-        `❌ *Error sending file to WhatsApp.*\n\n` +
-        `*Details:* ${err.message || err}\n\n` +
-        `*Direct Link:* You can try downloading it directly here:\n🔗 ${downloadUrl || pickerUrls[0]}`
+        `⚠️ *Impossible d\u2019envoyer le fichier ici.*\n\n` +
+        `Tu peux le télécharger directement :\n🔗 ${downloadUrl || pickerUrls[0]}`
       );
     }
   }

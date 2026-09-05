@@ -1004,29 +1004,32 @@ async function executeQuickDownloadPipeline(
 }
 
 /**
- * Human-readable cause for a failed anime search. A bare "retry" message
- * hides the two real failures we actually see in production: the host's IP
- * being Cloudflare-blocked (403/503) and network egress issues.
+ * User-facing message for a failed anime search (8.58): simple, actionable,
+ * zero jargon — the user is on WhatsApp, not in a terminal. The technical
+ * cause (status code, proxy hint) goes to the LOG for the administrator
+ * (`nebula logs`), never in the reply.
  */
 function searchFailureMessage(err: any): string {
   const status = err?.response?.status;
   if (status === 403 || status === 503) {
+    console.warn(`[NOVABOX] Search blocked by the source (HTTP ${status}) — if persistent, NEBULA_ANIME_PROXY is the operator fix.`);
     return (
-      `❌ *Site inaccessible depuis le serveur (HTTP ${status} — Cloudflare).*\n` +
-      `L'adresse IP de cet hébergeur est bloquée par la source : aucune recherche ne peut aboutir, peu importe le code du bot.\n\n` +
-      `🔑 *Solutions :*\n` +
-      `• Configurer un proxy de sortie : \`NEBULA_ANIME_PROXY=http://host:port\` dans \`.env\` (puis relancer)\n` +
-      `• Ou héberger le bot sur un réseau non bloqué\n\n` +
-      `_Vérification sur le serveur : \`nebula doctor\` (section réseau) confirme le blocage._`
+      `😕 *La recherche est bloquée par le site pour le moment.*\n\n` +
+      `Ce n'est pas un problème avec ton titre — le site refuse le bot pour l'instant.\n\n` +
+      `🔁 *Réessaie dans quelques minutes.*\n` +
+      `_Si le problème dure, préviens l'administrateur du bot._`
     );
   }
   if (err?.code === "ECONNABORTED" || /timeout/i.test(err?.message || "")) {
-    return "❌ *Le serveur n'arrive pas à joindre la source (délai dépassé).*\nVérifiez la connexion réseau / le pare-feu du serveur.";
+    console.warn(`[NOVABOX] Search timed out reaching the source (${err?.code || err?.message}).`);
+    return `😕 *Le site met trop de temps à répondre.*\n\n🔁 *Réessaie dans un instant.*\n_Si ça persiste, préviens l'administrateur du bot._`;
   }
   if (err?.code === "ENOTFOUND" || err?.code === "EAI_AGAIN") {
-    return "❌ *Résolution DNS échouée pour la source.*\nVérifiez le DNS du serveur (/etc/resolv.conf) ou le domaine a encore changé — relancez le doctor.";
+    console.warn(`[NOVABOX] DNS resolution failed for the source (${err?.code}) — domain moved?`);
+    return `😕 *Le site est injoignable en ce moment.*\n\n🔁 *Réessaie plus tard.*\n_Si ça persiste, préviens l'administrateur du bot._`;
   }
-  return "❌ *Erreur:* Échec de la recherche anime. Veuillez réessayer.";
+  console.warn(`[NOVABOX] Search failed: ${err?.message || err}`);
+  return `😕 *La recherche a échoué.*\n\n🔁 *Réessaie dans un instant* — et vérifie l'orthographe du titre.`;
 }
 
 const animeCommand: BotCommand = {
@@ -1139,7 +1142,7 @@ const animeCommand: BotCommand = {
         session.animeUrl = chosen.url;
 
         await context.react("⏳");
-        await context.reply(`✨ *Selected:* *${chosen.title}*\n🔗 Connecting to anime database...`);
+        await context.reply(`✨ *Selected:* *${chosen.title}*\n🔗 Chargement des saisons...`);
 
         try {
           // VF BY DEFAULT (audit 8.53): voiranime est LA source par défaut —
@@ -1237,7 +1240,7 @@ const animeCommand: BotCommand = {
         } catch (err: any) {
           console.error("[NOVABOX] Search select Error:", err);
           clearUserSession(sender);
-          return context.reply("❌ *Error:* Failed to load anime seasons. Please try searching again.");
+          return context.reply("😕 *Impossible de charger les saisons de cet anime.*\n\n🔁 *Réessaie dans un instant* — si ça persiste, relance ta recherche.");
         }
       }
 
@@ -1304,7 +1307,7 @@ const animeCommand: BotCommand = {
           }
 
           if (!session.languages.includes(langChoice)) {
-            return context.reply(`❌ *Unavailable Language:* The language *${langChoice}* is not available for this anime.`);
+            return context.reply(`❌ *La langue ${langChoice} n\u2019est pas disponible pour cet anime.*`);
           }
 
           session.selectedLanguage = langChoice;
@@ -1484,7 +1487,7 @@ const animeCommand: BotCommand = {
         } catch (err: any) {
           console.error("[NOVABOX] Failed to parse episodes:", err);
           clearUserSession(sender);
-          return context.reply("❌ *Error:* Failed to load season episodes. Please try again.");
+          return context.reply("😕 *Impossible de charger les épisodes de cette saison.*\n\n🔁 *Réessaie dans un instant.*\n_Si ça persiste, préviens l\u2019administrateur du bot._");
         }
       }
 
@@ -2405,8 +2408,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     if (indices.length > MAX_BATCH_EPISODES) {
       await context.react("⚠️");
       return context.reply(
-        `⚠️ *Batch Limit:* This request covers *${indices.length} episodes*, which exceeds the safe batch limit of *${MAX_BATCH_EPISODES}*.\n` +
-        `Please split it into smaller requests (e.g. episodes 1–${MAX_BATCH_EPISODES}).`
+        `⚠️ *Trop d\u2019épisodes d\u2019un coup (${indices.length}).*\n\n` +
+        `La limite est de *${MAX_BATCH_EPISODES} épisodes par demande* — découpe en plusieurs fois (ex. épisodes 1 à ${MAX_BATCH_EPISODES}, puis la suite).`
       );
     }
     await context.react("⏳");
@@ -2691,7 +2694,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         batchJob.id,
         "failed",
         memoryDeferredCount > 0 ? "Memory guard deferred all episodes" : "No streams could be resolved",
-        memoryDeferredCount > 0 ? "Pression RAM critique — réessaye dans quelques minutes" : "All streams CDN restricted"
+        memoryDeferredCount > 0 ? "Pression RAM critique — réessaye dans quelques minutes" : "Aucun épisode téléchargeable (sources indisponibles)"
       );
     }
 
@@ -2796,7 +2799,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         memoryDeferredCount > 0
           ? `🛡️ *Garde mémoire:* pression RAM critique — aucun épisode n'a été lancé pour protéger le bot. Redemande dans quelques minutes.\n\n`
           : failedEpisodeCount > 0
-          ? `❌ *Download failed for all ${failedEpisodeCount} episode(s)* — every mirror was CDN restricted. Player links below as fallback, or retry in a few minutes.\n\n`
+          ? `❌ *Téléchargement impossible pour les ${failedEpisodeCount} épisode(s)* — les sources les refusent pour le moment.\n🔁 Réessaie dans quelques minutes. En attendant, voici les liens de lecture :\n\n`
           : "";
       const episodeLinksText = indices.map((idx) => {
         const epN = idx + 1;
@@ -3179,7 +3182,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         (vidmolyUrl ? `• 📺 *Play Ad-Free (${playerSourceLabel(vidmolyUrl)}):* ${vidmolyUrl}\n` : "") +
         `\n🌌 _Nebula Bot - Your ultimate media center_`;
       await context.reply(
-        `❌ *Error sending downloaded file. Falling back to stream links:*\n\n` + fallbackCaption
+        `❌ *Impossible d\u2019envoyer le fichier — voici les liens de lecture à la place :*\n\n` + fallbackCaption
       );
     } finally {
       // Cleanup raw local temp files if they still exist and were not moved into temp download manager
@@ -3210,7 +3213,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     // If download failed or file doesn't exist, fallback to sending streaming links
     await context.react("✅");
     await context.reply(
-      `⚠️ *Direct file download is temporarily unavailable.* Here are your streaming & download links:\n\n` + caption
+      `⚠️ *Le téléchargement direct est momentanément indisponible.*\nVoici tes liens de lecture :\n\n` + caption
     );
   }
 

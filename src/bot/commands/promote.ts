@@ -9,11 +9,11 @@ const promoteCommand: BotCommand = {
   aliases: ["makeadmin", "addadmin"],
   execute: async (sock, msg, context) => {
     if (!context.sender.endsWith("@g.us")) {
-      return context.reply("❌ *Error:* This command can only be used in group chats.");
+      return context.reply("❌ *Cette commande fonctionne uniquement dans un groupe.*");
     }
 
     if (!context.isAdmin && !context.isOwner) {
-      return context.reply("⚠️ *Access Denied:* Only group administrators can promote members.");
+      return context.reply("⚠️ *Accès refusé :* seuls les administrateurs du groupe peuvent promouvoir un membre.");
     }
 
     try {
@@ -53,7 +53,7 @@ const promoteCommand: BotCommand = {
       await context.reply(`⭐ *Promotion Successful:* @${targetNumber} is now a group administrator!`);
     } catch (error: any) {
       console.error("Promote command error:", error);
-      await context.reply(`❌ *Failed to promote member:* ${error?.message || error}`);
+      await context.reply(`❌ *La promotion a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   },
 };

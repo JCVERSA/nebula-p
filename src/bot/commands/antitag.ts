@@ -8,11 +8,11 @@ const antitag: BotCommand = {
   usage: ".antitag <on/off/set/get>",
   execute: async (sock, msg, context) => {
     if (!context.sender.endsWith("@g.us")) {
-      return context.reply("❌ *Error:* This command can only be used in group chats.");
+      return context.reply("❌ *Cette commande fonctionne uniquement dans un groupe.*");
     }
 
     if (!context.isAdmin && !context.isOwner) {
-      return context.reply("⚠️ *Access Denied:* Only group administrators can configure antitag protection.");
+      return context.reply("⚠️ *Accès refusé :* seuls les administrateurs du groupe peuvent configurer la protection antitag.");
     }
 
     try {
@@ -53,12 +53,12 @@ const antitag: BotCommand = {
 
       if (opt === "set") {
         if (args.length < 2) {
-          return context.reply("⚠️ *Please specify an action:* `.antitag set delete` or `.antitag set kick`.");
+          return context.reply("⚠️ *Précise l\u2019action :* `.antitag set delete` ou `.antitag set kick`.");
         }
 
         const actionOpt = args[1].toLowerCase();
         if (actionOpt !== "delete" && actionOpt !== "kick") {
-          return context.reply("❌ *Invalid action.* Choose either *delete* (removes the tagall message) or *kick* (removes the sender).");
+          return context.reply("❌ *Action invalide.* Choisis *delete* (supprime la mention de masse) ou *kick* (expulse l\u2019auteur).");
         }
 
         database.updateGroupSettings(context.sender, {
@@ -79,7 +79,7 @@ const antitag: BotCommand = {
 
     } catch (error: any) {
       console.error("Antitag command error:", error);
-      await context.reply(`❌ *Error:* Failed to configure antitag.\nReason: ${error.message || error}`);
+      await context.reply(`❌ *La configuration antitag a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   }
 };

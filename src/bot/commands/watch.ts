@@ -162,7 +162,7 @@ const watchCommand: BotCommand = {
 
     // ----- new search -----
     if (process.env.NEBULA_VOIRANIME_DISABLED === "1") {
-      return context.reply("❌ La veille d'épisodes est désactivée sur ce serveur.");
+      return context.reply("❌ La veille d\u2019épisodes n\u2019est pas activée ici.");
     }
     const query = args.join(" ");
     await context.react("🔍");

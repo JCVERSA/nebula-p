@@ -11,7 +11,7 @@ const imageCommand: BotCommand = {
     const prompt = context.args.join(" ");
     
     if (!prompt) {
-      await context.reply("❌ Please provide an image prompt!\nExample: `.image A futuristic space cat` or reply to an image with `.image Add a space helmet` to edit.");
+      await context.reply("❌ *Décris l\u2019image après la commande.*\n\nExemple : `.image un chat astronaute`\n_Pour modifier une image : réponds-lui avec `.image ajoute un casque spatial`._");
       return;
     }
 
@@ -63,7 +63,7 @@ const imageCommand: BotCommand = {
       }
     } catch (error: any) {
       console.error("Gemini Image Command Error:", error);
-      await context.reply(`❌ *Error processing image request:* ${error.message || error}`);
+      await context.reply(`❌ *La génération d\u2019image a échoué.*\n🔄 Réessaie avec une description plus simple.`);
     }
   }
 };

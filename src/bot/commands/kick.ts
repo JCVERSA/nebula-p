@@ -9,11 +9,11 @@ const kickCommand: BotCommand = {
   aliases: ["remove", "banmember"],
   execute: async (sock, msg, context) => {
     if (!context.sender.endsWith("@g.us")) {
-      return context.reply("❌ *Error:* This command can only be used in group chats.");
+      return context.reply("❌ *Cette commande fonctionne uniquement dans un groupe.*");
     }
 
     if (!context.isAdmin && !context.isOwner) {
-      return context.reply("⚠️ *Access Denied:* Only group administrators can use the kick command.");
+      return context.reply("⚠️ *Accès refusé :* seuls les administrateurs du groupe peuvent expulser un membre.");
     }
 
     try {
@@ -45,7 +45,7 @@ const kickCommand: BotCommand = {
       // Prevent kicking oneself or bot
       const myNumber = sock?.user?.id?.split(":")[0]?.replace(/[^0-9]/g, "") || "";
       if (targetNumber === myNumber) {
-        return context.reply("⚠️ *Cannot kick:* The bot cannot kick itself!");
+        return context.reply("⚠️ *Impossible de m\u2019expulser moi-même !*");
       }
 
       // Execute removal using helper method if available, or socket direct
@@ -59,7 +59,7 @@ const kickCommand: BotCommand = {
       await context.reply(`🚫 *Member Removed:* @${targetNumber} has been kicked from the group.`);
     } catch (error: any) {
       console.error("Kick command error:", error);
-      await context.reply(`❌ *Failed to kick member:* ${error?.message || error}`);
+      await context.reply(`❌ *L\u2019expulsion a échoué.*\n🔄 Réessaie dans un instant.`);
     }
   },
 };
