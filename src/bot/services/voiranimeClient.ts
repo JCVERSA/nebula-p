@@ -65,7 +65,7 @@ export function parseVoiranimeSearch(html: string): VoiranimeSearchResult[] {
   const candidates = $("a[href*='/anime/']").toArray();
   for (const el of candidates) {
     const href = $(el).attr("href") || "";
-    let m = href.match(new RegExp(`^${VOIRANIME_ORIGIN}/anime/([a-z0-9-]+)/?$`, "i"));
+    const m = href.match(new RegExp(`^${VOIRANIME_ORIGIN}/anime/([a-z0-9-]+)/?$`, "i"));
     if (!m) continue;
     const slug = m[1];
     if (slug === "anime" || seen.has(slug)) continue;

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import path from "path";
 import fs from "fs";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import { createApp } from "./app.js";
@@ -21,11 +21,11 @@ function verifyFfmpegAtBoot(): void {
   const candidates = new Set<string>(["ffmpeg", resolvedFfmpegPath]);
   if (process.env.FFMPEG_BIN?.trim()) candidates.add(process.env.FFMPEG_BIN.trim());
   for (const candidate of candidates) {
-    try {
-      execSync(`"${candidate}" -version`, { stdio: "ignore" });
+    const result = spawnSync(candidate, ["-version"], { stdio: "ignore" });
+    if (result.status === 0) {
       console.log(`[BOOT] ✅ ffmpeg OK — ${candidate === "ffmpeg" ? "on PATH" : candidate}`);
       return;
-    } catch {
+    } else {
       // try the next candidate
     }
   }

@@ -5,12 +5,9 @@ const DB_DIR = process.env.NEBULA_DATA_DIR || path.join(process.cwd(), "database
 
 // Core group settings schema
 export interface GroupSettings {
-  antilink: boolean;
-  antilinkAction: "delete" | "kick";
-  antitag: boolean;
-  antitagAction: "delete" | "kick";
-  antibot: boolean;
-  antibotAction: "delete" | "kick" | "warn";
+  // Moderation fields (antilink/antitag/antibot) were removed with their
+  // commands and engine hooks (8.59/8.61). Legacy keys found in an existing
+  // groups.json are tolerated at load time (spread merge) and ignored.
   welcome: boolean;
   welcomeMessage: string;
   goodbye: boolean;
@@ -23,12 +20,6 @@ export interface UserWarning {
 }
 
 const defaultGroupSettings: GroupSettings = {
-  antilink: false,
-  antilinkAction: "delete",
-  antitag: false,
-  antitagAction: "delete",
-  antibot: false,
-  antibotAction: "delete",
   welcome: false,
   welcomeMessage: "👋 Welcome @user to our group *@group*! Enjoy your stay!",
   goodbye: false,

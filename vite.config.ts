@@ -20,7 +20,7 @@ export default defineConfig(() => {
       // Allow the app to be served from arbitrary hosts (AI Studio / sandbox preview
       // domains, custom Cloud Run domains). Dev middleware only; production serves
       // static files via Express and is unaffected.
-      allowedHosts: true as true,
+      allowedHosts: true as const,
     },
   };
 });

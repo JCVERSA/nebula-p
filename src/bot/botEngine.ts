@@ -27,7 +27,6 @@ import {
   defaultMemorySummarizer
 } from "./services/aiMemory.js";
 import { database } from "./database.js";
-import { inspectMessageSafety } from "./utils/antibot.js";
 import { extractQuotedMediaContent } from "./utils/quotedMedia.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
 import { authorizeCommand, resolveRole } from "./accessControl.js";
@@ -754,82 +753,19 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         // Active Group Moderation Engine
         const isGroup = senderJid.endsWith("@g.us");
         let isSenderAdmin = false;
-        let isBotAdmin = false;
 
         if (isGroup && !isFromMe) {
-          const settings = database.getGroupSettings(senderJid);
-
           try {
             const groupMetadata = await getCachedGroupMetadata(sock, senderJid);
             if (groupMetadata) {
-              const botJid = sock.user?.id ? (sock.user.id.split(":")[0] + "@s.whatsapp.net") : "";
               const senderParticipant = groupMetadata.participants.find((p: any) => p.id.split("@")[0] === actualSenderNumber);
-              const botParticipant = groupMetadata.participants.find((p: any) => p.id.split("@")[0] === botJid.split("@")[0]);
-
               isSenderAdmin = senderParticipant?.admin === "admin" || senderParticipant?.admin === "superadmin";
-              isBotAdmin = botParticipant?.admin === "admin" || botParticipant?.admin === "superadmin";
             }
           } catch (e) {}
-
-          // 1. Antilink & Antibot Filtering using antibot utility
-          if ((settings.antilink || settings.antibot) && !isSenderAdmin && !isOwner) {
-            const safety = inspectMessageSafety(senderJid, text, msg, actualSenderJid);
-            if (safety.isViolation) {
-              addLog(`🛡️ [Security Violation] ${safety.description} from @${maskLogNumber(actualSenderNumber)} in group ${maskLogNumber(senderJid)}`);
-
-              if (isBotAdmin) {
-                await sock.sendMessage(senderJid, { delete: msg.key });
-
-                if (safety.action === "kick") {
-                  await sock.groupParticipantsUpdate(senderJid, [actualSenderJid], "remove");
-                  await sock.sendMessage(senderJid, {
-                    text: `🚫 *Security Enforcement:* @${actualSenderNumber} has been kicked.\n*Reason:* ${safety.description}`,
-                    mentions: [actualSenderJid]
-                  });
-                } else if (safety.action === "warn") {
-                  await sock.sendMessage(senderJid, {
-                    text: `⚠️ *Security Warning:* @${actualSenderNumber}, ${safety.description}`,
-                    mentions: [actualSenderJid]
-                  });
-                } else {
-                  await sock.sendMessage(senderJid, {
-                    text: `⚠️ *Notice:* Prohibited message from @${actualSenderNumber} has been removed.`,
-                    mentions: [actualSenderJid]
-                  });
-                }
-              }
-              continue; // Prevent command execution / normal message processing
-            }
-          }
-
-          // 2. Antitag (Mass Mentions) Filtering
-          if (settings.antitag && !isSenderAdmin && !isOwner) {
-            const ctxInfo = msg.message?.extendedTextMessage?.contextInfo || messageContent?.extendedTextMessage?.contextInfo;
-            const mentionedJids = ctxInfo?.mentionedJid || [];
-            if (mentionedJids.length >= 4) {
-              addLog(`🛡️ [Antitag] Mass mention (${mentionedJids.length} tags) detected from @${actualSenderNumber}`);
-
-              if (isBotAdmin) {
-                await sock.sendMessage(senderJid, { delete: msg.key });
-
-                if (settings.antitagAction === "kick") {
-                  await sock.groupParticipantsUpdate(senderJid, [actualSenderJid], "remove");
-                  await sock.sendMessage(senderJid, {
-                    text: `🚫 *Antitag enforcement:* @${actualSenderNumber} has been kicked for mass mentioning group members.`,
-                    mentions: [actualSenderJid]
-                  });
-                } else {
-                  await sock.sendMessage(senderJid, {
-                    text: `⚠️ *Antitag warning:* Mass mentions are disabled in this group, @${actualSenderNumber}.`,
-                    mentions: [actualSenderJid]
-                  });
-                }
-              }
-              continue; // Prevent command execution / normal message processing
-            }
-          }
         }
 
+        // Moderation hooks (antilink/antitag/antibot) were removed with the
+        // 8.59 command curation; welcome/goodbye and RoleGuard remain active.
         // Allow owner to run commands on their own session, but ignore regular self messages that don't start with prefix
         if (isFromMe && !text.startsWith(prefix)) {
           continue;

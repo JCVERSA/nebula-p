@@ -679,7 +679,7 @@ export default function App() {
   /** Central fetch wrapper: uses the HttpOnly session cookie; 401 → locked UI. */
   const apiFetch = async (url: string, init?: RequestInit): Promise<Response | null> => {
     try {
-      let res = await fetch(url, {
+      const res = await fetch(url, {
         ...init,
         credentials: "same-origin",
       });

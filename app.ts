@@ -699,9 +699,10 @@ export function createApp(): express.Express {
     try {
       const testGroupId = "diagnostic_healthcheck@g.us";
       const initialSettings = database.getGroupSettings(testGroupId);
-      database.updateGroupSettings(testGroupId, { antilink: true });
+      // 8.61: moderation fields are gone — probe with `welcome` instead.
+      database.updateGroupSettings(testGroupId, { welcome: !initialSettings.welcome });
       const readBack = database.getGroupSettings(testGroupId);
-      const isDbOk = readBack.antilink === true;
+      const isDbOk = readBack.welcome === !initialSettings.welcome;
 
       // Revert test write
       database.updateGroupSettings(testGroupId, initialSettings);
@@ -725,19 +726,19 @@ export function createApp(): express.Express {
     }
 
     // 3. Dependency & Codec Verification
+    // Runtime dependencies that actually exist (8.61): the historical list
+    // named seven packages removed from package.json and a "whatsapp-rust-
+    // bridge" that never existed — every check was a guaranteed false fail.
     const depsToCheck = [
       { name: "@whiskeysockets/baileys", label: "WhatsApp Multi-Device Engine" },
       { name: "@google/genai", label: "Gemini AI Official SDK" },
-      { name: "fluent-ffmpeg", label: "FFmpeg Audio/Video Converter" },
-      { name: "node-webpmux", label: "WebP / Sticker Codec Tools" },
-      { name: "mumaker", label: "Textmaker Graphics Generator" },
-      { name: "@bochilteam/scraper", label: "Entertainment & Media Scrapers" },
-      { name: "@vitalets/google-translate-api", label: "Google Multi-Language Translate" },
+      { name: "express", label: "Control Panel Server" },
+      { name: "axios", label: "HTTP Client" },
+      { name: "cheerio", label: "HTML Parser" },
       { name: "qrcode", label: "WhatsApp QR Image Engine" },
+      { name: "yt-search", label: "YouTube Search" },
+      { name: "ruhend-scraper", label: "Instagram Downloader Engine" },
       { name: "adm-zip", label: "Project Archive & Deployment Packager" },
-      { name: "ytdl-core", label: "YouTube Stream Downloader" },
-      { name: "ruhend-scraper", label: "Extended Media Scraper Engine" },
-      { name: "whatsapp-rust-bridge", label: "Native WhatsApp Rust Bridge (imported commands)" },
     ];
 
     const depResults = depsToCheck.map(dep => {

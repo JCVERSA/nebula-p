@@ -81,20 +81,6 @@ export function parseUsageAndParams(usage: string, cmdName: string, prefix: stri
     example = `${prefix}roast @user`;
   } else if (cmdName === "rps") {
     example = `${prefix}rps rock`;
-  } else if (cmdName === "trivia") {
-    example = `${prefix}trivia`;
-  } else if (cmdName === "truth") {
-    example = `${prefix}truth`;
-  } else if (cmdName === "dare") {
-    example = `${prefix}dare`;
-  } else if (cmdName === "waifu") {
-    example = `${prefix}waifu`;
-  } else if (cmdName === "hidetag") {
-    example = `${prefix}hidetag Hello everyone!`;
-  } else if (cmdName === "antilink") {
-    example = `${prefix}antilink on`;
-  } else if (cmdName === "antitag") {
-    example = `${prefix}antitag on`;
   } else if (cmdName === "help") {
     example = `${prefix}help download`;
   } else {

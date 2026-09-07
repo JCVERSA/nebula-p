@@ -64,8 +64,8 @@ export function isQuietHour(now: Date, tz: string, range: string): boolean {
   if (!range || range.toLowerCase() === "off") return false;
   const m = range.match(/^(\d{1,2})-(\d{1,2})$/);
   if (!m) return false;
-  let startH = parseInt(m[1]!, 10);
-  let endH = parseInt(m[2]!, 10);
+  const startH = parseInt(m[1]!, 10);
+  const endH = parseInt(m[2]!, 10);
   if (startH > 23 || endH > 23) return false;
   const zone = moment.tz.zone(tz) ? tz : WATCH_DEFAULT_TZ;
   const hour = moment.tz(now, zone).hour();

@@ -2383,3 +2383,36 @@ contre le registre au runtime (une commande absente est ignorée + warn) et
 `tests/menuNa.test.ts` verrouille l'équivalence menu ↔ registre dans les deux
 sens + la synchronisation de la version affichée avec package.json.
 `timezone` ajoutée à la config (défaut Africa/Douala).
+
+---
+
+## §8.61 — Exécution de l'audit complet (2026-09-07, owner « approved all »)
+
+Rapport d'audit complet livré enMode A (aucune modif sans approbation), puis
+P2 approuvé et exécuté :
+
+- **Dépendances (M1)** : retrait de 7 paquets runtime inutilisés
+  (ytdl-core, @bochilteam/scraper, mumaker, node-webpmux,
+  @vitalets/google-translate-api, node-fetch, fluent-ffmpeg) +
+  @types/fluent-ffmpeg. node-fetch survit comme dépendance transitive
+  (gaxios, ruhend-scraper) — attendu. adm-zip déplacé devDependencies →
+  dependencies (importé par app.ts : c'était un bug de classification,
+  npm ci --omit=dev cassait le serveur).
+- **Diagnostics panneau (vrai bug corrigé)** : depsToCheck listait 7 paquets
+  retirés + « whatsapp-rust-bridge » qui n'a JAMAIS existé → faux échecs
+  permanents. Liste remplacée par les 9 dépendances runtime réelles.
+- **Modération résiduelle (M4, suite 8.59)** : hooks d'exécution
+  antilink/antitag/antibot du botEngine supprimés (les réglages étaient
+  ingérables depuis la suppression des commandes), champs GroupSettings
+  retirés (clés orphelines des groups.json du VPS tolérées au chargement),
+  src/bot/utils/antibot.ts supprimé, exemples morts de format.ts retirés.
+  welcome/goodbye et RoleGuard conservés. Sous-système warnings conservé
+  (contract backup/restore + tests — pas de consommateur commande).
+- **Sécurité (L1)** : server.ts execSync(shell) → spawnSync(tableau) pour la
+  vérification ffmpeg au boot.
+- **cat-catch-source/ (M6)** : 113 fichiers (2,7 Mo) de source GPL tiers
+  retirés du repo (le rapport docs/RAPPORT_SYSTEME_TELECHARGEMENT.md reste,
+  il pointe vers le GitHub amont).
+- **Warnings eslint (M5)** : --fix appliqué SAUF novabox.ts (revert — zone
+  « fragile », consigne owner absolue) : 601 → 593 warnings, 0 erreur.
+- P3 (tranches monolithes App.tsx/novabox) : approuvé, multi-sessions, à venir.
