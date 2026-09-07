@@ -15,7 +15,7 @@ import { initRegistry, getCommands, getCommand } from "../src/bot/commandRegistr
  */
 const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "ping", aliases: [] },
-  { name: "menu", aliases: [] },
+  { name: "menu", aliases: ["commands", "cmds"] },
   { name: "help", aliases: ["h", "info"] },
   { name: "ai", aliases: [] },
   { name: "image", aliases: [] },

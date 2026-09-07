@@ -2364,3 +2364,22 @@ bot). Messages utilisateur selon la politique 8.58 (FR simple).
 
 L'anime/novabox et le pipeline watch ne changent pas ; les commandes YouTube
 conservent les timeouts durcis (20 s) sur yt-search.
+
+---
+
+## §8.60 — Menu style Na (2026-09-07, décision owner)
+
+Le owner a demandé le menu du repo `JCVERSA/Na` (`commands/general/menu.js`,
+« Dark Neon »). Décisions : mise en page + carte + footer de Na, rempli avec
+les 18 VRAIES commandes (curation 8.59), footer owner confirmé (Dark Neon,
+wa.me/237640143760, t.me/Neonjca2), interface texte uniquement (pas d'image).
+
+Porté dans `src/bot/commands/menu.ts` : carte d'en-tête (ᴍᴏᴅᴇ/ᴘʀᴇғɪx/ᴜsᴇʀ/
+ᴄᴍᴅs/ᴠᴇʀsɪᴏɴ/ᴜᴘᴛɪᴍᴇ/ᴛɪᴍᴇ/ᴅᴀᴛᴇ/ᴛɪᴍᴇ ᴢᴏɴᴇ/ʀᴀᴍ, mention de l'utilisateur),
+sections encadrées `╭─「 ◈ 」╰┄┄` (AI, DOWNLOADER, ANIME, TOOLS & UTILITY,
+GENERAL), 3 messages successifs (600 ms), footer owner. Alias `.commands` /
+`.cmds` (inventaire 8.59 mis à jour). Garde-fous : les entrées sont validées
+contre le registre au runtime (une commande absente est ignorée + warn) et
+`tests/menuNa.test.ts` verrouille l'équivalence menu ↔ registre dans les deux
+sens + la synchronisation de la version affichée avec package.json.
+`timezone` ajoutée à la config (défaut Africa/Douala).

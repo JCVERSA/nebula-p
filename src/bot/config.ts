@@ -8,6 +8,8 @@ export interface BotConfig {
   ownerNumber: string;
   newsletterUrl: string;
   newsletterName: string;
+  /** IANA timezone used for the menu header clock (owner: Africa/Douala). */
+  timezone?: string;
   browserPlatform?: string;
   browserName?: string;
   browserVersion?: string;
@@ -21,6 +23,7 @@ export const defaultConfig: BotConfig = {
   ownerNumber: "",
   newsletterUrl: "https://whatsapp.com/channel/0029VaNebulaChannel",
   newsletterName: "Nebula Bot Official News",
+  timezone: "Africa/Douala",
   browserPlatform: "Ubuntu",
   browserName: "Chrome",
   browserVersion: "22.04.4",

@@ -140,8 +140,10 @@ describe("Simulation playground", () => {
       .set(auth)
       .send({ senderName: "Tester", text: ".menu" });
     expect(res.status).toBe(200);
-    expect(res.body.text).toContain("SERVICES");
-    expect(res.body.text).toContain("Powered by Nebula Engine");
+    // Menu style Na (8.60) : sections encadrées + footer owner.
+    expect(res.body.text).toContain("TOOLS & UTILITY");
+    expect(res.body.text).toContain("Dark Neon");
+    expect(res.body.text).toContain("wa.me/237640143760");
   });
 
   it("reports unknown commands gracefully", async () => {
