@@ -163,18 +163,11 @@ describe("quoted media extraction (8.48)", () => {
 });
 
 describe("wiring (8.48)", () => {
-  it("botEngine falls back to the quoted media; the .m command and deterministic novabox compression exist", () => {
-    const engine = fs.readFileSync("src/bot/botEngine.ts", "utf-8");
+  it("botEngine falls back to the quoted media; deterministic novabox compression exists", () => {
+    const engine = fs.readFileSync("src/bot/botEngine.ts", "utf8");
     expect(engine).toContain("extractQuotedMediaContent(messageContent)");
 
-    const cmd = fs.readFileSync("src/bot/commands/media.ts", "utf-8");
-    expect(cmd).toContain('name: "media"');
-    expect(cmd).toContain('"m"');
-    for (const tool of ["mp3", "gif", "vitesse", "trim", "compress"]) {
-      expect(cmd).toContain(tool);
-    }
-
-    const nova = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+    const nova = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");
     expect(nova).toContain("whatsappFitVideoOptions(probed.durationSec, 92, 480)");
     expect(nova).toContain("Deterministic WhatsApp fit");
   });

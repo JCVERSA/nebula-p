@@ -3,32 +3,23 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import pingCommand from "./commands/ping.js";
+import ytvideoCommand from "./commands/ytvideo.js";
+import songCommand from "./commands/song.js";
+import ytlinkCommand from "./commands/ytlink.js";
+import tiktokCommand from "./commands/tiktok.js";
+import instagramCommand from "./commands/instagram.js";
+import qrCommand from "./commands/qr.js";
+import base64Command from "./commands/base64.js";
+import getppCommand from "./commands/getpp.js";
+import whoisCommand from "./commands/whois.js";
 import menuCommand from "./commands/menu.js";
 import aiCommand from "./commands/ai.js";
 import imageCommand from "./commands/image.js";
-import ownerCommand from "./commands/owner.js";
 import defineCommand from "./commands/define.js";
-import downloadCommand from "./commands/download.js";
-import translateCommand from "./commands/translate.js";
-import hidetagCommand from "./commands/hidetag.js";
-import antilinkCommand from "./commands/antilink.js";
-import antitagCommand from "./commands/antitag.js";
-import antibotCommand from "./commands/antibot.js";
-import membersCommand from "./commands/members.js";
-import kickCommand from "./commands/kick.js";
-import promoteCommand from "./commands/promote.js";
-import demoteCommand from "./commands/demote.js";
 import helpCommand from "./commands/help.js";
 import swebCommand from "./commands/sweb.js";
-import videoCommand from "./commands/video.js";
-import mediaCommand from "./commands/media.js";
-import stickerCommand from "./commands/sticker.js";
-import tiktokCommand from "./commands/tiktok.js";
-import instagramCommand from "./commands/instagram.js";
-import ytSearchCommand from "./commands/ytsearch.js";
 import watchCommand from "./commands/watch.js";
 import animeCommand from "./commands/novabox.js";
-import accessCommand from "./commands/access.js";
 import { getCompiledPath } from "./commandCompiler.js";
 
 /**
@@ -84,28 +75,19 @@ const defaultCommands = [
   helpCommand,
   aiCommand,
   imageCommand,
-  ownerCommand,
   defineCommand,
-  downloadCommand,
-  translateCommand,
-  hidetagCommand,
-  antilinkCommand,
-  antitagCommand,
-  antibotCommand,
-  membersCommand,
-  kickCommand,
-  promoteCommand,
-  demoteCommand,
   swebCommand,
-  videoCommand,
-  mediaCommand,
-  stickerCommand,
-  tiktokCommand,
-  instagramCommand,
-  ytSearchCommand,
   watchCommand,
   animeCommand,
-  accessCommand,
+  ytvideoCommand,
+  songCommand,
+  ytlinkCommand,
+  tiktokCommand,
+  instagramCommand,
+  qrCommand,
+  base64Command,
+  getppCommand,
+  whoisCommand,
 ];
 
 function register(cmd: BotCommand) {

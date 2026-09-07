@@ -2334,3 +2334,33 @@ Rewritten (~55 messages across 17 command files + batchRecap):
   notices, action prompts.
 - Tests updated where they pinned the old English (downloadPage,
   hlsVariants). 441/441 (48 files), tsc, eslint 0 errors, prettier clean.
+
+---
+
+## §8.59 — Curation définitive des commandes (2026-09-07, décision owner)
+
+L'owner a fixé la liste ABSOLUE et définitive des commandes : `.define .sweb
+.ping .menu .help .image .qr .base64 .getpp .whois .watch .ai .ytv .yts
+.ytm .tiktok .instagram` + toutes les commandes novabox (intouchées).
+Registre final : **18 commandes** (vérifié par `tests/commandInventory.test.ts`
+— tout ajout/retrait non décidé casse la CI).
+
+**Supprimé** : `.m` (media toolkit), `.s` (sticker), `.dl` (download),
+translate, owner, et toute la modération (kick, promote, demote, members,
+hidetag, antilink, antitag, antibot, access). Chaîne UVR complète retirée
+(vocalRemover.ts, python/uvr_runner.py, scripts/uvr-setup.sh, entrées
+manage.sh/.env.example) ; le modèle Kim_Vocal_2 sha256-pinné de 8.49 devient
+orphelin sur le disque du VPS (chemin `models/uvr/` — suppression manuelle
+optionnelle, ~67 Mo).
+
+**Porté depuis JCVERSA/neb (originaux JS, fidèles — sans le système de
+pièces)** : `ytvideo.ts` (.ytv, chaîne 4 APIs, résolution en dernier arg),
+`song.ts` (.ytm, 5 APIs + conversion AAC via runFfmpegKit au lieu d'execSync,
+plafond 60 Mo), `ytlink.ts` (.yts), `tiktok.ts` (tikwm hd), `instagram.ts`
+(ruhend-scraper igdl, dédoublonné, max 20), `qr.ts` (qrcode 500px),
+`base64.ts` (9 actions), `getpp.ts`, `whois.ts` (version profil — stats
+d'activité/warns de l'original non portés : aucun tracker d'activité dans ce
+bot). Messages utilisateur selon la politique 8.58 (FR simple).
+
+L'anime/novabox et le pipeline watch ne changent pas ; les commandes YouTube
+conservent les timeouts durcis (20 s) sur yt-search.

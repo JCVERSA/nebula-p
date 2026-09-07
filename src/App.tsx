@@ -3243,7 +3243,7 @@ export default function App() {
 
                     <Card title="Quick Send" icon={Zap}>
                       <div className="flex flex-wrap gap-2">
-                        {[".ping", ".menu", ".anime", ".download", ".translate", ".media", ".w", ".sweb"].map((cmd) => (
+                        {[".ping", ".menu", ".anime", ".yts", ".ytv", ".ytm", ".w", ".sweb"].map((cmd) => (
                           <button
                             key={cmd}
                             onClick={() => simulateCommandFromDoc(cmd)}
