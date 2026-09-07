@@ -3031,6 +3031,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   let activeSendPath = localPath;
 
   if (downloadSuccess && fs.existsSync(localPath)) {
+    // 8.63: assigned inside try once the shared caption builder exists.
+    let fallbackCaption = "";
     try {
       let stats = fs.statSync(localPath);
       let fileSizeMB = stats.size / (1024 * 1024);
@@ -3147,19 +3149,25 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
       const tempDownloadLink = tempDownload ? tempDownload.downloadUrl : "";
 
-      const caption = 
+      // 8.63 (M2 tranche 1): shared caption builder — the success and the
+      // delivery-error captions previously duplicated these lines; keeping
+      // ONE source of truth so language honesty edits cannot drift apart.
+      const captionHead =
         `📥 *NEBULA NOVABOX DOWNLOAD* 📥\n\n` +
         `🎬 *Anime:* ${session.animeTitle}\n` +
         `🗣️ *Language:* ${deliveredLang}${fbLanguageNote}\n` +
         `📅 *Season:* ${session.selectedSeason?.name}\n` +
         `🎞️ *Episode:* Episode ${epNum}\n` +
-        `⚙️ *Resolution:* ${resolution}\n` +
-        `📦 *Size:* ${fileSizeMB.toFixed(1)} MB\n` +
+        `⚙️ *Resolution:* ${resolution}\n`;
+      const captionTail = (highSpeedLink: string) =>
         `📺 *Player Source:* ${activePlayerName}\n` +
         `📄 *Filename:* \`${deliveredFilename}\`\n\n` +
-        (tempDownloadLink ? `🚀 *Direct High-Speed Download (Browser/PC):*\n🔗 ${tempDownloadLink}\n⏳ _Valid for 2 Hours_\n\n` : "") +
+        (highSpeedLink ? `🚀 *Direct High-Speed Download (Browser/PC):*\n🔗 ${highSpeedLink}\n⏳ _Valid for 2 Hours_\n\n` : "") +
         (vidmolyUrl ? `• 📺 *Play Ad-Free (${playerSourceLabel(vidmolyUrl)}):* ${vidmolyUrl}\n` : "") +
         `\n🌌 _Nebula Bot - Your ultimate media center_`;
+
+      const caption = captionHead + `📦 *Size:* ${fileSizeMB.toFixed(1)} MB\n` + captionTail(tempDownloadLink);
+      fallbackCaption = captionHead + captionTail("");
 
       const tSend = Date.now();
       const logSendDone = (lane: string) =>
@@ -3210,17 +3218,6 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       await context.react("✅");
     } catch (sendErr: any) {
       console.error("[NOVABOX] Delivery error:", sendErr);
-      const fallbackCaption = 
-        `📥 *NEBULA NOVABOX DOWNLOAD* 📥\n\n` +
-        `🎬 *Anime:* ${session.animeTitle}\n` +
-        `🗣️ *Language:* ${deliveredLang}${fbLanguageNote}\n` +
-        `📅 *Season:* ${session.selectedSeason?.name}\n` +
-        `🎞️ *Episode:* Episode ${epNum}\n` +
-        `⚙️ *Resolution:* ${resolution}\n` +
-        `📺 *Player Source:* ${activePlayerName}\n` +
-        `📄 *Filename:* \`${deliveredFilename}\`\n\n` +
-        (vidmolyUrl ? `• 📺 *Play Ad-Free (${playerSourceLabel(vidmolyUrl)}):* ${vidmolyUrl}\n` : "") +
-        `\n🌌 _Nebula Bot - Your ultimate media center_`;
       await context.reply(
         `❌ *Impossible d\u2019envoyer le fichier — voici les liens de lecture à la place :*\n\n` + fallbackCaption
       );

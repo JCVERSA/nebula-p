@@ -5,7 +5,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { spawn } from "child_process";
-import { isSafeDownloadUrl } from "../urlSafety.js";
+import { isSafeDownloadUrl, safeAxiosGet } from "../urlSafety.js";
 import { animeProxyOptions } from "./scrapingProxy.js";
 
 import { resolvedFfmpegPath } from "../ffmpeg.js";
@@ -200,7 +200,7 @@ export async function robustFetchText(url: string, headers: Record<string, strin
 
     // Try Axios
     try {
-      const resp = await axios.get(url, { headers: candidateHeaders, timeout: 10000, validateStatus: (status) => status === 200, ...animeProxyOptions() });
+      const resp = await safeAxiosGet(url, { headers: candidateHeaders, timeout: 10000, validateStatus: (status) => status === 200, ...animeProxyOptions() });
       if (isValid(resp.data)) return resp.data;
     } catch (err: any) {
       if (process.env.DEBUG_MEDIA === "true") {
@@ -227,7 +227,7 @@ export async function robustFetchText(url: string, headers: Record<string, strin
   for (const subUrl of subVariants) {
     for (const h of headerCandidates.slice(0, 5)) {
       try {
-        const resp = await axios.get(subUrl, { headers: h, timeout: 8000, validateStatus: (s) => s === 200, ...animeProxyOptions() });
+        const resp = await safeAxiosGet(subUrl, { headers: h, timeout: 8000, validateStatus: (s) => s === 200, ...animeProxyOptions() });
         if (isValid(resp.data) && resp.data.includes("#EXT")) {
           console.log(`[ROBUST_FETCH] Sub-variant fallback succeeded for: ${subUrl}`);
           return resp.data;
@@ -388,7 +388,7 @@ export async function robustFetchBuffer(url: string, headers: Record<string, str
 
     // Try Axios arraybuffer
     try {
-      const resp = await axios.get(url, { headers: candidateHeaders, timeout: 15000, responseType: "arraybuffer", validateStatus: (status) => status >= 200 && status < 300, ...animeProxyOptions() });
+      const resp = await safeAxiosGet(url, { headers: candidateHeaders, timeout: 15000, responseType: "arraybuffer", validateStatus: (status) => status >= 200 && status < 300, ...animeProxyOptions() });
       const buf = Buffer.from(resp.data);
       if (isValid(buf)) return buf;
     } catch (err: any) {

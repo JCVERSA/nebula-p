@@ -2454,3 +2454,34 @@ Tests : 9 nouveaux (oracle vf/no_vf/unknown + saison, tiering labels-free,
 strict vf/no_vf/unknown, câblage novabox). 428/428. Sandbox : franime
 injoignable (SSL filtré) — comportement réel du catalogue à confirmer sur
 le VPS via `npm run anime:doctor` après activation.
+
+---
+
+## §8.63 — Audit novabox exécuté : PA (redirections) + PB (légende partagée) (2026-09-07)
+
+Audit complet MODE A du pipeline anime livré (M1 redirections axios,
+M2 monolithe/duplication, L2 default timeout trompeur ; aucun CRITICAL/HIGH).
+Owner « approved all » → PA + PB exécutés :
+
+- **PA (M1)** : `safeAxiosGet()` dans urlSafety.ts — axios ne suit PLUS
+  jamais les redirections automatiquement (maxRedirects: 0 forcé) ; chaque
+  saut 3xx est résolu manuellement (Location absolue OU relative) puis
+  re-validé par isSafeDownloadUrl (IP privées/loopback bloquées, DNS épinglé)
+  avant d'être suivi, max 5 sauts ; validateStatus de l'appelant réappliqué
+  à la réponse finale (erreur axios-shaped avec .response). Parité avec
+  safeFetch (qui validait déjà par saut). Appliqué aux 6 sites concernés :
+  hlsDownloader ×3 (texte master, sous-variantes, buffer segments),
+  animeStreamExtractor ×2 (player HTML, chaîne voe), voiranimeClient ×1
+  (fetchHtml) — leurs `maxRedirects: 5` explicites supprimés.
+- **PB (M2 tranche 1)** : légende de livraison dédupliquée dans
+  sendFinalEpisode — `captionHead` + `captionTail(link)` partagés entre la
+  légende de succès et le fallback d'erreur d'envoi (fallbackCaption hissé
+  avant le try, affecté après la construction de caption). Sorties
+  strictement identiques (mêmes chaînes), source unique pour l'honnêteté
+  de langue — les 2 sites dupliqués ne peuvent plus dériver.
+- Tests : tests/safeRedirects.test.ts (6 cas : suivi validé, Location
+  relative, IP privée bloquée, 3xx sans Location, bornes de sauts,
+  validateStatus final) — cible trusted-host (voir-anime.to) donc ZÉRO DNS,
+  déterministe hors-ligne. 434/434 (46 fichiers).
+- L2 (default 25 s trompeur) laissé tel quel (cosmétique, tous les appelants
+  passent 240000 explicitement).

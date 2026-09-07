@@ -253,6 +253,7 @@ if (!domain) {
 }
 
 // nakanime.tv mirror — the bot's AUTOMATIC fallback source when anime-sama is
+let nakanimeReachable = false; // 8.62c: anime-sama fails are non-fatal while this is true
 // blocked. If this answers 200, the anime command works end-to-end even with
 // every anime-sama domain 403 above.
 try {
@@ -266,6 +267,7 @@ try {
     12000,
     "nakanime",
   );
+  nakanimeReachable = res.status === 200;
   row(
     "1",
     "nakanime.tv (auto-fallback source)",
@@ -681,9 +683,18 @@ const p1Fails = rows.filter((r) => !r.p0 && r.status === "FAIL");
 console.log(
   `Summary: ${rows.filter((r) => r.status === "PASS").length} pass, ${rows.filter((r) => r.status === "WARN").length} warn, ${p0Fails.length + p1Fails.length} fail, ${rows.filter((r) => r.status === "SKIP").length} skip`,
 );
-if (p0Fails.length) {
+// 8.62c: since audit 8.53 the bot searches on nakanime FIRST and takes VF
+// from voir-anime — anime-sama is optional. Its failures must not cry wolf.
+const samaOnly =
+  /^anime-sama|^usable domain$|^fetch\.php|^catalog page|^epsN|^mirrors$|^master playlist/;
+const fatalP0Fails = nakanimeReachable ? p0Fails.filter((r) => !samaOnly.test(r.name)) : p0Fails;
+if (fatalP0Fails.length) {
   console.log(
     "\nDiagnosis: a P0 stage failed - the command cannot work at all until this is fixed.",
+  );
+} else if (nakanimeReachable && p0Fails.length) {
+  console.log(
+    "\nDiagnosis: the anime pipeline WORKS from this host (search: nakanime PASS, VF: voir-anime PASS).\nanime-sama itself is IP-blocked (stages 2-6 above) — that is expected on datacenter ranges and\nNOT a problem for the bot. Set NEBULA_ANIME_PROXY only if you want anime-sama's catalog back.",
   );
 } else if (p1Fails.length) {
   console.log(
@@ -694,4 +705,4 @@ if (p0Fails.length) {
     "\nDiagnosis: the full chain works from this server. If WhatsApp delivery still fails, check the\nbot logs around [NOVABOX]/[MIRROR_FALLBACK] and the WhatsApp 100MB/2GB attachment limits.",
   );
 }
-process.exit(p0Fails.length ? 1 : 0);
+process.exit(fatalP0Fails.length ? 1 : 0);

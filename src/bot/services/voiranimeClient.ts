@@ -17,7 +17,7 @@
  *  back to the nakanime path.
  */
 
-import axios from "axios";
+import { safeAxiosGet } from "../urlSafety.js";
 import * as cheerio from "cheerio";
 import { animeProxyOptions } from "./scrapingProxy.js";
 
@@ -33,10 +33,9 @@ export interface VoiranimeSearchResult {
 }
 
 async function fetchHtml(url: string): Promise<string> {
-  const resp = await axios.get(url, {
+  const resp = await safeAxiosGet(url, {
     headers: { "User-Agent": UA, Referer: `${VOIRANIME_ORIGIN}/`, Accept: "text/html" },
     timeout: PAGE_TIMEOUT_MS,
-    maxRedirects: 5,
     validateStatus: (s) => s === 200,
     ...animeProxyOptions()
   });

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { safeAxiosGet } from "../urlSafety.js";
 import { spawn } from "child_process";
 import fs from "fs";
 import os from "os";
@@ -386,13 +387,12 @@ export async function probeGenericPlayerPage(playerUrl: string, hostLabel?: stri
     if (!originMatch) return null;
     const playerOrigin = originMatch[1];
 
-    const resp = await axios.get(playerUrl, {
+    const resp = await safeAxiosGet(playerUrl, {
       headers: {
         "User-Agent": DEFAULT_USER_AGENT,
         "Referer": `${playerOrigin}/`
       },
       timeout: 8000,
-      maxRedirects: 5,
       validateStatus: () => true,
       ...animeProxyOptions()
     });
@@ -447,13 +447,12 @@ export async function probeGenericPlayerPage(playerUrl: string, hostLabel?: stri
  */
 async function extractVoeStream(voeUrl: string, depth = 0): Promise<string | null> {
   try {
-    const resp = await axios.get(voeUrl, {
+    const resp = await safeAxiosGet(voeUrl, {
       headers: {
         "User-Agent": DEFAULT_USER_AGENT,
         "Referer": "https://nakanime.tv/"
       },
       timeout: 8000,
-      maxRedirects: 5,
       validateStatus: () => true,
       ...animeProxyOptions()
     });

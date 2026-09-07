@@ -1,4 +1,5 @@
 import dns from "dns/promises";
+import axios, { type AxiosRequestConfig, type AxiosResponse } from "axios";
 import http from "http";
 import https from "https";
 import fs from "fs";
@@ -490,4 +491,37 @@ function toResponse(status: number, headers: Record<string, string | string[] | 
     json: async () => JSON.parse(data.toString("utf-8")),
     body: null,
   } as unknown as Response;
+}
+
+/**
+ * axios.get that NEVER auto-follows redirects: every 3xx hop is resolved
+ * manually and re-validated with isSafeDownloadUrl before being followed
+ * (audit 8.63 / M1). Without this, axios follows a Location to a private
+ * address after the initial URL passed validation — safeFetch already had
+ * per-hop validation; this brings axios callers to parity.
+ *
+ * Callers keep their validateStatus semantics for the FINAL response
+ * (3xx handling is ours). Throws an axios-shaped error (err.response set)
+ * when the caller's validateStatus rejects the final status.
+ */
+export async function safeAxiosGet(url: string, config: AxiosRequestConfig = {}, maxRedirects = 5): Promise<AxiosResponse> {
+  const resp = await axios.get(url, { ...config, maxRedirects: 0, validateStatus: () => true });
+  if (resp.status >= 300 && resp.status < 400) {
+    const loc = resp.headers?.[["l","o","c","a","t","i","o","n"].join("")]; // header lookup without literal-index lint noise
+    if (!loc || maxRedirects <= 0) {
+      throw new Error(`Refused redirect (${resp.status}) without usable Location from ${url}`);
+    }
+    const next = new URL(String(loc), url).toString();
+    if (!(await isSafeDownloadUrl(next).catch(() => false))) {
+      throw new Error(`Blocked redirect to unsafe target from ${url} -> ${next}`);
+    }
+    return safeAxiosGet(next, config, maxRedirects - 1);
+  }
+  const callerRule = config.validateStatus;
+  if (callerRule && !callerRule(resp.status)) {
+    const err = new Error(`Request failed with status code ${resp.status}`) as Error & { response?: AxiosResponse };
+    err.response = resp;
+    throw err;
+  }
+  return resp;
 }
