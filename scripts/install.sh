@@ -70,7 +70,7 @@ apt_install() { # $@ = paquets ; return 1 si échec
 }
 
 # ---------------------------------------------------------------------------
-step "1/6 · Vérifications de base"
+step "1/7 · Vérifications de base"
 # ---------------------------------------------------------------------------
 [ "$(uname -s)" = "Linux" ] || fail "Ce script cible Linux (detected: $(uname -s))."
 case "$(uname -m)" in
@@ -109,7 +109,7 @@ fi
 ok "git $(git --version 2>/dev/null | awk '{print $3}')"
 
 # ---------------------------------------------------------------------------
-step "2/6 · Node.js (>= 22)"
+step "2/7 · Node.js (>= 22)"
 # ---------------------------------------------------------------------------
 NODE_MAJOR=0
 if command -v node >/dev/null 2>&1; then
@@ -130,7 +130,7 @@ fi
 ok "node $(node -v) / npm $(npm -v)"
 
 # ---------------------------------------------------------------------------
-step "3/6 · ffmpeg (requis pour les téléchargements anime)"
+step "3/7 · ffmpeg (requis pour les téléchargements anime)"
 # ---------------------------------------------------------------------------
 if command -v ffmpeg >/dev/null 2>&1; then
   ok "ffmpeg $(ffmpeg -version 2>/dev/null | head -1 | awk '{print $3}')"
@@ -142,7 +142,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-step "4/6 · Récupération du code"
+step "4/7 · yt-dlp (téléchargeur universel : Facebook, Twitter/X, secours YouTube/TikTok/Instagram)"
+# ---------------------------------------------------------------------------
+# Binaire autonome officiel (méthode validée en prod 8.66), pas de paquet apt
+# (souvent obsolète). Idempotent.
+if command -v yt-dlp >/dev/null 2>&1; then
+  ok "yt-dlp $(yt-dlp --version 2>/dev/null | head -1) déjà présent"
+elif [ "$(id -u)" -eq 0 ] && command -v curl >/dev/null 2>&1; then
+  curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp \
+    && ok "yt-dlp $(yt-dlp --version 2>/dev/null | head -1) installé dans /usr/local/bin" \
+    || warn "Téléchargement yt-dlp impossible — réessaie via nebula setup plus tard"
+else
+  warn "yt-dlp non installé (root/curl requis) — nebula setup l'installera quand possible"
+fi
+
+# ---------------------------------------------------------------------------
+step "5/7 · Récupération du code"
 # ---------------------------------------------------------------------------
 if [ -d "$INSTALL_DIR/.git" ]; then
   CUR_REMOTE="$(git -C "$INSTALL_DIR" remote get-url origin 2>/dev/null || true)"
@@ -181,7 +197,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-step "5/6 · Commande 'nebula' + dépendances + build"
+step "6/7 · Commande 'nebula' + dépendances + build"
 # ---------------------------------------------------------------------------
 mkdir -p "$BIN_DIR"
 ln -sf "$INSTALL_DIR/manage.sh" "$BIN_DIR/nebula"
@@ -208,7 +224,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-step "6/6 · Configuration"
+step "7/7 · Configuration"
 # ---------------------------------------------------------------------------
 if [ ! -f "$INSTALL_DIR/.env" ]; then
   if cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env" 2>/dev/null; then

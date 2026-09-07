@@ -379,6 +379,17 @@ cmd_setup() {
   # d'updates de 20-30 min) alors que le binaire système a toujours été
   # préféré — elle a été retirée (audit 8.29).
   command -v ffmpeg >/dev/null 2>&1 || warn "ffmpeg introuvable — apt install ffmpeg (sinon les téléchargements échoueront au remux)"
+  hdr "yt-dlp (téléchargeur universel — 8.67)"
+  if command -v yt-dlp >/dev/null 2>&1; then
+    ok "yt-dlp $(yt-dlp --version 2>/dev/null | head -1) déjà présent"
+  elif [ "$(id -u)" -eq 0 ] && command -v curl >/dev/null 2>&1; then
+    curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+      -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp \
+      && ok "yt-dlp $(yt-dlp --version 2>/dev/null | head -1) installé" \
+      || warn "yt-dlp non installé (réseau ?) — relance nebula setup plus tard"
+  else
+    warn "yt-dlp non installé (root/curl requis) — manuel : curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp"
+  fi
   ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 2 | sed 's/^/    /' ) || die "npm install a échoué"
   hdr "Fichier .env"
   if [ ! -f "${ENV_FILE}" ]; then
@@ -578,6 +589,8 @@ cmd_doctor() {
   command -v npm  >/dev/null 2>&1 && ok "npm $(npm -v 2>/dev/null)" || { ko "npm introuvable"; fails=$((fails+1)); }
   command -v ffmpeg >/dev/null 2>&1 && ok "ffmpeg $(ffmpeg -version 2>/dev/null | head -1 | cut -d' ' -f3)" \
                                         || { ko "ffmpeg introuvable (apt install ffmpeg)"; fails=$((fails+1)); }
+  command -v yt-dlp >/dev/null 2>&1 && ok "yt-dlp $(yt-dlp --version 2>/dev/null | head -1) (téléchargeur universel)" \
+                                        || warn "yt-dlp absent — nebula setup l'installe (Facebook/Twitter indisponibles)"
   command -v git >/dev/null 2>&1 && ok "git $(git --version | cut -d' ' -f3)" || warn "git introuvable (utile pour update)"
 
   # Dépôt
