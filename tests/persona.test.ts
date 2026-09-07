@@ -18,6 +18,8 @@ describe("persona — base prompt", () => {
     const p = getPersonaPrompt("command", "Nebula");
     for (const expected of [
       "# Identity",
+      "# Origin",
+      "Jcversa — Dark Neon",
       "You are Nebula, the AI assistant",
       "Never invent facts",
       "default to French",
