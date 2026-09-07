@@ -18,6 +18,9 @@ import {
   franimeSeasons,
   franimeSeasonInfo,
   franimeEpisodePlayers,
+  franimeVfOracle,
+  franimeSeasonHasVf,
+  type FranimeVfVerdict,
   parseFranimeSeasonRef
 } from "../services/franimeClient.js";
 import {
@@ -2437,6 +2440,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string; expiresAt: number }> = [];
     let failedEpisodeCount = 0;
     let fallbackLangDelivered = 0;
+    let unconfirmedLangCount = 0; // 8.62: fallback mirrors with NO language label
+    let vfOracleFetched = false; // franime oracle: one lookup per batch (catalog disk-cached)
+    let batchVfVerdict: FranimeVfVerdict | undefined;
     const downloadedFilePaths: string[] = [];
 
     // Clear session to prevent re-entrant execution
@@ -2548,16 +2554,24 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           let rescued = false;
           if (process.env.NEBULA_VOSTFR_FALLBACK !== "0") {
             try {
+              if (!vfOracleFetched && lang.toUpperCase() === "VF") {
+                vfOracleFetched = true;
+                batchVfVerdict = await franimeVfOracle(session.animeTitle, session.userSearchQuery ? [session.userSearchQuery] : []).catch(() => undefined);
+              }
               const fb = await getCrossSourceFallbackMirrors(
                 session.animeTitle,
                 parseInt(seasonNum, 10) || 1,
                 epIndex,
-                lang.toUpperCase() === "VF" ? "VF" : "VOSTFR"
+                lang.toUpperCase() === "VF" ? "VF" : "VOSTFR",
+                undefined,
+                { vfVerdict: batchVfVerdict }
               );
               if (fb && fb.mirrors.length > 0) {
                 const fbResult = await downloadWithAllMirrorsFallback(fb.mirrors, resolution, localPath, 240000);
                 if (fbResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
-                  const fbLang = languageOfUrl(fb.lists, fb.labels, fbResult.usedUrl) || lang;
+                  const fbLangLabel = languageOfUrl(fb.lists, fb.labels, fbResult.usedUrl);
+                  const fbLang = fbLangLabel || lang;
+                  if (!fbLangLabel) unconfirmedLangCount++;
                   const fbMB = fs.statSync(localPath).size / (1024 * 1024);
                   if (totalMBDownloaded + fbMB > MAX_BATCH_TOTAL_MB) {
                     try { fs.unlinkSync(localPath); } catch {}
@@ -2752,6 +2766,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           : "") +
         (fallbackLangDelivered > 0
           ? `🔉 *${fallbackLangDelivered}* épisode(s) livré(s) via la roue de secours (_${fallbackLangDelivered === 1 ? "langue" : "langues"} alternatives_ — VF indisponible sur les CDN).\n`
+          : "") +
+        (unconfirmedLangCount > 0
+          ? `⚠️ *${unconfirmedLangCount}* épisode(s) livré(s) sans confirmation de langue par la source — vérifie avant de partager.\n`
           : "") +
         `⏳ *Links Validity:* 2 Hours\n\n` +
         (pageDelivered
@@ -2960,14 +2977,27 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   // same episode on the secondary catalog — its own VF lists first, then the
   // rest. The delivered language is reported honestly in filename + message.
   let deliveredLang = lang;
+  let fbLangUnconfirmed = false; // 8.62: fallback mirror with NO language label
+  let noVfConfirmed = false; // 8.62: franime oracle says this title has no VF at all
   if (!downloadSuccess && process.env.NEBULA_VOSTFR_FALLBACK !== "0") {
     try {
       const fbSeasonNum = parseInt(session.selectedSeason?.name.match(/\d+/)?.[0] || "01", 10) || 1;
+      const fbWantedVf = (session.selectedLanguage || "VF").toUpperCase() === "VF";
+      // VF oracle (8.62): franime's catalog is the ground truth for "does a
+      // VF exist?" — nakanime's per-list labels proved wrong (audit 8.6) and
+      // delivered VOSTFR files named _VF_.
+      let vfVerdict: FranimeVfVerdict | undefined;
+      if (fbWantedVf) {
+        vfVerdict = await franimeVfOracle(session.animeTitle, session.userSearchQuery ? [session.userSearchQuery] : []).catch(() => undefined);
+        noVfConfirmed = vfVerdict?.status === "no_vf" || franimeSeasonHasVf(vfVerdict, fbSeasonNum) === false;
+      }
       const fb = await getCrossSourceFallbackMirrors(
         session.animeTitle,
         fbSeasonNum,
         epIndex,
-        (session.selectedLanguage || "VF").toUpperCase() === "VF" ? "VF" : "VOSTFR"
+        fbWantedVf ? "VF" : "VOSTFR",
+        undefined,
+        { vfVerdict }
       );
       if (fb && fb.mirrors.length > 0) {
         console.log(`[NOVABOX] Cross-source fallback: trying ${fb.mirrors.length} mirror(s) from the secondary catalog...`);
@@ -2975,14 +3005,24 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         if (fbResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
           downloadSuccess = true;
           activePlayerName = fbResult.hostName;
-          deliveredLang = languageOfUrl(fb.lists, fb.labels, fbResult.usedUrl) || lang;
-          console.log(`[NOVABOX] Cross-source fallback succeeded via ${fbResult.hostName} (${deliveredLang}).`);
+          const fbLabel = languageOfUrl(fb.lists, fb.labels, fbResult.usedUrl);
+          deliveredLang = fbLabel || lang;
+          fbLangUnconfirmed = !fbLabel;
+          console.log(`[NOVABOX] Cross-source fallback succeeded via ${fbResult.hostName} (${deliveredLang}${fbLangUnconfirmed ? ", langue non confirmee" : ""}).`);
         }
       }
     } catch (fbErr: any) {
       console.warn("[NOVABOX] Cross-source fallback note:", fbErr?.message);
     }
   }
+  const fbLanguageNote =
+    deliveredLang !== lang
+      ? noVfConfirmed
+        ? " _(aucune VF n'existe pour ce titre — VOSTFR via la roue de secours)_"
+        : " _(via la roue de secours — VF indisponible sur le CDN)_"
+      : fbLangUnconfirmed
+        ? " _(langue non confirmée par la source)_"
+        : "";
   const deliveredFilename = deliveredLang !== lang ? filename.replace(`_${lang}_`, `_${deliveredLang}_`) : filename;
 
   // Clear user session to free memory
@@ -3110,7 +3150,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       const caption = 
         `📥 *NEBULA NOVABOX DOWNLOAD* 📥\n\n` +
         `🎬 *Anime:* ${session.animeTitle}\n` +
-        `🗣️ *Language:* ${deliveredLang}${deliveredLang !== lang ? " _(via la roue de secours — VF indisponible sur le CDN)_" : ""}\n` +
+        `🗣️ *Language:* ${deliveredLang}${fbLanguageNote}\n` +
         `📅 *Season:* ${session.selectedSeason?.name}\n` +
         `🎞️ *Episode:* Episode ${epNum}\n` +
         `⚙️ *Resolution:* ${resolution}\n` +
@@ -3173,7 +3213,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       const fallbackCaption = 
         `📥 *NEBULA NOVABOX DOWNLOAD* 📥\n\n` +
         `🎬 *Anime:* ${session.animeTitle}\n` +
-        `🗣️ *Language:* ${deliveredLang}${deliveredLang !== lang ? " _(via la roue de secours — VF indisponible sur le CDN)_" : ""}\n` +
+        `🗣️ *Language:* ${deliveredLang}${fbLanguageNote}\n` +
         `📅 *Season:* ${session.selectedSeason?.name}\n` +
         `🎞️ *Episode:* Episode ${epNum}\n` +
         `⚙️ *Resolution:* ${resolution}\n` +

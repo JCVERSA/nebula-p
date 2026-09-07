@@ -2416,3 +2416,41 @@ P2 approuvé et exécuté :
 - **Warnings eslint (M5)** : --fix appliqué SAUF novabox.ts (revert — zone
   « fragile », consigne owner absolue) : 601 → 593 warnings, 0 erreur.
 - P3 (tranches monolithes App.tsx/novabox) : approuvé, multi-sessions, à venir.
+
+---
+
+## §8.62 — Oracle VF franime + socle langue honnête (2026-09-07)
+
+Symptôme owner : VF demandée (étiquette « VF »), épisode livré en VOSTFR.
+Analyse : (A) le fallback cross-source (8.46) traverse les langues par
+design ; (B) BUG — les étiquettes par liste de nakanime sont fausses
+(documenté audit 8.6) et une liste sans étiquette faisait_claim « VF » via
+`languageOfUrl() → null → deliveredLang = lang`.
+
+Correctif (owner : « oublie anime-sama, reprends le plan franime ») :
+
+1. **Oracle VF** (`franimeClient.franimeVfOracle`) : le catalogue public
+   franime (cache disque 6 h, déjà intégré 8.7) donne la vérité par
+   épisode (`lang.vf.lecteurs`). Répond vf / no_vf / unknown au niveau
+   titre + par saison numérotée. Gate `NEBULA_FRANIME_ENABLED=1` (off par
+   défaut → comportement inchangé jusqu'à activation).
+2. **Fallback strict** (`getCrossSourceFallbackMirrors` option
+   `vfVerdict`) : oracle confirme VF → miroirs étiquetés VF UNIQUEMENT
+   (plus de VOSTFR silencieux) ; oracle no_vf (titre sans aucune VF) →
+   secours VOSTFR maintenu (décision owner 2026-09-03) avec étiquette
+   honnête ; unknown → ordre actuel.
+3. **Tiering** : une liste SANS étiquette n'est jamais primaire pour une
+   demande VF (le reste pour VOSTFR — langue par défaut des lecteurs).
+4. **Honnêteté de livraison** : langue livrée non confirmée → note
+   « ⚠️ langue non confirmée par la source » (épisode seul + recap batch,
+   compteur dédié) ; oracle no_vf → note « aucune VF n'existe pour ce
+   titre — VOSTFR via la roue de secours ». Le fichier ne s'appelle plus
+   `_VF_` sur la seule foi de la langue demandée.
+5. **Doctor** : `scripts/anime-doctor.ts` charge désormais `.env`
+   (dotenv) — l'anomalie « APP_URL not set » était un simple manque de
+   chargement d'env. Sonde franime visible via NEBULA_FRANIME_ENABLED=1.
+
+Tests : 9 nouveaux (oracle vf/no_vf/unknown + saison, tiering labels-free,
+strict vf/no_vf/unknown, câblage novabox). 428/428. Sandbox : franime
+injoignable (SSL filtré) — comportement réel du catalogue à confirmer sur
+le VPS via `npm run anime:doctor` après activation.

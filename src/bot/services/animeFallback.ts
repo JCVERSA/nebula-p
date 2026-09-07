@@ -15,6 +15,7 @@
  */
 
 import { nakanimeSearch, nakanimeSeasons, nakanimeEpisodePlayersDetailed } from "./nakanimeClient.js";
+import { franimeSeasonHasVf, type FranimeVfVerdict } from "./franimeClient.js";
 
 export interface FallbackEpisodeAccess {
   lists: Record<number, string[]>;
@@ -106,7 +107,11 @@ export function tierMirrorsForEpisode(
     const url = lists?.[listId]?.[epIndex];
     if (!url) continue;
     const listIsVf = hasLabels ? isVfLangLabel(labels[listId]?.language) : false;
-    const bucket = listIsVf === wantVf || !hasLabels ? primary : secondary;
+    // 8.62: an UNLABELED list is never primary for a VF request (nakanime's
+    // labels proved unreliable — audit 8.6 — and guessing "VF" delivered
+    // VOSTFR files named _VF_). Unlabeled lists stay primary for VOSTFR
+    // requests: VOSTFR is the default language of unlabeled players.
+    const bucket = listIsVf === wantVf && (hasLabels || !wantVf) ? primary : secondary;
     if (!bucket.includes(url)) bucket.push(url);
   }
   return { primary, secondary };
@@ -176,17 +181,32 @@ export async function resolveFallbackSource(
 }
 
 /** Full convenience call: mirrors for ONE episode, best language first. */
+export interface FallbackOptions {
+  /** VF ground truth from franime's catalog (oracle 8.62), if available. */
+  vfVerdict?: FranimeVfVerdict;
+}
+
 export async function getCrossSourceFallbackMirrors(
   title: string,
   seasonNum: number,
   epIndex: number,
   wantLang: string,
-  deps?: FallbackDeps
+  deps?: FallbackDeps,
+  options?: FallbackOptions
 ): Promise<CrossSourceFallback | null> {
   const wantVf = (wantLang || "VF").toUpperCase() === "VF";
   const resolved = await resolveFallbackSource(title, seasonNum, wantVf, deps || realDeps);
   if (!resolved) return null;
   const { primary, secondary } = tierMirrorsForEpisode(resolved.lists, resolved.labels, epIndex, wantVf);
+  // Strict VF (8.62): franime's catalog CONFIRMS a VF exists for this title
+  // (and the season, when numbered) -> never silently cross to another
+  // language; VF-labeled mirrors only, so the user gets VF or an honest
+  // failure. When no VF exists at all, the VOSTFR rescue stays legitimate
+  // (owner decision 2026-09-03) and callers label the delivery honestly.
+  const seasonVf = franimeSeasonHasVf(options?.vfVerdict, seasonNum);
+  if (wantVf && options?.vfVerdict?.status === "vf" && seasonVf !== false && primary.length > 0) {
+    return { ...resolved, mirrors: primary };
+  }
   const mirrors = [...primary, ...secondary];
   if (mirrors.length === 0) return null;
   return { ...resolved, mirrors };

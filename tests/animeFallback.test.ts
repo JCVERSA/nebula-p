@@ -113,6 +113,18 @@ describe("mirror tiering", () => {
     expect(tiers.secondary).toEqual(["https://vost.example/b", "https://any.example/c"]);
   });
 
+  it("labels-free catalogs never promote unlabeled lists for a VF request (8.62)", () => {
+    // nakanime's labels proved unreliable (audit 8.6): guessing "VF" on an
+    // unlabeled list delivered VOSTFR files named _VF_. Unlabeled is tier two
+    // for VF, but stays tier one for VOSTFR (the default player language).
+    const vf = tierMirrorsForEpisode({ 1: ["https://any.example/a"] }, {}, 0, true);
+    expect(vf.primary).toEqual([]);
+    expect(vf.secondary).toEqual(["https://any.example/a"]);
+    const vost = tierMirrorsForEpisode({ 1: ["https://any.example/a"] }, {}, 0, false);
+    expect(vost.primary).toEqual(["https://any.example/a"]);
+    expect(vost.secondary).toEqual([]);
+  });
+
   it("returns empty tiers for an out-of-range episode index", () => {
     const tiers = tierMirrorsForEpisode({ 1: ["https://vf.example/a"] }, { 1: { language: "VF" } }, 5, true);
     expect(tiers.primary).toEqual([]);
@@ -157,6 +169,37 @@ describe("resolution + cache", () => {
   });
 });
 
+describe("vf oracle strictness (8.62)", () => {
+  const vfVerdict = (status: "vf" | "no_vf", hasVf: boolean) => ({
+    status,
+    seasons: [{ index: 0, name: "Saison 2", seasonNums: [2], hasVf }]
+  });
+
+  it("oracle confirms VF -> VF-labeled mirrors ONLY (no silent VOSTFR)", async () => {
+    const { deps } = makeDeps();
+    const fb = await getCrossSourceFallbackMirrors(TITLE, 2, 0, "VF", deps, { vfVerdict: vfVerdict("vf", true) as any });
+    expect(fb?.mirrors).toEqual(["https://vp1.example/embed-a"]);
+  });
+
+  it("title-level VF but this season has none -> cross-language rescue stays allowed", async () => {
+    const { deps } = makeDeps();
+    const fb = await getCrossSourceFallbackMirrors(TITLE, 2, 0, "VF", deps, { vfVerdict: vfVerdict("vf", false) as any });
+    expect(fb?.mirrors).toEqual(["https://vp1.example/embed-a", "https://vp2.example/embed-b"]);
+  });
+
+  it("oracle says the title has NO VF at all -> VOSTFR rescue allowed (owner decision 2026-09-03)", async () => {
+    const { deps } = makeDeps();
+    const fb = await getCrossSourceFallbackMirrors(TITLE, 2, 0, "VF", deps, { vfVerdict: vfVerdict("no_vf", false) as any });
+    expect(fb?.mirrors).toEqual(["https://vp1.example/embed-a", "https://vp2.example/embed-b"]);
+  });
+
+  it("no verdict (unknown/disabled/unreachable) -> legacy order, honest labeling upstream", async () => {
+    const { deps } = makeDeps();
+    const fb = await getCrossSourceFallbackMirrors(TITLE, 2, 0, "VF", deps);
+    expect(fb?.mirrors).toEqual(["https://vp1.example/embed-a", "https://vp2.example/embed-b"]);
+  });
+});
+
 describe("wiring (8.46)", () => {
   it("novabox wires the fallback in single + batch flows behind NEBULA_VOSTFR_FALLBACK", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
@@ -165,6 +208,11 @@ describe("wiring (8.46)", () => {
     expect(src).toContain("deliveredFilename"); // honest filename when language differs
     expect(src).toContain("rescued"); // batch per-episode rescue
     expect(src).toContain("fallbackLangDelivered"); // batch summary note
+    // 8.62: franime VF oracle + honest delivered-language notes
+    expect(src).toContain("franimeVfOracle(");
+    expect(src).toContain("fbLanguageNote");
+    expect(src).toContain("unconfirmedLangCount");
+    expect(src).toContain("langue non confirmée par la source");
   });
 
   it("env surfaces document the toggle (default ON, 0 disables)", () => {

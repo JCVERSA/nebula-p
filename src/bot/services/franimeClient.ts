@@ -212,6 +212,91 @@ export async function franimeSeasonInfo(
   return { name: s.title || `Saison ${seasonIndex + 1}`, episodes };
 }
 
+// --------------------------------------------------------------------------- vf oracle (8.62)
+
+export interface FranimeVfSeasonInfo {
+  index: number;
+  name?: string;
+  /** Season numbers parsed from the franime season title (e.g. "Saison 2" -> [2]). */
+  seasonNums: number[];
+  hasVf: boolean;
+}
+export interface FranimeVfVerdict {
+  /** "vf" = matched title has at least one VF season; "no_vf" = matched, zero VF; "unknown" = disabled/unreachable/no confident match. */
+  status: "vf" | "no_vf" | "unknown";
+  matchedTitle?: string;
+  seasons: FranimeVfSeasonInfo[];
+}
+
+export function isFranimeOracleEnabled(): boolean {
+  return process.env.NEBULA_FRANIME_ENABLED === "1";
+}
+
+/**
+ * VF ground-truth oracle (owner request 8.62). franime's public catalog
+ * exposes per-episode lang.vf lecteurs — reliable, unlike nakanime's
+ * per-list language labels which proved wrong (audit 8.6) and delivered
+ * VOSTFR files named `_VF_`. Answers whether the title — and, when the
+ * franime season title carries a number, a specific season — has a VF.
+ *
+ * Gated behind NEBULA_FRANIME_ENABLED=1 (same gate as the franime path and
+ * the doctor probe). Disabled / unreachable / no confident title match ->
+ * { status: "unknown" } and callers keep the legacy fallback behavior
+ * (with honest delivered-language labeling).
+ */
+export async function franimeVfOracle(title: string, extraCandidates: string[] = []): Promise<FranimeVfVerdict> {
+  const unknown: FranimeVfVerdict = { status: "unknown", seasons: [] };
+  if (!isFranimeOracleEnabled()) return unknown;
+  try {
+    const animes = await loadCatalog();
+    const queries = [title, ...extraCandidates].map(normalizeTitle).filter(Boolean);
+    if (queries.length === 0) return unknown;
+    let best: { score: number; a: FranimeCatalogAnime } | null = null;
+    for (const a of animes) {
+      let score = 0;
+      for (const t of catalogAnimeTitles(a)) {
+        const n = normalizeTitle(t);
+        if (!n) continue;
+        for (const q of queries) {
+          let s = 0;
+          if (n === q) s = 100;
+          else if (n.startsWith(q)) s = 80;
+          else if (n.includes(q)) s = 60;
+          else if (q.length >= 6 && n.includes(q.slice(0, Math.floor(q.length * 0.8)))) s = 40;
+          if (s > score) score = s;
+        }
+      }
+      if (score > 0 && (!best || score > best.score)) best = { score, a };
+    }
+    if (!best || best.score < 40) return unknown;
+    const seasons: FranimeVfSeasonInfo[] = (best.a.saisons || []).map((s, i) => ({
+      index: i,
+      name: s.title,
+      seasonNums: ((s.title || "").match(/\d+/g) || []).map(Number),
+      hasVf: (s.episodes || []).some(e => (e.lang?.vf?.lecteurs || []).length > 0)
+    }));
+    return {
+      status: seasons.some(s => s.hasVf) ? "vf" : "no_vf",
+      matchedTitle: best.a.title || best.a.titleO || undefined,
+      seasons
+    };
+  } catch {
+    return unknown;
+  }
+}
+
+/**
+ * Season-level answer when the franime season title carries the number.
+ * null = indeterminate (no numbered season matched) -> callers fall back to
+ * the title-level verdict.
+ */
+export function franimeSeasonHasVf(verdict: FranimeVfVerdict | undefined | null, seasonNum: number): boolean | null {
+  if (!verdict || verdict.status === "unknown" || !verdict.seasons.length) return null;
+  const matching = verdict.seasons.filter(s => s.seasonNums.includes(seasonNum));
+  if (matching.length === 0) return null;
+  return matching.some(s => s.hasVf);
+}
+
 // --------------------------------------------------------------------------- episode players
 
 export interface FranimePlayerSource {
