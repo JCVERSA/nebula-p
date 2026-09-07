@@ -18,7 +18,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "anime:doctor": "tsx scripts/anime-doctor.ts"
+    "anime:doctor": "tsx scripts/anime-doctor.ts",
+    "api:probe": "tsx scripts/api-probe.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
