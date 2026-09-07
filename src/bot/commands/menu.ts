@@ -53,6 +53,7 @@ export const MENU_SECTIONS: MenuSection[] = [
     entries: [
       ["a", "Anime en VF / VOSTFR"],
       ["w", "Veille des nouveaux épisodes"],
+      ["trace", "Identifie l’anime d’une image (réponds à l’image)"],
     ],
   },
   {

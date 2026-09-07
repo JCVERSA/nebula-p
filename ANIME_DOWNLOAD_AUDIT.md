@@ -2485,3 +2485,24 @@ Owner « approved all » → PA + PB exécutés :
   déterministe hors-ligne. 434/434 (46 fichiers).
 - L2 (default 25 s trompeur) laissé tel quel (cosmétique, tous les appelants
   passent 240000 explicitement).
+
+---
+
+## §8.66 — Nouvelle commande `.trace` (2026-09-07)
+
+Sonde `npm run api:probe` exécutée par le owner sur le VPS : trace.moe ✅
+(HTTP 200, quota restant ~100/mois pour cette IP) ; ESPN ❌ 403 (IP
+datacenter — `.foot` abandonné) ; yt-dlp absent (à installer pour la
+prochaine fournée .facebook/.twitter) ; BBC/CoinGecko/waifu.pics morts ou
+instables depuis cet hôte (sautés) ; is.gd ✅ (gardé pour plus tard) ;
+
+Implémenté : `.trace` / `.tracemoe` — réponds à une capture d'anime avec
+`.trace` → anime, épisode, minute, similarité, lien AniList + autres
+possibilités ≥ 40 %. Mécanique : media cité via downloadMedia (audit 8.48),
+POST binaire vers api.trace.moe/search (sans clé). Protections du petit
+quota : cooldown 20 s par utilisateur, message honnête « limite mensuelle
+atteinte » sur 429/402, quota restant loggé après chaque appel, image
+plafonnée à 10 Mo, seuil de similarité 40 % (en dessous = « aucune
+correspondance fiable »). Registre 18 → 19, inventaire + menu mis à jour.
+Tests : formatage, épisodes multiples, bruit < 40 %, quotas 429/402,
+câblage. 440/440 (47 fichiers).

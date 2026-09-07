@@ -22,6 +22,7 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "define", aliases: [] },
   { name: "sweb", aliases: ["ssweb", "screenshot", "ss", "webss"] },
   { name: "w", aliases: ["watch", "veille", "watchlist"] },
+  { name: "trace", aliases: ["tracemoe"] },
   { name: "anime", aliases: ["novabox", "a", "nv"] },
   { name: "ytvideo", aliases: ["ytv", "ytmp4", "ytvid", "video"] },
   { name: "song", aliases: ["play", "music", "yta", "mp3", "ytm"] },
