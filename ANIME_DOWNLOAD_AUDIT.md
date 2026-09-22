@@ -2545,3 +2545,71 @@ rapport intact. vitest 440/440 (47 fichiers).
 Suite : owner lance `npm run anime:doctor -- --full` sur le nouveau
 conteneur ; la décomposition V1 tranche la politique vostfr-voir-anime,
 V4 tranche la capacité de voir-anime à servir de téléchargeur.
+
+## §8.69 — Refonte « sources choisies » V1a : un catalogue par requête (2026-09-21)
+
+Contexte owner (décisions du jour, verrouillées après Q&R) : le modèle
+cascade multi-sources (8.46/8.53/8.62) est REMPLACÉ par un modèle
+mono-source choisi par l'utilisateur — recherche, saisons, épisodes ET
+téléchargement sur UN catalogue. Flags courts : `as` (catalogue complet,
+défaut) et `va` (catalogue VF). ZÉRO fallback automatique (annulé en
+dernière minute : « le user va juste switcher sur une autre source pour
+checker lui-même »). VF par défaut ; VF absente → saisons VOSTFR listées
+étiquetées + hint vers l'autre flag ; VOSTFR absent → échec propre + guide
+vers l'autre flag. **Noms de sources JAMAIS dans les messages users**
+(confidentiel, 8.42) — flags et libellés neutres uniquement ; les logs
+owner conservent les vrais noms. nakanime 404 depuis le nouveau conteneur
+→ DORMANT. franime 403 → hors du chemin critique. La vérité langue devient
+STRUCTURALE : sub-paths panneauAnime (`saison1/vf` vs `saison1/vostfr`)
+et slugs voir-anime (`-vf`/`-vostfr`) — plus aucun oracle ni devinement
+d'URL (checkVfExists supprimé).
+
+Changements :
+- **`src/bot/services/animeSources.ts` (nouveau)** : type `AnimeSourceId`,
+  `samaSubPathLanguage`/`voiranimeSlugLanguage` (détection structurelle),
+  `classifyByLanguage`/`languagesOf`, `applyLanguagePolicy` (politique
+  verrouillée), `searchAnimeBySource` (as = fetch.php ; va = recherche WP,
+  résultats ordonnés VF d'abord + langue par entrée), messages anonymisés
+  (`searchEmptyMessage`, `vaDisabledMessage`), `foldTitleDiacritics`
+  (déplacé ici, ré-exporté par novabox), `sourceLogLabel` (logs owner
+  uniquement), `VA_DISABLED_CODE`.
+- **`quickAnimeParser.ts`** : champ `source` — flag `as`/`va` (avec `=`
+  optionnel) en PREMIER token uniquement, et seulement si un titre suit ;
+  combinable avec vostfr/sN/epN/rN.
+- **`novabox.ts`** : session `source` + `sourceSeasons` (toutes les
+  saisons des deux langues, switch local sans réseau) ; `searchAnime`
+  devient routeur mono-source ; **`wireSessionSeasons`** remplace
+  `wireVoiranimeVfSeasons` (as : parseSeasons + classification sub-path ;
+  va : les résultats de recherche SONT les saisons, isVoiranime, JAMAIS
+  parseSeasons sur une URL va — invariant 8.55 préservé par construction) ;
+  `applyPolicyToSession` pour `.a vf`/`.a vostfr` (re-filtrage local,
+  plus de rebuild réseau) ; les 3 points de wiring (sélection, exact-match,
+  quick pipeline) passent par le même chemin ; entrée va avec libellé de
+  langue explicite → langue honorée (l'utilisateur a vu le libellé) ;
+  écran d'usage documente les catalogues. SUPPRIMÉS : checkVfExists,
+  fillFranimePlayers + imports franime, blocs 3a/3b du quick pipeline,
+  fallback croisé 8.46 (mono-source strict : un épisode échoué est
+  rapporté échoué), NEBULA_VOSTFR_FALLBACK partout (novabox, .env.example,
+  manage.sh), compteurs fallbackLangDelivered/unconfirmedLangCount,
+  fuite « voir-anime.to » dans le message 5a (anonymisé).
+- **`menu.ts`** : ligne a → « Anime VF / VOSTFR (catalogues as ou va) ».
+- **`sourcePrivacy.test.ts`** : regex étendue `voir[- ]?anime` (le tiret
+  échappait au scanner) + allowlist des libellés de log internes.
+
+Env : NEBULA_VF_DEFAULT (défaut langue, inchangé) ;
+NEBULA_VOIRANIME_DISABLED = kill-switch opérateur du catalogue va
+(`.a va` répond « indisponible ») ; NEBULA_VOSTFR_FALLBACK retiré ;
+NEBULA_FRANIME_ENABLED ne gate plus que la bibliothèque dormante.
+
+Tests : `animeSources.test.ts` (nouveau, 18) — flags, détection
+structurelle, politique complète, anonymisation des messages ;
+`searchOrder.test.ts` réécrit (routage as/va, zéro fallback, nakanime
+jamais appelé, pins de dormance) ; `interactiveVfDefault.test.ts` réécrit
+(wireSessionSeasons as/va : filtrage VF, liste VOSTFR étiquetée, échec
+guide, aucun fetch réseau pour va) ; `animeFallback.test.ts` : pins de
+dormance (module conservé comme bibliothèque). **vitest 453/453
+(48 fichiers)**, tsc clean, eslint 0 erreur, smoke parsing 6 cas OK.
+
+Reste V1b (après rapport doctor --full) : vérification terrain de la
+chaîne va (players → flux → ffmpeg) ; test terrain `.a as <titre>` /
+`.a va <titre>` sur le nouveau conteneur (anime-sama 200 confirmé).

@@ -1,7 +1,6 @@
 import { BotCommand, BotCommandContext } from "../types.js";
 import { addSubscription, removeSubscriptions, listSubscriptions, WATCH_MAX_PER_CHAT } from "../services/episodeWatchService.js";
 import axios from "axios";
-import * as cheerio from "cheerio";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -10,26 +9,28 @@ import { resolvedFfmpegPath } from "../ffmpeg.js";
 import { registerTempDownload } from "../tempDownloadManager.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
 import { formatFailedEpisodes } from "../services/batchRecap.js";
-import { getCrossSourceFallbackMirrors, languageOfUrl } from "../services/animeFallback.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
-import { isNakanimeUrl, nakanimeSearch, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js";
+import { isNakanimeUrl, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js"; // 8.69: dormant mirror — parse helpers only, never searched
 import {
-  franimeSearch,
-  franimeSeasons,
-  franimeSeasonInfo,
-  franimeEpisodePlayers,
-  franimeVfOracle,
-  franimeSeasonHasVf,
-  type FranimeVfVerdict,
-  parseFranimeSeasonRef
-} from "../services/franimeClient.js";
+  searchAnimeBySource,
+  applyLanguagePolicy,
+  samaSubPathLanguage,
+  languagesOf,
+  DEFAULT_ANIME_SOURCE,
+  otherFlagOf,
+  searchEmptyMessage,
+  vaDisabledMessage,
+  VA_DISABLED_CODE,
+  sourceLogLabel,
+  type AnimeSourceId,
+  type SeasonLanguage,
+  type LanguagePolicyResult
+} from "../services/animeSources.js";
 import {
-  voiranimeSearch,
   voiranimeEpisodes,
   voiranimeEpisodePlayer,
   resolveVoiranimeSeason,
-  type VoiranimeEpisode,
-  type VoiranimeSearchResult
+  type VoiranimeEpisode
 } from "../services/voiranimeClient.js";
 import { bestAnimeMatch, formatAnimeCard } from "../services/jikanClient.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
@@ -70,16 +71,20 @@ interface HlsVariant {
 
 interface AnimeSession {
   step: "select_anime" | "language" | "season" | "episode" | "resolution" | "single_stream_choice";
-  searchResults?: Array<{ title: string; subtitle: string; url: string }>;
+  /** Chosen catalog (refonte 8.69): "as" (default) or "va" — mono-source flow. */
+  source: AnimeSourceId;
+  searchResults?: Array<{ title: string; subtitle: string; url: string; language?: SeasonLanguage; slug?: string }>;
   animeTitle: string;
   animeUrl: string;
   languages: string[];
   selectedLanguage?: string;
+  /** ALL seasons of the chosen catalog with their STRUCTURAL language —
+   * `.a vf` / `.a vostfr` re-filter this list without any network call. */
+  sourceSeasons?: Array<{ name: string; subPath: string; url: string; isVoiranime?: boolean; language?: SeasonLanguage }>;
   seasons: Array<{ name: string; subPath: string; url: string; isVoiranime?: boolean }>;
   selectedSeason?: { name: string; subPath: string; url: string; isVoiranime?: boolean };
   episodes?: Record<number, string[]>;
   episodeListLabels?: Record<number, { host: string; language: string }>; // nakanime: host+lang per list
-  franimeRef?: { animeId: number; seasonIndex: number }; // franime.fr VF path (audit 8.7)
   voiranimeAnimeUrl?: string; // voir-anime.to VF path (audit 8.9)
   voiranimeEpisodes?: VoiranimeEpisode[]; // positional episode list of the VF entry
   selectedEpisodeIndex?: number;
@@ -164,51 +169,14 @@ async function isPublicFetchTarget(rawUrl: string, label: string): Promise<boole
 // source (audit 8.53), with nakanime's VF lists as its fallback.
 // Exported for scripts/anime-repro.ts (one-shot pipeline replay used to debug
 // `.a` failures on the live host — see scripts/anime-repro.ts header).
-export async function searchAnime(query: string) {
-  try {
-    const naka = await nakanimeSearch(query);
-    if (naka.length > 0) {
-      console.log(`[NOVABOX] nakanime search: ${naka.length} result(s) for "${query}"`);
-      return naka;
-    }
-    console.log(`[NOVABOX] nakanime search returned 0 results for "${query}" — trying anime-sama last resort...`);
-  } catch (err: any) {
-    console.warn(`[NOVABOX] nakanime search failed (${err?.response?.status || err?.code || err?.message}), trying anime-sama last resort...`);
-  }
-  try {
-    return await searchAnimeSama(query);
-  } catch (err: any) {
-    console.warn(`[NOVABOX] anime-sama search failed too (${err?.response?.status || err?.code || err?.message})`);
-    throw err;
-  }
-}
-
-async function searchAnimeSama(query: string) {
-  const url = "https://anime-sama.to/template-php/defaut/fetch.php";
-  const params = new URLSearchParams();
-  params.append("query", query);
-  
-  const res = await axios.post(url, params, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    timeout: 8000,
-    ...animeProxyOptions()
-  });
-
-  const $ = cheerio.load(res.data);
-  const results: Array<{ title: string; subtitle: string; url: string }> = [];
-
-  $(".asn-search-result").each((_, el) => {
-    const href = $(el).attr("href") || "";
-    const title = $(el).find(".asn-search-result-title").text().trim();
-    const subtitle = $(el).find(".asn-search-result-subtitle").text().trim();
-    if (href) {
-      results.push({ title, subtitle, url: href });
-    }
-  });
-
+/**
+ * 8.69 (refonte sources choisies): mono-source search router. The catalog is
+ * chosen by the user (`as` flag, default / `va` flag) — there is NO fallback:
+ * an empty result IS the answer, the caller shows the other-flag hint.
+ */
+export async function searchAnime(query: string, source: AnimeSourceId = "as") {
+  const results = await searchAnimeBySource(query, source);
+  console.log(`[NOVABOX] ${sourceLogLabel(source)} search: ${results.length} result(s) for "${query}"`);
   return results;
 }
 
@@ -250,20 +218,9 @@ export async function parseSeasons(animeUrl: string) {
   return seasons;
 }
 
-// Fast check to see if VF version exists
-async function checkVfExists(url: string): Promise<boolean> {
-  if (isNakanimeUrl(url)) return false; // nakanime carries language per player source
-  try {
-    const res = await axios.head(url, {
-      headers: { "User-Agent": "Mozilla/5.0" },
-      timeout: 2000,
-      ...animeProxyOptions()
-    });
-    return res.status === 200;
-  } catch {
-    return false;
-  }
-}
+// 8.69: checkVfExists (HEAD /vostfr/→/vf/ URL guessing) is GONE — language
+// truth is now structural: panneauAnime sub-paths ("saison1/vf") and va
+// slugs ("-vf") carry it, classified by samaSubPathLanguage/voiranimeSlugLanguage.
 
 // Parse episodes.js file (nakanime mirror resolves players via its API).
 // Exported for scripts/anime-repro.ts.
@@ -491,108 +448,66 @@ export function sortVfEntriesBySeason<T extends { title: string; slug?: string }
   return [...entries].sort((a, b) => seasonOf(a) - seasonOf(b));
 }
 
-/** 8.55: normalize titles across catalogs — users type "Komyushō" (ō) while
- * sites index the Hepburn romanization "Komyushou". Macron vowels become
- * their doubled Hepburn form (ō→ou, ū→uu, ā→aa, ī→ii, ē→ee) and remaining
- * diacritics are stripped, so the WordPress substring search hits either way. */
-export function foldTitleDiacritics(s: string): string {
-  return s
-    .replace(/[ōŌ]/g, "ou").replace(/[ūŪ]/g, "uu").replace(/[āĀ]/g, "aa")
-    .replace(/[īĪ]/g, "ii").replace(/[ēĒ]/g, "ee")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
+// 8.69: foldTitleDiacritics moved to services/animeSources.ts — re-exported
+// here for backward compatibility (tests + scripts import it from novabox).
+export { foldTitleDiacritics } from "../services/animeSources.js";
 
-export async function wireVoiranimeVfSeasons(
+type PolicySeason = NonNullable<AnimeSession["sourceSeasons"]>[number];
+
+/** Applies the language policy to the session's stored sourceSeasons and
+ * updates seasons/languages/selectedLanguage — no network call (used by
+ * `.a vf` / `.a vostfr` and after fresh wiring). */
+function applyPolicyToSession(
   session: AnimeSession,
-  title: string,
-  extraCandidates: string[] = []
-): Promise<boolean> {
-  if (process.env.NEBULA_VOIRANIME_DISABLED === "1") return false;
-  // 8.55: catalogs disagree on titles — nakanime returns French titles
-  // ("Komi cherche ses mots") while voir-anime indexes romaji ("Komi-san wa,
-  // Komyushou desu."). Probing with the catalog title alone misses real VF
-  // entries. Candidates: catalog title first, then the user's raw query.
-  const seen = new Set<string>();
-  const candidates: string[] = [];
-  for (const cand of [title, ...extraCandidates]) {
-    const folded = foldTitleDiacritics(String(cand || "").trim());
-    const key = folded.toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    candidates.push(folded);
+  wantLang: "VF" | "VOSTFR"
+): LanguagePolicyResult<PolicySeason> {
+  const result = applyLanguagePolicy(session.sourceSeasons || [], wantLang, session.source);
+  if (result.status === "ok") {
+    session.seasons = result.seasons;
+    session.languages = languagesOf(session.sourceSeasons || []);
+    session.selectedLanguage = result.language;
   }
-  for (const candidate of candidates) {
-    let vaResults: Awaited<ReturnType<typeof voiranimeSearch>> | null = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        vaResults = await voiranimeSearch(candidate);
-        break;
-      } catch (err: any) {
-        const reason = err?.response?.status ? `HTTP ${err.response.status}` : (err?.code || err?.message || String(err));
-        if (attempt === 1) {
-          console.warn(`[NOVABOX] voiranime VF probe failed on "${candidate}" (${reason}) — retrying once…`);
-          await new Promise(r => setTimeout(r, 1500));
-        } else {
-          console.warn(`[NOVABOX] voiranime VF probe failed twice on "${candidate}" (${reason})`);
-        }
-      }
-    }
-    if (!vaResults) continue; // network error on this candidate → try the next
-    const vfEntries = sortVfEntriesBySeason(vaResults.filter((r) => r.isVf));
-    if (vfEntries.length === 0) continue; // no VF under this title → next candidate
-    session.seasons = vfEntries.map((e, i) => ({ name: e.title, subPath: `${i}`, url: e.url, isVoiranime: true }));
-    session.languages = ["VF", "VOSTFR"]; // VOSTFR reachable via `.a vostfr` (nakanime rebuild)
-    session.selectedLanguage = "VF";
-    session.voiranimeAnimeUrl = vfEntries[0]!.url;
-    console.log(`[NOVABOX] voiranime VF interactive path: ${vfEntries.length} season entry(ies) via "${candidate}" [${vfEntries.map(e => e.title).join(" | ")}]`);
-    return true;
-  }
-  console.log(`[NOVABOX] voiranime has no VF entry for "${title}" (probed: ${[...seen].join(" | ")}) — catalogue path`);
-  return false;
+  return result;
 }
 
 /**
- * franime path: resolves player URLs for the given episode indices and merges
- * them into session.episodes/episodeListLabels (same shape as nakanime lists,
- * language VF by construction — franime's catalog is the source of truth).
+ * 8.69 (refonte sources choisies): wires the session's seasons from the
+ * CHOSEN catalog, with STRUCTURAL languages (no oracle, no URL guessing).
+ * - "as": parseSeasons(catalog page) → seasons classified by sub-path
+ *   language ("saison1/vf" vs "saison1/vostfr"). parseSeasons is NEVER
+ *   called on a va URL (invariant 8.55, preserved by construction).
+ * - "va": the search results ARE the catalog entries — seasons are wired
+ *   from them directly (isVoiranime: true, one entry per season).
+ * ALL seasons (both languages) land in session.sourceSeasons so the
+ * `.a vf` / `.a vostfr` switch re-filters locally, without refetching.
  */
-async function fillFranimePlayers(session: AnimeSession, indices: number[]): Promise<void> {
-  const ref = session.franimeRef;
-  if (!ref) return;
-  const lang: "vf" | "vo" = (session.selectedLanguage || "VF").toUpperCase() === "VOSTFR" ? "vo" : "vf";
-  const lists: Record<number, string[]> = session.episodes || {};
-  const labels = session.episodeListLabels || {};
-  const seasonLen = Object.values(lists)[0]?.length || indices.length;
-  const listKeys = new Map<string, number>();
-
-  for (const idx of indices) {
-    let players: Array<{ host: string; language: string; url: string }> = [];
-    try {
-      const res = await franimeEpisodePlayers(ref.animeId, ref.seasonIndex, idx, lang);
-      players = res.players;
-      if (res.challenged && players.length === 0) {
-        console.warn(`[NOVABOX] franime: episode ${idx + 1} players blocked by Cloudflare (FLARESOLVERR_URL not set/solved)`);
-      }
-    } catch (err: any) {
-      console.warn(`[NOVABOX] franime: episode ${idx + 1} lookup failed: ${err?.message || err}`);
-    }
-    for (const p of players) {
-      const key = `${p.host} (${p.language})`.toLowerCase();
-      if (!listKeys.has(key)) listKeys.set(key, listKeys.size + 1);
-      const n = listKeys.get(key)!;
-      if (!lists[n]) lists[n] = new Array(seasonLen).fill("");
-      lists[n][idx] = p.url;
-      labels[n] = { host: p.host, language: p.language };
-    }
+export async function wireSessionSeasons(
+  session: AnimeSession,
+  chosen: { title: string; url: string },
+  wantLang: "VF" | "VOSTFR"
+): Promise<LanguagePolicyResult<PolicySeason>> {
+  if (session.source === "va") {
+    const entries = session.searchResults || [];
+    session.sourceSeasons = entries.map((e, i) => ({
+      name: e.title,
+      subPath: e.slug || `${i}`,
+      url: e.url,
+      isVoiranime: true,
+      language: e.language ?? null
+    }));
+    session.animeUrl = chosen.url;
+  } else {
+    const parsed = await parseSeasons(chosen.url);
+    session.sourceSeasons = parsed.map((s) => ({ ...s, language: samaSubPathLanguage(s.subPath) }));
   }
-  // drop the placeholder empty list once real ones exist
-  for (const k of Object.keys(lists).map(Number)) {
-    if (k !== 1 || (lists[1] || []).some(Boolean)) continue;
-    if (listKeys.size > 0) delete lists[1];
+  const result = applyPolicyToSession(session, wantLang);
+  if (result.status === "ok") {
+    console.log(
+      `[NOVABOX] ${sourceLogLabel(session.source)} wiring: ${result.seasons.length} season(s) in ${result.language}` +
+        `${result.header ? " (langue demandée absente — autre langue listée)" : ""}`
+    );
   }
-  session.episodes = lists;
-  session.episodeListLabels = labels;
+  return result;
 }
 
 async function executeQuickDownloadPipeline(
@@ -612,172 +527,69 @@ async function executeQuickDownloadPipeline(
   await context.reply(`✨ *Sélectionné:* *${chosenAnime.title}*\n⚡ *Traitement rapide:* ${seasonStr} | ${epDesc}...`);
 
   try {
-    // 1. Parse available seasons
-    const seasons = await parseSeasons(chosenAnime.url);
-    if (seasons.length === 0) {
+    // 1+2+3. Wire the CHOSEN catalog (8.69 refonte): one catalog per query,
+    // structural languages, policy applied, then target season resolution —
+    // all on that catalog. No cross-source fallback (owner decision).
+    const wantLang: "VF" | "VOSTFR" =
+      quickParams.language || (process.env.NEBULA_VF_DEFAULT !== "0" ? "VF" : "VOSTFR");
+    let effectiveWant = wantLang;
+    if (session.source === "va" && !quickParams.language) {
+      // The user picked a labeled entry from the results list (e.g. a VOSTFR
+      // one) — honor that explicit choice over the VF default.
+      const chosenEntry = (session.searchResults || []).find((r) => r.url === chosenAnime.url);
+      if (chosenEntry?.language === "VF" || chosenEntry?.language === "VOSTFR") {
+        effectiveWant = chosenEntry.language;
+      }
+    }
+    const wired = await wireSessionSeasons(session, chosenAnime, effectiveWant);
+    if (wired.status === "missing") {
       clearUserSession(context.sender);
-      return context.reply("❌ *Erreur:* Aucune saison/épisode trouvé pour cet anime.");
+      return context.reply(wired.message);
+    }
+    if (wired.header) {
+      await context.reply(
+        `${wired.header}\n${wired.guideHint ? wired.guideHint + "\n" : ""}_→ Je continue en *${wired.language}*._`
+      );
     }
 
-    // 2. Derive available languages
-    const languages = ["VOSTFR"];
-    const s1 = seasons[0];
-    const vfCheckUrl = s1.url.replace("/vostfr/", "/vf/");
-    const hasVf = await checkVfExists(vfCheckUrl);
-    if (hasVf) {
-      languages.push("VF");
-    }
-    session.languages = languages;
-
-    // Check language preference
-    let targetLang = quickParams.language;
-    if (!targetLang || !languages.includes(targetLang)) {
-      targetLang = hasVf ? "VF" : "VOSTFR";
-    }
-    session.selectedLanguage = targetLang;
-
-    let filteredSeasons = seasons;
-    if (targetLang === "VF") {
-      const vfSeasons = [];
-      for (const s of seasons) {
-        const pathParts = s.subPath.split("/");
-        const seasonFolder = pathParts[0];
-        const vfUrl = s.url.replace("/vostfr/", "/vf/");
-        const exists = await checkVfExists(vfUrl);
-        if (exists) {
-          vfSeasons.push({
-            ...s,
-            url: vfUrl,
-            subPath: `${seasonFolder}/vf`
-          });
-        }
-      }
-      if (vfSeasons.length > 0) {
-        filteredSeasons = vfSeasons;
-      }
-    }
-    session.seasons = filteredSeasons;
-
-    // 3. Resolve target season
     const targetSeasonNum = quickParams.seasonNumber !== undefined ? quickParams.seasonNumber : 1;
-    const { season: targetSeason } = resolveRequestedSeason(filteredSeasons, targetSeasonNum);
+    let targetSeason: AnimeSession["seasons"][number] | undefined;
+    if (session.source === "va") {
+      const asEntries = wired.seasons.map((s) => ({ title: s.name, slug: s.subPath, url: s.url, isVf: true }));
+      const picked = resolveVoiranimeSeason(asEntries, targetSeasonNum);
+      targetSeason = picked ? wired.seasons.find((s) => s.url === picked.url) : undefined;
+    } else {
+      targetSeason = resolveRequestedSeason(wired.seasons, targetSeasonNum).season ?? undefined;
+    }
 
     if (!targetSeason) {
       clearUserSession(context.sender);
-      return context.reply(`❌ *Saison S${targetSeasonNum} introuvable:* Seulement ${filteredSeasons.length} saison(s) disponible(s) pour *${chosenAnime.title}*.`);
+      return context.reply(
+        `❌ *Saison S${targetSeasonNum} introuvable:* Seulement ${wired.seasons.length} saison(s) disponible(s) pour *${chosenAnime.title}*.`
+      );
     }
 
     session.selectedSeason = targetSeason;
 
-    // 3a. VOIRANIME VF PATH (explicit `.a ... vf`): voir-anime.to is reachable
-    // from datacenter IPs (HTML 200, verified) and its VF entries are
-    // STRUCTURAL (slug suffix "-vf"), so the French dub is guaranteed by
-    // construction — the honest VF-by-structure source nakanime cannot be
-    // (audit 8.6/8.9). Disable with NEBULA_VOIRANIME_DISABLED=1.
-    // VF BY DEFAULT (user requirement, now reliable): when no language is
-    // specified, quick mode tries the voiranime VF entry first and falls back
-    // to nakanime VOSTFR when the title has no VF. Opt out with
-    // NEBULA_VF_DEFAULT=0 (or `.a ... vostfr` per command).
-    const wantsVfByDefault =
-      (quickParams.language === "VF" || (!quickParams.language && process.env.NEBULA_VF_DEFAULT !== "0")) &&
-      process.env.NEBULA_VOIRANIME_DISABLED !== "1";
-    if (wantsVfByDefault) {
-      // 8.55: multi-candidate title probing — the catalog title (often French)
-      // frequently misses voir-anime's romaji-indexed VF entries (production
-      // evidence: "Komi cherche ses mots" vs "Komi-san wa, Komyushou desu.").
-      try {
-        const quickSeen = new Set<string>();
-        let vfEntries: VoiranimeSearchResult[] = [];
-        let vfVia = "";
-        for (const cand of [chosenAnime.title, quickParams.animeQuery, quickParams.canonicalQuery]) {
-          const folded = foldTitleDiacritics(String(cand || "").trim());
-          const k = folded.toLowerCase();
-          if (!k || quickSeen.has(k)) continue;
-          quickSeen.add(k);
-          try {
-            const vaResults = await voiranimeSearch(folded);
-            const vf = sortVfEntriesBySeason(vaResults.filter((r) => r.isVf));
-            if (vf.length > 0) {
-              vfEntries = vf;
-              vfVia = folded;
-              break;
-            }
-          } catch (probeErr: any) {
-            console.warn(`[NOVABOX] voiranime VF path probe failed on "${folded}" (${probeErr?.message || probeErr})`);
-          }
-        }
-        if (vfEntries.length === 0) {
-          console.log(`[NOVABOX] voiranime has no VF entry for "${chosenAnime.title}" (probed: ${[...quickSeen].join(" | ")}) — using nakanime`);
-        }
-        const vaSeason = resolveVoiranimeSeason(vfEntries, targetSeasonNum);
-        if (vaSeason) {
-          const vaEps = (await voiranimeEpisodes(vaSeason.url)).filter((e) => e.n > 0);
-          if (vaEps.length > 0) {
-            session.animeUrl = vaSeason.url;
-            session.seasons = vfEntries.map((e, i) => ({ name: e.title, subPath: `${i}`, url: e.url }));
-            session.selectedSeason = { name: vaSeason.title, subPath: "", url: vaSeason.url };
-            session.languages = ["VF"];
-            session.selectedLanguage = "VF";
-            session.voiranimeAnimeUrl = vaSeason.url;
-            session.voiranimeEpisodes = vaEps;
-            session.episodeListLabels = {};
-            session.episodes = { 1: new Array(vaEps.length).fill("") };
-            console.log(`[NOVABOX] voiranime VF path: "${vaSeason.title}" (${vaEps.length} eps) via "${vfVia}"`);
-          } else {
-            console.log(`[NOVABOX] voiranime entry has no numbered episodes — using nakanime`);
-          }
-        } else if (vfEntries.length > 0) {
-          console.log(`[NOVABOX] voiranime has no VF entry for s${targetSeasonNum} of this title — using nakanime`);
-        }
-      } catch (err: any) {
-        console.warn(`[NOVABOX] voiranime VF path unavailable: ${err?.message || err} — falling back`);
-      }
-    }
-
-    // 3b. FRANIME VF PATH (explicit `.a ... vf`) — PARKED behind
-    // NEBULA_FRANIME_ENABLED=1 (user decision 2026-08-31: dropped until a
-    // reliable way past the CF challenge exists). franime.fr carries a real
-    // French dub catalog; player URLs need FlareSolverr. Disabled by default:
-    // zero franime network calls, `.a vf` uses the nakanime VF lists as before.
-    if (quickParams.language === "VF" && process.env.NEBULA_FRANIME_ENABLED === "1") {
-      try {
-        const frResults = await franimeSearch(chosenAnime.title, 3);
-        const frAnime = frResults[0];
-        const frSeasons = frAnime ? await franimeSeasons(frAnime.id) : [];
-        const frSeason = resolveRequestedSeason(frSeasons, targetSeasonNum).season || frSeasons[0];
-        const frRef = frSeason ? parseFranimeSeasonRef(frSeason.url) : null;
-        const frInfo = frRef ? await franimeSeasonInfo(frRef.animeId, frRef.seasonIndex) : null;
-        const hasVf = !!frInfo && frInfo.episodes.some((e) => e.lecteursVf.length > 0);
-        if (frAnime && frRef && frInfo && hasVf && frInfo.episodes.length > 0) {
-          session.animeUrl = frAnime.url;
-          session.seasons = frSeasons;
-          session.selectedSeason = frSeason;
-          session.languages = ["VF"];
-          session.selectedLanguage = "VF";
-          session.franimeRef = frRef;
-          session.episodeListLabels = {};
-          session.episodes = { 1: new Array(frInfo.episodes.length).fill("") };
-          console.log(`[NOVABOX] franime VF path: "${frAnime.title}" ${frSeason.name} (${frInfo.episodes.length} eps)`);
-        } else {
-          console.log(`[NOVABOX] franime has no VF for this title/season — using nakanime`);
-        }
-      } catch (err: any) {
-        console.warn(`[NOVABOX] franime VF path unavailable: ${err?.message || err} — falling back to nakanime`);
-      }
-    }
-
-    // 4. Fetch episodes for target season
+    // 4. Fetch episodes for the target season (8.69: va = positional episode
+    // list of the chosen entry; as = episodes.js of the season page).
     const tPlayers = Date.now();
     session.pipelineStartedAt = session.pipelineStartedAt || tPlayers;
     let totalEpisodes = 0;
-    if (session.voiranimeAnimeUrl && session.voiranimeEpisodes) {
-      totalEpisodes = session.voiranimeEpisodes.length;
-      console.log(`[NOVABOX] voiranime season: ${totalEpisodes} episode(s) (players resolved per request)`);
-    } else if (session.franimeRef) {
-      const frInfo = await franimeSeasonInfo(session.franimeRef.animeId, session.franimeRef.seasonIndex);
-      totalEpisodes = frInfo?.episodes.length || 0;
-      console.log(`[NOVABOX] franime season: ${totalEpisodes} episode(s) from catalog (players resolved per request)`);
+    if (targetSeason.isVoiranime) {
+      const vaEps = (await voiranimeEpisodes(targetSeason.url)).filter((e) => e.n > 0);
+      if (vaEps.length === 0) {
+        clearUserSession(context.sender);
+        return context.reply("❌ *Erreur:* Aucun épisode numéroté trouvé pour cette saison.");
+      }
+      session.voiranimeAnimeUrl = targetSeason.url;
+      session.voiranimeEpisodes = vaEps;
+      session.episodes = { 1: new Array(vaEps.length).fill("") };
+      session.episodeListLabels = {};
+      totalEpisodes = vaEps.length;
+      console.log(`[NOVABOX] voir-anime season: ${totalEpisodes} episode(s) (players resolved per request)`);
     } else {
+
     const jsUrl = targetSeason.url + "episodes.js";
     const { lists: eps, labels: epLabels } = await parseEpisodesDetailed(jsUrl);
     if (!eps || Object.keys(eps).length === 0) {
@@ -840,33 +652,10 @@ async function executeQuickDownloadPipeline(
       if (!anyMirror) {
         clearUserSession(context.sender);
         return context.reply(
-          `❌ *VF indisponible ici:* impossible de résoudre le lecteur sur voir-anime.to depuis le serveur.
+          `❌ *Lecteur introuvable:* impossible de résoudre le lecteur de cette saison depuis le serveur.
 
 ` +
-            `_(La VOSTFR marche: \`.a <anime> s${targetSeasonNum} ep${resolvedIndices[0] + 1} r2\`)_`
-        );
-      }
-    }
-
-    // 5b. franime: resolve player URLs LAZILY for the requested episodes only
-    // (each episode costs one API call per lecteur — bounded by MAX_BATCH_EPISODES).
-    if (session.franimeRef) {
-      const tFr = Date.now();
-      const idxs = resolvedIndices.slice(0, MAX_BATCH_EPISODES);
-      if (resolvedIndices.length > idxs.length) {
-        console.warn(`[NOVABOX] franime: capping player lookups to ${idxs.length}/${resolvedIndices.length} episodes`);
-      }
-      await fillFranimePlayers(session, idxs);
-      console.log(`[NOVABOX] franime players resolved for ${idxs.length} ep(s) in ${((Date.now() - tFr) / 1000).toFixed(1)}s`);
-      const anyMirror = Object.values(session.episodes || {}).some((arr) => arr.some(Boolean));
-      if (!anyMirror) {
-        clearUserSession(context.sender);
-        return context.reply(
-          `❌ *VF indisponible technique:* la source VF bloque le serveur avec un challenge Cloudflare.\n\n` +
-            `*Solution:* active FlareSolverr sur le VPS puis relance:\n` +
-            "```\ndocker run -d --name flaresolverr -p 8191:8191 ghcr.io/flaresolverr/flaresolverr:latest\n```\n" +
-            `puis ajoute \`FLARESOLVERR_URL=http://localhost:8191/v1\` dans \`.env\` et redémarre.\n\n` +
-            `_(Sinon, la VOSTFR marche: \`.a <anime> s${targetSeasonNum} ep${resolvedIndices[0] + 1} r2\`)_`
+            `💡 *Essaie l'autre catalogue :* \`.a ${otherFlagOf(session.source)} <titre> s${targetSeasonNum} ep${resolvedIndices[0] + 1} r2\``
         );
       }
     }
@@ -1046,6 +835,8 @@ const animeCommand: BotCommand = {
     const firstArg = (args[0] || "").toLowerCase();
     const sender = context.sender;
     const quickParams = parseQuickDownloadParams(args);
+    // 8.69: the chosen catalog (`as` default / `va` flag) — mono-source flow.
+    const source = quickParams.source || DEFAULT_ANIME_SOURCE;
 
     // Reset session helper
     const refreshSessionTimer = (session: AnimeSession) => {
@@ -1076,6 +867,10 @@ const animeCommand: BotCommand = {
       return context.reply(
         `🤖 *Nebula Bot - Anime Novabox Downloader* 🎬\n\n` +
         `Search, play, and get direct ad-free download/streaming resources for any anime!\n\n` +
+        `*Catalogues (source au choix) :*\n` +
+        `• Catalogue complet *(défaut)* : \`.a [titre]\`\n` +
+        `• Catalogue VF : \`.a va [titre]\`\n` +
+        `• Langue : \`.a [titre] vostfr\` _(VF par défaut)_\n\n` +
         `*Quick Commands & Direct Download:*\n` +
         `• Direct season download: \`.a jjk s3 all r2\`\n` +
         `• Direct single episode: \`.a jjk s3 ep6 r2\`\n` +
@@ -1148,71 +943,24 @@ const animeCommand: BotCommand = {
         await context.reply(`✨ *Selected:* *${chosen.title}*\n🔗 Chargement des saisons...`);
 
         try {
-          // VF BY DEFAULT (audit 8.53): voiranime est LA source par défaut —
-          // sondée AVANT le téléchargement du catalogue. Si elle porte
-          // l'anime en VF, la session démarre sur ses saisons VF et le
-          // catalogue n'est même pas parsé (`.a vostfr` le fera à la demande
-          // via session.animeUrl). Sinon: catalogue nakanime/anime-sama +
-          // heuristique VF de ses listes.
-          let defaultLang = "VOSTFR";
-          let filteredSeasons: AnimeSession["seasons"];
-          let vfAvailable = false;
-
-          if (process.env.NEBULA_VF_DEFAULT !== "0" && (await wireVoiranimeVfSeasons(session, chosen.title, [session.userSearchQuery || ""]))) {
-            defaultLang = "VF";
-            filteredSeasons = session.seasons;
-          } else {
-            // Parse available seasons (catalog page)
-            const seasons = await parseSeasons(chosen.url);
-            if (seasons.length === 0) {
-              clearUserSession(sender);
-              return context.reply("❌ *Error:* Unable to locate any seasons/episodes on this Anime page. Session terminated.");
-            }
-            // Deriving available languages (nakanime path)
-            filteredSeasons = seasons;
-            const languages = ["VOSTFR"];
-
-
-            // Check if VF exists on season 1
-            const s1 = seasons[0];
-            const vfCheckUrl = s1.url.replace("/vostfr/", "/vf/");
-            const hasVf = await checkVfExists(vfCheckUrl);
-            if (hasVf) {
-              languages.push("VF");
-            }
-
-            session.languages = languages;
-            session.seasons = seasons;
-            vfAvailable = hasVf;
-
-            // Default to VF if available (otherwise fallback to VOSTFR)
-            defaultLang = hasVf ? "VF" : "VOSTFR";
-
-            if (defaultLang === "VF") {
-              const vfSeasons = [];
-              for (const s of seasons) {
-                const pathParts = s.subPath.split("/");
-                const seasonFolder = pathParts[0];
-                const vfUrl = s.url.replace("/vostfr/", "/vf/");
-                const exists = await checkVfExists(vfUrl);
-                if (exists) {
-                  vfSeasons.push({
-                    ...s,
-                    url: vfUrl,
-                    subPath: `${seasonFolder}/vf`
-                  });
-                }
-              }
-              if (vfSeasons.length > 0) {
-                filteredSeasons = vfSeasons;
-              }
+          // 8.69 (refonte sources choisies): wire the CHOSEN catalog with
+          // structural languages — VF by default, unless the user picked a
+          // labeled entry from the results list (va) or NEBULA_VF_DEFAULT=0.
+          let wantLang: "VF" | "VOSTFR" = process.env.NEBULA_VF_DEFAULT !== "0" ? "VF" : "VOSTFR";
+          if (session.source === "va") {
+            const chosenEntry = (session.searchResults || []).find((r) => r.url === chosen.url);
+            if (chosenEntry?.language === "VF" || chosenEntry?.language === "VOSTFR") {
+              wantLang = chosenEntry.language;
             }
           }
+          const wired = await wireSessionSeasons(session, chosen, wantLang);
+          if (wired.status === "missing") {
+            clearUserSession(sender);
+            return context.reply(wired.message);
+          }
 
-          session.selectedLanguage = defaultLang;
           session.step = "season";
-          session.seasons = filteredSeasons;
-          const seasonsList = filteredSeasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
+          const seasonsList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
 
           // Jikan poster enrichment (audit 8.19) — best-effort MyAnimeList
           // card (poster + score + episodes); never blocks or breaks the flow.
@@ -1235,10 +983,15 @@ const animeCommand: BotCommand = {
           return context.reply(
             `🎬 *Novabox - Select Season* 🎬\n` +
             `• *Anime:* ${chosen.title}\n` +
-            `• *Language:* 🇫🇷 *${defaultLang}* (Default)${seasonScreenLanguageHint(defaultLang, defaultLang === "VF" || vfAvailable)}\n\n` +
-            `*Available Seasons:*\n${seasonsList}\n\n` +
+            `• *Language:* 🇫🇷 *${wired.language}*` +
+            (wired.header ? " _(langue demandée absente)_" : "") +
+            seasonScreenLanguageHint(wired.language, session.languages.includes("VF")) + `\n\n` +
+            (wired.header ? wired.header + `\n` : `*Available Seasons:*\n`) +
+            `${seasonsList}\n\n` +
+            (wired.guideHint ? wired.guideHint + `\n\n` : ``) +
             `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
           );
+
 
         } catch (err: any) {
           console.error("[NOVABOX] Search select Error:", err);
@@ -1247,119 +1000,32 @@ const animeCommand: BotCommand = {
         }
       }
 
-      // Handle language switch (e.g. user specifies .a vostfr or .a vf)
+      // Handle language switch (.a vostfr / .a vf) — 8.69: re-filters the
+      // stored sourceSeasons LOCALLY (no network, no catalog rebuild, no
+      // cross-source jump). Missing language → honest message + other-flag guide.
       if (session.step === "season" || session.step === "language") {
         if (firstArg === "vostfr" || firstArg === "vf") {
-          const langChoice = firstArg === "vostfr" ? "VOSTFR" : "VF";
-
-          // voiranime ↔ nakanime rebuilds (audit 8.17): the URL-rewrite logic
-          // below is nakanime-specific and must never touch voiranime seasons.
-          if (langChoice === "VOSTFR" && session.voiranimeAnimeUrl) {
-            try {
-              const nakanimeSeasons = await parseSeasons(session.animeUrl);
-              session.seasons = nakanimeSeasons.length > 0 ? nakanimeSeasons : session.seasons.filter((s) => !s.isVoiranime);
-              session.voiranimeAnimeUrl = undefined;
-              session.voiranimeEpisodes = undefined;
-              session.languages = ["VOSTFR"];
-            } catch (err: any) {
-              console.warn(`[NOVABOX] vostfr rebuild failed: ${err?.message || err}`);
-            }
-            session.selectedLanguage = "VOSTFR";
-            session.languageForcedByUser = true;
-            session.step = "season";
-            const vostfrList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
-            await context.react("🗣️");
-            return context.reply(
-              `🔄 *Language switched to VOSTFR!*\n\n` +
-              `*Available Seasons:*\n${vostfrList}\n\n` +
-              `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
-            );
+          const langChoice: "VF" | "VOSTFR" = firstArg === "vostfr" ? "VOSTFR" : "VF";
+          if (!session.sourceSeasons || session.sourceSeasons.length === 0) {
+            return context.reply(`😕 *Session invalide.*\n\n🔁 *Relance ta recherche :* \`.a <titre>\``);
           }
-
-          if (langChoice === "VF" && session.seasons.some((s) => s.isVoiranime)) {
-            // Already wired to voiranime VF — nothing to rebuild.
-            session.selectedLanguage = "VF";
-            session.languageForcedByUser = true;
-            session.step = "season";
-            const vfList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
-            await context.react("🗣️");
-            return context.reply(
-              `🔄 *Language switched to VF!*\n\n` +
-              `*Available Seasons:*\n${vfList}\n\n` +
-              `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
-            );
+          const switched = applyPolicyToSession(session, langChoice);
+          if (switched.status === "missing") {
+            return context.reply(switched.message);
           }
-
-          if (langChoice === "VF" && !session.languages.includes("VF")) {
-            // VF not registered from nakanime — last chance: voiranime (audit 8.17)
-            if (await wireVoiranimeVfSeasons(session, session.animeTitle, [session.userSearchQuery || ""])) {
-              session.languageForcedByUser = true;
-              session.step = "season";
-              const vfList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
-              await context.react("🗣️");
-              return context.reply(
-                `🔄 *Language switched to VF!*\n\n` +
-                `*Available Seasons:*\n${vfList}\n\n` +
-                `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
-              );
-            }
-            return context.reply(
-              `❌ *Aucune VF trouvée:* cet anime n'a pas de version française sur les sources du bot (voir-anime + catalogue).\n` +
-              `La *VOSTFR* reste disponible — c'est la seule version qui existe pour ce titre.`
-            );
-          }
-
-          if (!session.languages.includes(langChoice)) {
-            return context.reply(`❌ *La langue ${langChoice} n\u2019est pas disponible pour cet anime.*`);
-          }
-
-          session.selectedLanguage = langChoice;
           session.languageForcedByUser = true;
           session.step = "season";
-
-          let filteredSeasons = session.seasons;
-          if (langChoice === "VF") {
-            const vfSeasons = [];
-            for (const s of session.seasons) {
-              const pathParts = s.subPath.split("/");
-              const seasonFolder = pathParts[0];
-              const vfUrl = s.url.replace("/vostfr/", "/vf/");
-              const exists = await checkVfExists(vfUrl);
-              if (exists) {
-                vfSeasons.push({
-                  ...s,
-                  url: vfUrl,
-                  subPath: `${seasonFolder}/vf`
-                });
-              }
-            }
-            if (vfSeasons.length > 0) {
-              filteredSeasons = vfSeasons;
-            }
-          } else {
-            filteredSeasons = session.seasons.map(s => {
-              const pathParts = s.subPath.split("/");
-              const seasonFolder = pathParts[0];
-              return {
-                ...s,
-                url: s.url.replace("/vf/", "/vostfr/"),
-                subPath: `${seasonFolder}/vostfr`
-              };
-            });
-          }
-
-          session.seasons = filteredSeasons;
-          const seasonsList = filteredSeasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
-
+          const seasonsList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join(`\n`);
           await context.react("🗣️");
           return context.reply(
-            `🔄 *Language switched to ${langChoice}!*\n\n` +
-            `*Available Seasons:*\n${seasonsList}\n\n` +
-            `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
+            `🔄 *Langue : ${switched.language}*\n\n` +
+            (switched.header ? switched.header + `\n` : `*Saisons disponibles :*\n`) +
+            `${seasonsList}\n\n` +
+            (switched.guideHint ? switched.guideHint + `\n\n` : ``) +
+            `👉 Réponds avec : \`.a s[numéro]\` (ex : \`.a s1\`)`
           );
         }
       }
-
       // Handle season selection step
       if (session.step === "season") {
         let seasonIndex = -1;
@@ -1782,14 +1448,14 @@ const animeCommand: BotCommand = {
       await context.reply(`🔍 *Recherche rapide pour:* "${quickParams.animeQuery}"...`);
 
       try {
-        let searchResults = await searchAnime(quickParams.canonicalQuery);
+        let searchResults = await searchAnime(quickParams.canonicalQuery, source);
         if (searchResults.length === 0 && quickParams.canonicalQuery !== quickParams.animeQuery) {
-          searchResults = await searchAnime(quickParams.animeQuery);
+          searchResults = await searchAnime(quickParams.animeQuery, source);
         }
 
         if (searchResults.length === 0) {
           await context.react("❌");
-          return context.reply(`❌ *Aucun résultat trouvé* pour "${quickParams.animeQuery}". Veuillez vérifier l'orthographe.`);
+          return context.reply(searchEmptyMessage(quickParams.animeQuery, source));
         }
 
         // Clear previous session
@@ -1802,6 +1468,7 @@ const animeCommand: BotCommand = {
           const chosen = searchResults[matchResult.exactMatchIndex];
           const newSession: AnimeSession = {
             step: "select_anime",
+            source,
             searchResults,
             animeTitle: chosen.title,
             animeUrl: chosen.url,
@@ -1819,6 +1486,7 @@ const animeCommand: BotCommand = {
           // Vague / ambiguous query (e.g. "solo lev", "demon", "dragon") -> ask user to choose from list
           const newSession: AnimeSession = {
             step: "select_anime",
+            source,
             searchResults,
             animeTitle: "",
             animeUrl: "",
@@ -1846,6 +1514,7 @@ const animeCommand: BotCommand = {
       } catch (err: any) {
         console.error("[NOVABOX] Quick Search Error:", err?.response?.status || err?.code || err?.message);
         await context.react("❌");
+        if (err?.message === VA_DISABLED_CODE) return context.reply(vaDisabledMessage());
         return context.reply(searchFailureMessage(err));
       }
     }
@@ -1857,14 +1526,14 @@ const animeCommand: BotCommand = {
     await context.reply(`🔍 *Recherche de:* "${query}"...`);
 
     try {
-      let searchResults = await searchAnime(searchQuery);
+      let searchResults = await searchAnime(searchQuery, source);
       if (searchResults.length === 0 && searchQuery !== query) {
-        searchResults = await searchAnime(query);
+        searchResults = await searchAnime(query, source);
       }
 
       if (searchResults.length === 0) {
         await context.react("❌");
-        return context.reply(`❌ *Aucun résultat trouvé* pour "${query}". Veuillez vérifier l'orthographe ou essayer un autre mot-clé.`);
+        return context.reply(searchEmptyMessage(query, source));
       }
 
       // Clear any existing session to start fresh
@@ -1877,6 +1546,7 @@ const animeCommand: BotCommand = {
         const chosen = searchResults[matchResult.exactMatchIndex];
         const newSession: AnimeSession = {
           step: "select_anime",
+          source,
           searchResults,
           animeTitle: chosen.title,
           animeUrl: chosen.url,
@@ -1891,54 +1561,42 @@ const animeCommand: BotCommand = {
         await context.react("⏳");
         await context.reply(`✨ *Sélectionné:* *${chosen.title}*\n🔗 Chargement des saisons...`);
 
-        const seasons = await parseSeasons(chosen.url);
-        if (seasons.length === 0) {
-          clearUserSession(sender);
-          return context.reply("❌ *Erreur:* Aucune saison trouvée pour cet anime.");
-        }
-
-        const languages = ["VOSTFR"];
-        const s1 = seasons[0];
-        const vfCheckUrl = s1.url.replace("/vostfr/", "/vf/");
-        const hasVf = await checkVfExists(vfCheckUrl);
-        if (hasVf) languages.push("VF");
-
-        const defaultLang = hasVf ? "VF" : "VOSTFR";
-        newSession.languages = languages;
-        newSession.selectedLanguage = defaultLang;
-        newSession.step = "season";
-
-        let filteredSeasons = seasons;
-        if (defaultLang === "VF") {
-          const vfSeasons = [];
-          for (const s of seasons) {
-            const pathParts = s.subPath.split("/");
-            const seasonFolder = pathParts[0];
-            const vfUrl = s.url.replace("/vostfr/", "/vf/");
-            const exists = await checkVfExists(vfUrl);
-            if (exists) {
-              vfSeasons.push({ ...s, url: vfUrl, subPath: `${seasonFolder}/vf` });
-            }
+        // 8.69 (refonte sources choisies): chosen-catalog wiring with
+        // structural languages — VF default, labeled-entry override on va.
+        let wantLang: "VF" | "VOSTFR" = process.env.NEBULA_VF_DEFAULT !== "0" ? "VF" : "VOSTFR";
+        if (newSession.source === "va") {
+          const chosenEntry = searchResults.find((r) => r.url === chosen.url);
+          if (chosenEntry?.language === "VF" || chosenEntry?.language === "VOSTFR") {
+            wantLang = chosenEntry.language;
           }
-          if (vfSeasons.length > 0) filteredSeasons = vfSeasons;
         }
-
-        newSession.seasons = filteredSeasons;
-        const seasonsList = filteredSeasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
+        const wired = await wireSessionSeasons(newSession, chosen, wantLang);
+        if (wired.status === "missing") {
+          clearUserSession(sender);
+          return context.reply(wired.message);
+        }
+        newSession.step = "season";
+        const seasonsList = newSession.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
 
         await context.react("📂");
         return context.reply(
           `🎬 *Novabox - Choisissez la Saison* 🎬\n` +
           `• *Anime:* ${chosen.title}\n` +
-          `• *Langue:* 🇫🇷 *${defaultLang}* (Par défaut)${languages.includes("VOSTFR") ? `\n_💡 (Pour changer en VOSTFR, tapez \`.a vostfr\`)_` : ""}\n\n` +
-          `*Saisons Disponibles:*\n${seasonsList}\n\n` +
-          `👉 Répondez avec: \`.a s[numéro]\` (ex: \`.a s1\`)`
+          `• *Langue:* 🇫🇷 *${wired.language}*` +
+          (wired.header ? ` _(langue demandée absente)_` : ``) +
+          seasonScreenLanguageHint(wired.language, newSession.languages.includes("VF")) + `\n\n` +
+          (wired.header ? wired.header + `\n` : `*Saisons disponibles :*\n`) +
+          `${seasonsList}\n\n` +
+          (wired.guideHint ? wired.guideHint + `\n\n` : ``) +
+          `👉 Répondez avec : \`.a s[numéro]\` (ex : \`.a s1\`)`
         );
+
       }
 
       // Create a user session at the select_anime step
       const newSession: AnimeSession = {
         step: "select_anime",
+        source,
         searchResults,
         animeTitle: "",
         animeUrl: "",
@@ -1967,6 +1625,7 @@ const animeCommand: BotCommand = {
     } catch (err: any) {
       console.error("[NOVABOX] Search Error:", err?.response?.status || err?.code || err?.message);
       await context.react("❌");
+      if (err?.message === VA_DISABLED_CODE) return context.reply(vaDisabledMessage());
       return context.reply(searchFailureMessage(err));
     }
   }
@@ -2439,10 +2098,6 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
     const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string; expiresAt: number }> = [];
     let failedEpisodeCount = 0;
-    let fallbackLangDelivered = 0;
-    let unconfirmedLangCount = 0; // 8.62: fallback mirrors with NO language label
-    let vfOracleFetched = false; // franime oracle: one lookup per batch (catalog disk-cached)
-    let batchVfVerdict: FranimeVfVerdict | undefined;
     const downloadedFilePaths: string[] = [];
 
     // Clear session to prevent re-entrant execution
@@ -2549,68 +2204,14 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             downloadUrl: tempDownload.downloadUrl
           });
         } else {
-          // Cross-source rescue (audit 8.46): try the secondary catalog for
-          // this episode before declaring it failed.
-          let rescued = false;
-          if (process.env.NEBULA_VOSTFR_FALLBACK !== "0") {
-            try {
-              if (!vfOracleFetched && lang.toUpperCase() === "VF") {
-                vfOracleFetched = true;
-                batchVfVerdict = await franimeVfOracle(session.animeTitle, session.userSearchQuery ? [session.userSearchQuery] : []).catch(() => undefined);
-              }
-              const fb = await getCrossSourceFallbackMirrors(
-                session.animeTitle,
-                parseInt(seasonNum, 10) || 1,
-                epIndex,
-                lang.toUpperCase() === "VF" ? "VF" : "VOSTFR",
-                undefined,
-                { vfVerdict: batchVfVerdict }
-              );
-              if (fb && fb.mirrors.length > 0) {
-                const fbResult = await downloadWithAllMirrorsFallback(fb.mirrors, resolution, localPath, 240000);
-                if (fbResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
-                  const fbLangLabel = languageOfUrl(fb.lists, fb.labels, fbResult.usedUrl);
-                  const fbLang = fbLangLabel || lang;
-                  if (!fbLangLabel) unconfirmedLangCount++;
-                  const fbMB = fs.statSync(localPath).size / (1024 * 1024);
-                  if (totalMBDownloaded + fbMB > MAX_BATCH_TOTAL_MB) {
-                    try { fs.unlinkSync(localPath); } catch {}
-                    quotaExceeded = true;
-                  } else {
-                    totalMBDownloaded += fbMB;
-                    const fbFilename = sanitizeFilename(`${animeClean}_${fbLang}_${resolution}_${formattedSeason}_${formattedEpisode}`) + ".mp4";
-                    const fbTemp = registerTempDownload(localPath, fbFilename, { ttlMinutes: 120, moveFile: true });
-                    downloadedFilePaths.push(fbTemp.filePath);
-                    generatedLinks.push({
-                      epNum,
-                      downloadUrl: fbTemp.downloadUrl,
-                      sizeMB: fbTemp.sizeMB,
-                      filename: fbFilename,
-                      expiresAt: fbTemp.expiresAt
-                    });
-                    if (fbLang !== lang.toUpperCase()) fallbackLangDelivered++;
-                    updateEpisodeProgress(batchJob.id, epNum, {
-                      status: "completed",
-                      progressPercent: 100,
-                      sizeMB: fbTemp.sizeMB,
-                      downloadUrl: fbTemp.downloadUrl
-                    });
-                    console.log(`[NOVABOX] Episode ${epNum} rescued via cross-source fallback (${fbLang}).`);
-                    rescued = true;
-                  }
-                }
-              }
-            } catch (fbErr: any) {
-              console.warn(`[NOVABOX] Episode ${epNum} cross-source fallback note:`, fbErr?.message);
-            }
+          // 8.69: mono-source strict — no cross-source rescue anymore.
+          // The episode is honestly reported as failed; the user can
+          // switch catalogs himself if a CDN node blocks this file.
+          if (fs.existsSync(localPath)) {
+            try { fs.unlinkSync(localPath); } catch {}
           }
-          if (!rescued) {
-            if (fs.existsSync(localPath)) {
-              try { fs.unlinkSync(localPath); } catch {}
-            }
-            failedEpisodeCount++;
-            updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: "Stream unavailable" });
-          }
+          failedEpisodeCount++;
+          updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: "Stream unavailable" });
         }
       } catch (err: any) {
         if (fs.existsSync(localPath)) {
@@ -2763,12 +2364,6 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         ) +
         (memoryDeferredCount > 0
           ? `🛡️ *Garde mémoire:* ${memoryDeferredCount} épisode(s) non lancé(s) pour protéger le bot (pression RAM critique). Les épisodes livrés ci-dessus sont intacts — redemande les épisodes manquants dans quelques minutes.\n`
-          : "") +
-        (fallbackLangDelivered > 0
-          ? `🔉 *${fallbackLangDelivered}* épisode(s) livré(s) via la roue de secours (_${fallbackLangDelivered === 1 ? "langue" : "langues"} alternatives_ — VF indisponible sur les CDN).\n`
-          : "") +
-        (unconfirmedLangCount > 0
-          ? `⚠️ *${unconfirmedLangCount}* épisode(s) livré(s) sans confirmation de langue par la source — vérifie avant de partager.\n`
           : "") +
         `⏳ *Links Validity:* 2 Hours\n\n` +
         (pageDelivered
@@ -2972,58 +2567,11 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     }
   }
 
-  // Cross-source fallback (audit 8.46): when every mirror of the selected
-  // source failed (e.g. a CDN node 403s the VPS for this exact file), try the
-  // same episode on the secondary catalog — its own VF lists first, then the
-  // rest. The delivered language is reported honestly in filename + message.
-  let deliveredLang = lang;
-  let fbLangUnconfirmed = false; // 8.62: fallback mirror with NO language label
-  let noVfConfirmed = false; // 8.62: franime oracle says this title has no VF at all
-  if (!downloadSuccess && process.env.NEBULA_VOSTFR_FALLBACK !== "0") {
-    try {
-      const fbSeasonNum = parseInt(session.selectedSeason?.name.match(/\d+/)?.[0] || "01", 10) || 1;
-      const fbWantedVf = (session.selectedLanguage || "VF").toUpperCase() === "VF";
-      // VF oracle (8.62): franime's catalog is the ground truth for "does a
-      // VF exist?" — nakanime's per-list labels proved wrong (audit 8.6) and
-      // delivered VOSTFR files named _VF_.
-      let vfVerdict: FranimeVfVerdict | undefined;
-      if (fbWantedVf) {
-        vfVerdict = await franimeVfOracle(session.animeTitle, session.userSearchQuery ? [session.userSearchQuery] : []).catch(() => undefined);
-        noVfConfirmed = vfVerdict?.status === "no_vf" || franimeSeasonHasVf(vfVerdict, fbSeasonNum) === false;
-      }
-      const fb = await getCrossSourceFallbackMirrors(
-        session.animeTitle,
-        fbSeasonNum,
-        epIndex,
-        fbWantedVf ? "VF" : "VOSTFR",
-        undefined,
-        { vfVerdict }
-      );
-      if (fb && fb.mirrors.length > 0) {
-        console.log(`[NOVABOX] Cross-source fallback: trying ${fb.mirrors.length} mirror(s) from the secondary catalog...`);
-        const fbResult = await downloadWithAllMirrorsFallback(fb.mirrors, resolution, localPath, 240000);
-        if (fbResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
-          downloadSuccess = true;
-          activePlayerName = fbResult.hostName;
-          const fbLabel = languageOfUrl(fb.lists, fb.labels, fbResult.usedUrl);
-          deliveredLang = fbLabel || lang;
-          fbLangUnconfirmed = !fbLabel;
-          console.log(`[NOVABOX] Cross-source fallback succeeded via ${fbResult.hostName} (${deliveredLang}${fbLangUnconfirmed ? ", langue non confirmee" : ""}).`);
-        }
-      }
-    } catch (fbErr: any) {
-      console.warn("[NOVABOX] Cross-source fallback note:", fbErr?.message);
-    }
-  }
-  const fbLanguageNote =
-    deliveredLang !== lang
-      ? noVfConfirmed
-        ? " _(aucune VF n'existe pour ce titre — VOSTFR via la roue de secours)_"
-        : " _(via la roue de secours — VF indisponible sur le CDN)_"
-      : fbLangUnconfirmed
-        ? " _(langue non confirmée par la source)_"
-        : "";
-  const deliveredFilename = deliveredLang !== lang ? filename.replace(`_${lang}_`, `_${deliveredLang}_`) : filename;
+  // 8.69: mono-source strict — the cross-source fallback is GONE. The
+  // delivered language is the requested one, period.
+  const deliveredLang = lang;
+  const fbLanguageNote = "";
+  const deliveredFilename = filename;
 
   // Clear user session to free memory
   clearUserSession(context.sender);

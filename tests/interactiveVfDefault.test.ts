@@ -1,21 +1,20 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
+/**
+ * 8.69 (refonte sources choisies) — session wiring per chosen catalog with
+ * STRUCTURAL languages. Replaces the 8.17 wireVoiranimeVfSeasons tests: the
+ * VF truth now comes from the catalog structure itself (sub-paths / slugs),
+ * not from a cross-catalog probe.
+ */
+
 vi.mock("../src/bot/services/voiranimeClient.js", async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
   return { ...mod, voiranimeSearch: vi.fn(), voiranimeEpisodes: vi.fn() };
 });
 
-import { voiranimeSearch } from "../src/bot/services/voiranimeClient.js";
-import { foldTitleDiacritics, seasonScreenLanguageHint, wireVoiranimeVfSeasons } from "../src/bot/commands/novabox.js";
+import { foldTitleDiacritics, seasonScreenLanguageHint } from "../src/bot/commands/novabox.js";
 
-const mockedSearch = vi.mocked(voiranimeSearch);
-
-/**
- * Audit 8.17 — the INTERACTIVE flow must default to VF (voiranime source)
- * exactly like the quick pipeline, and the season-screen hint must always
- * offer the OPPOSITE language (the old screen said "switch to VOSTFR" while
- * VOSTFR was already the default) or honestly say VF does not exist.
- */
+/** seasonScreenLanguageHint (audit 8.17) — unchanged behavior. */
 describe("seasonScreenLanguageHint (audit 8.17)", () => {
   it("VF default offers the VOSTFR switch", () => {
     const hint = seasonScreenLanguageHint("VF", true);
@@ -37,211 +36,166 @@ describe("seasonScreenLanguageHint (audit 8.17)", () => {
   });
 });
 
-describe("wireVoiranimeVfSeasons (audit 8.17)", () => {
-  const baseSession: any = () => ({
-    animeTitle: "Tomb Raider King",
-    animeUrl: "https://nakanime.to/anime/tomb-raider-king/",
-    languages: ["VOSTFR"],
-    selectedLanguage: "VOSTFR",
-    seasons: [{ name: "Saison 1", subPath: "s1/vostfr", url: "https://nakanime.to/anime/tomb-raider-king/vostfr/s1/" }]
+describe("wireSessionSeasons — as catalog (structural sub-path languages, 8.69)", () => {
+  let axiosGetMock: ReturnType<typeof vi.fn>;
+  let wireSessionSeasons: any;
+
+  const CATALOG_URL = "https://anime-sama.to/catalogue/vinland-saga/";
+  const HTML_BOTH_LANGS = `<html><script>
+    panneauAnime("Saison 1", "saison1/vostfr");
+    panneauAnime("Saison 1", "saison1/vf");
+    panneauAnime("Saison 2", "saison2/vostfr");
+  </script></html>`;
+  const HTML_VOSTFR_ONLY = `<html><script>
+    panneauAnime("Saison 1", "saison1/vostfr");
+  </script></html>`;
+
+  const baseSession = (): any => ({
+    source: "as" as const,
+    searchResults: [{ title: "Vinland Saga", subtitle: "VOSTFR/VF", url: CATALOG_URL }],
+    animeTitle: "Vinland Saga",
+    animeUrl: CATALOG_URL,
+    languages: [] as string[],
+    seasons: [] as Array<Record<string, unknown>>
   });
 
-  beforeEach(() => {
-    mockedSearch.mockReset();
-    delete process.env.NEBULA_VOIRANIME_DISABLED;
+  beforeEach(async () => {
+    axiosGetMock = vi.fn();
+    vi.resetModules();
+    vi.doMock("axios", () => ({ default: { post: vi.fn(), get: axiosGetMock } }));
+    // SSRF guard: keep the wiring test offline (no DNS for the fake catalog URL)
+    vi.doMock("../src/bot/urlSafety.js", async (importOriginal) => {
+      const orig = await importOriginal<Record<string, unknown>>();
+      return { ...orig, isSafeDownloadUrl: vi.fn(async () => true) };
+    });
+    const mod = await import("../src/bot/commands/novabox.js");
+    wireSessionSeasons = (mod as Record<string, unknown>).wireSessionSeasons;
   });
   afterEach(() => {
-    delete process.env.NEBULA_VOIRANIME_DISABLED;
+    vi.doUnmock("axios");
+    vi.doUnmock("../src/bot/urlSafety.js");
   });
 
-  it("wires the session to voiranime VF seasons (VF default) and keeps the nakanime URL", async () => {
-    mockedSearch.mockResolvedValue([
-      { title: "Tomb Raider King", url: "https://voir-anime.to/anime/tomb-raider-king-vostfr/", isVf: false },
-      { title: "Tomb Raider King VF", url: "https://voir-anime.to/anime/tomb-raider-king-vf/", isVf: true },
-      { title: "Tomb Raider King Saison 2 VF", url: "https://voir-anime.to/anime/tomb-raider-king-saison-2-vf/", isVf: true }
-    ] as any);
-
+  it("VF default: wires ONLY the vf sub-path seasons, keeps all langs in sourceSeasons", async () => {
+    axiosGetMock.mockResolvedValue({ data: HTML_BOTH_LANGS });
     const session = baseSession();
-    const wired = await wireVoiranimeVfSeasons(session, "Tomb Raider King");
 
-    expect(wired).toBe(true);
-    expect(session.seasons).toHaveLength(2); // VOSTFR entry excluded
-    expect(session.seasons.every((s: any) => s.isVoiranime === true)).toBe(true);
+    const r = await wireSessionSeasons(session, { title: "Vinland Saga", url: CATALOG_URL }, "VF");
+
+    expect(r.status).toBe("ok");
+    expect(r.language).toBe("VF");
+    expect(session.seasons).toHaveLength(1);
+    expect(session.seasons[0].subPath).toBe("saison1/vf");
     expect(session.selectedLanguage).toBe("VF");
     expect(session.languages).toEqual(["VF", "VOSTFR"]);
-    expect(session.voiranimeAnimeUrl).toBe("https://voir-anime.to/anime/tomb-raider-king-vf/");
-    expect(session.animeUrl).toBe("https://nakanime.to/anime/tomb-raider-king/"); // untouched for `.a vostfr` rebuild
+    expect(session.sourceSeasons).toHaveLength(3); // both languages stored for `.a vostfr`
+    expect(axiosGetMock).toHaveBeenCalledTimes(1); // one catalog fetch, no HEAD guessing
   });
 
-  it("returns false (session untouched) when voiranime has no VF entry", async () => {
-    mockedSearch.mockResolvedValue([
-      { title: "X", url: "https://voir-anime.to/anime/x-vostfr/", isVf: false }
-    ] as any);
-
+  it("no VF on the catalog: VOSTFR seasons are LISTED with the honest header", async () => {
+    axiosGetMock.mockResolvedValue({ data: HTML_VOSTFR_ONLY });
     const session = baseSession();
-    const before = JSON.stringify(session);
-    expect(await wireVoiranimeVfSeasons(session, "X")).toBe(false);
-    expect(JSON.stringify(session)).toBe(before);
+
+    const r = await wireSessionSeasons(session, { title: "Vinland Saga", url: CATALOG_URL }, "VF");
+
+    expect(r.status).toBe("ok");
+    expect(r.language).toBe("VOSTFR");
+    expect(r.header).toContain("Aucune VF");
+    expect(r.guideHint).toContain("`.a va <titre>`");
+    expect(session.seasons).toHaveLength(1);
+    expect(session.seasons[0].subPath).toBe("saison1/vostfr");
   });
 
-  it("returns false when the voiranime probe throws", async () => {
-    mockedSearch.mockRejectedValue(new Error("boom"));
+  it("VOSTFR requested with no VOSTFR seasons: honest failure + other-flag guide", async () => {
+    axiosGetMock.mockResolvedValue({ data: `<html><script>panneauAnime("Saison 1", "saison1/vf");</script></html>` });
     const session = baseSession();
-    expect(await wireVoiranimeVfSeasons(session, "X")).toBe(false);
-    expect(session.selectedLanguage).toBe("VOSTFR");
+
+    const r = await wireSessionSeasons(session, { title: "Vinland Saga", url: CATALOG_URL }, "VOSTFR");
+
+    expect(r.status).toBe("missing");
+    expect(r.message).toContain("Aucun VOSTFR");
+    expect(r.message).toContain("`.a va <titre> vostfr`");
   });
 
-  it("is a no-op when voiranime is disabled via env", async () => {
-    process.env.NEBULA_VOIRANIME_DISABLED = "1";
+  it("empty catalog page: honest failure", async () => {
+    axiosGetMock.mockResolvedValue({ data: "<html>nothing</html>" });
     const session = baseSession();
-    expect(await wireVoiranimeVfSeasons(session, "X")).toBe(false);
-    expect(mockedSearch).not.toHaveBeenCalled();
+
+    const r = await wireSessionSeasons(session, { title: "Vinland Saga", url: CATALOG_URL }, "VF");
+
+    expect(r.status).toBe("missing");
+    expect(r.message).toContain("Aucune saison");
   });
 });
 
-/**
- * Audit 8.54 — production evidence `.a hana-kimi`: voir-anime.to lists its
- * entries in SEARCH-RELEVANCE order, so "Hana-Kimi 2" was offered as s1 of
- * "Hana-Kimi" (typing `.a s1` would have downloaded season 2!). Entries must
- * be sorted by their real season number. Also: a transient Cloudflare
- * challenge on the probe silently demoted sessions to VOSTFR even though the
- * VF entry existed — the probe now retries once.
- */
-describe("wireVoiranimeVfSeasons (audit 8.54: season order + retry)", () => {
-  const newSession: any = () => ({
-    animeTitle: "Hana-Kimi",
-    animeUrl: "https://nakanime.tv/anime/37/hana-kimi",
-    languages: ["VOSTFR"],
-    selectedLanguage: "VOSTFR",
-    seasons: [{ name: "Saison 1", subPath: "s1/vostfr", url: "https://nakanime.tv/anime/37/hana-kimi/vostfr/s1/" }]
+describe("wireSessionSeasons — va catalog (structural slug languages, 8.69)", () => {
+  let axiosGetMock: ReturnType<typeof vi.fn>;
+  let wireSessionSeasons: any;
+
+  const VA_ENTRIES = [
+    { title: "Solo Leveling VF", subtitle: "VF", url: "https://voir-anime.to/anime/solo-leveling-vf/", slug: "solo-leveling-vf", language: "VF" as const },
+    { title: "Solo Leveling VOSTFR", subtitle: "VOSTFR", url: "https://voir-anime.to/anime/solo-leveling-vostfr/", slug: "solo-leveling-vostfr", language: "VOSTFR" as const }
+  ];
+
+  const baseSession = (): any => ({
+    source: "va" as const,
+    searchResults: VA_ENTRIES,
+    animeTitle: "Solo Leveling",
+    animeUrl: VA_ENTRIES[0].url,
+    languages: [] as string[],
+    seasons: [] as Array<Record<string, unknown>>
   });
 
-  beforeEach(() => {
-    mockedSearch.mockReset();
-    delete process.env.NEBULA_VOIRANIME_DISABLED;
-    vi.useRealTimers();
+  beforeEach(async () => {
+    axiosGetMock = vi.fn();
+    vi.resetModules();
+    vi.doMock("axios", () => ({ default: { post: vi.fn(), get: axiosGetMock } }));
+    const mod = await import("../src/bot/commands/novabox.js");
+    wireSessionSeasons = (mod as Record<string, unknown>).wireSessionSeasons;
   });
   afterEach(() => {
-    vi.useRealTimers();
-    delete process.env.NEBULA_VOIRANIME_DISABLED;
+    vi.doUnmock("axios");
   });
 
-  it("sorts VF entries by real season number (Hana-Kimi 2 listed after Hana-Kimi)", async () => {
-    mockedSearch.mockResolvedValue([
-      { title: "Hana-Kimi 2", url: "https://voir-anime.to/anime/hana-kimi-2-vf/", slug: "hana-kimi-2-vf", isVf: true },
-      { title: "Hana-Kimi", url: "https://voir-anime.to/anime/hana-kimi-vf/", slug: "hana-kimi-vf", isVf: true }
-    ]);
-    const session = newSession();
-    const wired = await wireVoiranimeVfSeasons(session, "Hana-Kimi");
-    expect(wired).toBe(true);
-    expect(session.seasons.map((s: any) => s.name)).toEqual(["Hana-Kimi", "Hana-Kimi 2"]);
-    expect(session.voiranimeAnimeUrl).toContain("hana-kimi-vf"); // season 1 entry first
-  });
+  it("VF default: wires the VF entries as seasons — NO catalog fetch (never parseSeasons on a va URL)", async () => {
+    const session = baseSession();
 
-  it("sorts explicit 'Saison N' markers too", async () => {
-    mockedSearch.mockResolvedValue([
-      { title: "Truc Saison 3", url: "https://voir-anime.to/anime/truc-saison-3-vf/", slug: "truc-saison-3-vf", isVf: true },
-      { title: "Truc Saison 1", url: "https://voir-anime.to/anime/truc-saison-1-vf/", slug: "truc-saison-1-vf", isVf: true },
-      { title: "Truc Saison 2", url: "https://voir-anime.to/anime/truc-saison-2-vf/", slug: "truc-saison-2-vf", isVf: true }
-    ]);
-    const session = newSession();
-    await wireVoiranimeVfSeasons(session, "Truc");
-    expect(session.seasons.map((s: any) => s.name)).toEqual(["Truc Saison 1", "Truc Saison 2", "Truc Saison 3"]);
-  });
+    const r = await wireSessionSeasons(session, { title: "Solo Leveling", url: VA_ENTRIES[0].url }, "VF");
 
-  it("retries once on a transient probe failure and still wires VF", async () => {
-    mockedSearch
-      .mockRejectedValueOnce(Object.assign(new Error("cf challenge"), { response: { status: 503 } }))
-      .mockResolvedValue([
-        { title: "Hana-Kimi", url: "https://voir-anime.to/anime/hana-kimi-vf/", slug: "hana-kimi-vf", isVf: true }
-      ]);
-    vi.useFakeTimers();
-    const session = newSession();
-    const pending = wireVoiranimeVfSeasons(session, "Hana-Kimi");
-    await vi.advanceTimersByTimeAsync(1600); // let the 1.5 s back-off elapse
-    const wired = await pending;
-    expect(wired).toBe(true);
+    expect(r.status).toBe("ok");
+    expect(r.language).toBe("VF");
+    expect(session.seasons).toHaveLength(1);
+    expect(session.seasons[0].isVoiranime).toBe(true);
+    expect(session.seasons[0].url).toContain("-vf");
     expect(session.selectedLanguage).toBe("VF");
+    expect(axiosGetMock).not.toHaveBeenCalled();
   });
 
-  it("gives up after two failures and falls back to the catalogue path", async () => {
-    mockedSearch.mockRejectedValue(Object.assign(new Error("blocked"), { response: { status: 403 } }));
-    vi.useFakeTimers();
-    const session = newSession();
-    const pending = wireVoiranimeVfSeasons(session, "Hana-Kimi");
-    await vi.advanceTimersByTimeAsync(1600);
-    const wired = await pending;
-    expect(wired).toBe(false);
-    expect(session.selectedLanguage).toBe("VOSTFR"); // untouched
+  it("VOSTFR request on va: wires the vostfr entries when they exist", async () => {
+    const session = baseSession();
+
+    const r = await wireSessionSeasons(session, { title: "Solo Leveling", url: VA_ENTRIES[1].url }, "VOSTFR");
+
+    expect(r.status).toBe("ok");
+    expect(r.language).toBe("VOSTFR");
+    expect(session.seasons[0].url).toContain("-vostfr");
+  });
+
+  it("VF request with no VF entry on va: VOSTFR listed with header + guide to as", async () => {
+    const session = baseSession();
+    session.searchResults = [VA_ENTRIES[1]];
+
+    const r = await wireSessionSeasons(session, { title: "Solo Leveling", url: VA_ENTRIES[1].url }, "VF");
+
+    expect(r.status).toBe("ok");
+    expect(r.language).toBe("VOSTFR");
+    expect(r.header).toContain("Aucune VF");
+    expect(r.guideHint).toContain("`.a as <titre>`");
   });
 });
 
-/**
- * Audit 8.55 — production evidence `.a Komi-san wa, Komyushō desu`: nakanime
- * returns FRENCH titles ("Komi cherche ses mots") while voir-anime indexes
- * ROMAJI ("Komi-san wa, Komyushou desu."). Probing with the catalog title
- * alone missed the real VF entry (verified: voir-anime carries 12 VF eps).
- * The probe now walks candidates: catalog title → user's raw query, with
- * diacritics folded (Komyushō → Komyusho).
- */
-describe("wireVoiranimeVfSeasons multi-candidate (audit 8.55)", () => {
-  const newSession: any = (q?: string) => ({
-    animeTitle: "Komi cherche ses mots",
-    animeUrl: "https://nakanime.tv/anime/41/komi",
-    languages: ["VOSTFR"],
-    selectedLanguage: "VOSTFR",
-    seasons: [],
-    userSearchQuery: q
-  });
-
-  beforeEach(() => mockedSearch.mockReset());
-  afterEach(() => {
-    delete process.env.NEBULA_VOIRANIME_DISABLED;
-    vi.useRealTimers();
-  });
-
-  it("falls through to the user's raw query when the catalog title finds no VF", async () => {
-    mockedSearch
-      // candidate 1: catalog French title → results exist but VOSTFR-only
-      .mockResolvedValueOnce([
-        { title: "Komi cherche ses mots", url: "https://voir-anime.to/anime/komi-cherche-ses-mots/", slug: "komi-cherche-ses-mots", isVf: false }
-      ])
-      // candidate 2: user romaji query → VF entry found
-      .mockResolvedValueOnce([
-        { title: "Komi-san wa, Komyushou desu. (VF)", url: "https://voir-anime.to/anime/komi-san-wa-komyushou-desu-vf/", slug: "komi-san-wa-komyushou-desu-vf", isVf: true }
-      ]);
-    const session = newSession("Komi-san wa, Komyushō desu");
-    const wired = await wireVoiranimeVfSeasons(session, session.animeTitle, [session.userSearchQuery]);
-    expect(wired).toBe(true);
-    expect(session.selectedLanguage).toBe("VF");
-    expect(session.voiranimeAnimeUrl).toContain("komi-san-wa-komyushou-desu-vf");
-    expect(mockedSearch).toHaveBeenCalledTimes(2);
-    // the macron ō was folded before hitting the site search
-    expect(mockedSearch).toHaveBeenLastCalledWith("Komi-san wa, Komyushou desu");
-  });
-
-  it("folds macrons/diacritics (Komyushō → Komyusho, déterminé → determine)", () => {
-    expect(foldTitleDiacritics("Komyushō desu")).toBe("Komyushou desu");
-    expect(foldTitleDiacritics("déterminé")).toBe("determine");
-  });
-
-  it("does not re-probe duplicate candidates (folded-case insensitive)", async () => {
-    mockedSearch.mockResolvedValue([
-      { title: "Komi cherche ses mots", url: "https://voir-anime.to/anime/komi-cherche-ses-mots/", slug: "komi-cherche-ses-mots", isVf: false }
-    ]);
-    const session = newSession("Komi cherche ses mots");
-    const wired = await wireVoiranimeVfSeasons(session, session.animeTitle, [session.userSearchQuery, "KOMI CHERCHE SES MOTS"]);
-    expect(wired).toBe(false);
-    expect(mockedSearch).toHaveBeenCalledTimes(1); // all candidates were the same
-  });
-
-  it("reports every probed candidate in the miss log", async () => {
-    const warn = vi.spyOn(console, "log").mockImplementation(() => {});
-    mockedSearch.mockResolvedValue([]);
-    const session = newSession("Komi-san wa, Komyushō desu");
-    const wired = await wireVoiranimeVfSeasons(session, session.animeTitle, [session.userSearchQuery]);
-    expect(wired).toBe(false);
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("probed: komi cherche ses mots | komi-san wa, komyushou desu"));
-    warn.mockRestore();
+describe("foldTitleDiacritics re-export (moved 8.69)", () => {
+  it("still folds macrons to Hepburn", () => {
+    expect(foldTitleDiacritics("Komyushō")).toBe("Komyushou");
   });
 });

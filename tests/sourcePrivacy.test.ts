@@ -18,13 +18,15 @@ import path from "path";
  *    cache file names, internal error texts that are logged, never replied)
  */
 
-const PRIVATE_NAME_RE = /nakanime|voiranime|franime|anime[- ]?sama/i;
+const PRIVATE_NAME_RE = /nakanime|voir[- ]?anime|franime|anime[- ]?sama/i;
 
 const INTERNAL_EXACT_ALLOWLIST = new Set([
   "nakanime.tv", // origin constant (nakanimeClient)
   "franime:", // session url prefix (internal key, never displayed)
   "franime-catalog.json", // cache file name on disk
-  "franime catalog came back empty" // internal Error text, logged only
+  "franime catalog came back empty", // internal Error text, logged only
+  "voir-anime", // sourceLogLabel return (animeSources) — console diagnostics only
+  "anime-sama" // sourceLogLabel return (animeSources) — console diagnostics only
 ]);
 
 const FILE_ALLOWLIST = new Set([

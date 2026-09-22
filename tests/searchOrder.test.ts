@@ -2,18 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 
 /**
- * Audit 8.53 — source order. Production evidence: every `.a` search logged
- * "anime-sama search failed (403)" before falling back to nakanime —
- * anime-sama is chronically Cloudflare-blocked from the VPS IP range, so it
- * must be the LAST resort, not the first. voiranime stays out of the SEARCH
- * chain (search results feed parseSeasons catalog pages) but is probed FIRST
- * at selection time as the VF-by-default source (its wiring is covered by
- * tests/interactiveVfDefault.test.ts).
+ * 8.69 (refonte sources choisies) — search routing. ONE catalog per query,
+ * chosen by the user: `as` (default, fetch.php) or `va` (WP search). There
+ * is NO fallback and nakanime is dormant: an empty result is the answer.
  */
 
 vi.mock("../src/bot/services/nakanimeClient.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../src/bot/services/nakanimeClient.js")>();
   return { ...orig, nakanimeSearch: vi.fn() };
+});
+
+vi.mock("../src/bot/services/voiranimeClient.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("../src/bot/services/voiranimeClient.js")>();
+  return { ...orig, voiranimeSearch: vi.fn() };
 });
 
 const SAMA_HTML = `
@@ -23,97 +24,113 @@ const SAMA_HTML = `
   </a>`;
 
 let axiosPostMock: ReturnType<typeof vi.fn>;
+let axiosGetMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   axiosPostMock = vi.fn();
+  axiosGetMock = vi.fn();
   // Fresh module registry per test: novabox.js must re-import axios against
   // THIS test's mock (a cached module would keep the previous mock instance).
   vi.resetModules();
-  vi.doMock("axios", () => ({ default: { post: axiosPostMock, get: vi.fn() } }));
+  vi.doMock("axios", () => ({ default: { post: axiosPostMock, get: axiosGetMock } }));
 });
 
 afterEach(() => {
   vi.doUnmock("axios");
 });
 
-async function loadSearchAnime() {
-  const mod = await import("../src/bot/commands/novabox.js");
-  return mod.searchAnime;
+async function loadNovabox() {
+  return await import("../src/bot/commands/novabox.js");
 }
 
-async function loadNakanimeSearch() {
-  const mod = await import("../src/bot/services/nakanimeClient.js");
-  return mod.nakanimeSearch as any;
+async function loadFn<T>(path: string, name: string): Promise<T> {
+  const mod = await import(/* @vite-ignore */ path);
+  return (mod as Record<string, unknown>)[name] as T;
 }
 
-describe("searchAnime source order (8.53)", () => {
-  it("searches nakanime FIRST and does not touch anime-sama when it has results", async () => {
-    const nakanimeSearch = await loadNakanimeSearch();
-    nakanimeSearch.mockResolvedValue([
-      { title: "Vinland Saga", url: "https://nakanime.tv/anime/12/vinland-saga" }
-    ]);
-    const searchAnime = await loadSearchAnime();
+describe("searchAnime source routing (8.69)", () => {
+  it("default (no flag) searches the as catalog and touches nothing else", async () => {
+    axiosPostMock.mockResolvedValue({ data: SAMA_HTML });
+    const nakanimeSearch0 = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/nakanimeClient.js", "nakanimeSearch");
+    const voiranimeSearch0 = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    nakanimeSearch0.mockClear();
+    voiranimeSearch0.mockClear();
+    const { searchAnime } = await loadNovabox();
 
     const results = await searchAnime("vinland");
 
     expect(results).toHaveLength(1);
     expect(results[0].title).toBe("Vinland Saga");
-    expect(nakanimeSearch).toHaveBeenCalledWith("vinland");
-    expect(axiosPostMock).not.toHaveBeenCalled(); // anime-sama never contacted
-  });
-
-  it("falls back to anime-sama (last resort) when nakanime returns nothing", async () => {
-    const nakanimeSearch = await loadNakanimeSearch();
-    nakanimeSearch.mockResolvedValue([]);
-    axiosPostMock.mockResolvedValue({ data: SAMA_HTML });
-    const searchAnime = await loadSearchAnime();
-
-    const results = await searchAnime("vinland");
-
-    expect(results).toHaveLength(1);
     expect(results[0].url).toContain("anime-sama.to");
-    expect(nakanimeSearch).toHaveBeenCalled();
-    expect(axiosPostMock).toHaveBeenCalledTimes(1); // sama tried exactly once
+    expect(axiosPostMock).toHaveBeenCalledTimes(1);
+    const nakanimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/nakanimeClient.js", "nakanimeSearch");
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    expect(nakanimeSearch).not.toHaveBeenCalled();
+    expect(voiranimeSearch).not.toHaveBeenCalled();
   });
 
-  it("falls back to anime-sama when nakanime throws (network/parse)", async () => {
-    const nakanimeSearch = await loadNakanimeSearch();
-    nakanimeSearch.mockRejectedValue(Object.assign(new Error("blocked"), { response: { status: 403 } }));
-    axiosPostMock.mockResolvedValue({ data: SAMA_HTML });
-    const searchAnime = await loadSearchAnime();
+  it("`va` searches the va catalog (VF-first) and never touches fetch.php", async () => {
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    voiranimeSearch.mockResolvedValue([
+      { title: "Solo Leveling VOSTFR", url: "https://voir-anime.to/anime/solo-leveling-vostfr/", slug: "solo-leveling-vostfr", isVf: false },
+      { title: "Solo Leveling VF", url: "https://voir-anime.to/anime/solo-leveling-vf/", slug: "solo-leveling-vf", isVf: true }
+    ]);
+    const { searchAnime } = await loadNovabox();
 
-    const results = await searchAnime("vinland");
-    expect(results).toHaveLength(1);
+    const results = await searchAnime("solo leveling", "va");
+
+    expect(results).toHaveLength(2);
+    expect(results[0].language).toBe("VF"); // VF-first ordering
+    expect(results[0].url).toContain("-vf");
+    expect(results[1].language).toBe("VOSTFR");
+    expect(axiosPostMock).not.toHaveBeenCalled();
   });
 
-  it("rejects when BOTH sources fail (no silent empty result)", async () => {
-    const nakanimeSearch = await loadNakanimeSearch();
-    nakanimeSearch.mockRejectedValue(new Error("net down"));
+  it("no fallback: an EMPTY result is the answer (no second catalog tried)", async () => {
+    axiosPostMock.mockResolvedValue({ data: "<html>no results</html>" });
+    const nakanimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/nakanimeClient.js", "nakanimeSearch");
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    nakanimeSearch.mockClear();
+    voiranimeSearch.mockClear();
+    const { searchAnime } = await loadNovabox();
+
+    const results = await searchAnime("zzz");
+
+    expect(results).toEqual([]);
+    expect(axiosPostMock).toHaveBeenCalledTimes(1);
+    expect(nakanimeSearch).not.toHaveBeenCalled();
+    expect(voiranimeSearch).not.toHaveBeenCalled();
+  });
+
+  it("rejects when the chosen catalog fails (network/403) — no silent rescue", async () => {
     axiosPostMock.mockRejectedValue(Object.assign(new Error("cf 403"), { response: { status: 403 } }));
-    const searchAnime = await loadSearchAnime();
+    const { searchAnime } = await loadNovabox();
 
     await expect(searchAnime("vinland")).rejects.toThrow();
   });
 });
 
-describe("source order wiring (the 8.49b lesson: pin the wiring, not just the units)", () => {
-  it("the selection handler probes voiranime BEFORE parsing the catalog seasons", () => {
+describe("source routing wiring pins (the 8.49b lesson: pin the wiring, not just the units)", () => {
+  it("novabox never calls nakanimeSearch (dormant mirror since 8.69)", () => {
     const source = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");
-    const handler = source.slice(source.indexOf("const chosen = results[choiceIndex];"));
-    const wirePos = handler.indexOf("await wireVoiranimeVfSeasons(session, chosen.title");
-    const parsePos = handler.indexOf("await parseSeasons(chosen.url)");
-    expect(wirePos).toBeGreaterThanOrEqual(0);
-    expect(parsePos).toBeGreaterThan(wirePos);
+    expect(source).not.toMatch(/nakanimeSearch\s*\(/);
   });
 
-  it("searchAnime tries nakanimeSearch before searchAnimeSama", () => {
+  it("the language switch re-filters sourceSeasons locally (no parseSeasons rebuild)", () => {
     const source = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");
-    const fn = source.slice(source.indexOf("export async function searchAnime"));
-    expect(fn.indexOf("nakanimeSearch")).toBeLessThan(fn.indexOf("searchAnimeSama"));
+    const switchPos = source.indexOf("Handle language switch");
+    const seg = source.slice(switchPos, switchPos + 2000);
+    expect(seg).toContain("applyPolicyToSession(session, langChoice)");
+    expect(seg).not.toContain("await parseSeasons(");
   });
 
   it("NEBULA_ANIME_PROXY is documented in .env.example (Cloudflare escape hatch)", () => {
     const env = fs.readFileSync(".env.example", "utf8");
     expect(env).toContain("NEBULA_ANIME_PROXY");
+  });
+
+  it("NEBULA_VOSTFR_FALLBACK is gone everywhere (mono-source strict)", () => {
+    expect(fs.readFileSync(".env.example", "utf8")).not.toContain("NEBULA_VOSTFR_FALLBACK");
+    expect(fs.readFileSync("src/bot/commands/novabox.ts", "utf8")).not.toContain("NEBULA_VOSTFR_FALLBACK");
   });
 });

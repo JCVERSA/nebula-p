@@ -9,6 +9,8 @@
  *   .a demon slayer s2 ep4 720p
  */
 
+import type { AnimeSourceId } from "../services/animeSources.js";
+
 export interface QuickDownloadParams {
   rawInput: string;
   animeQuery: string;
@@ -19,6 +21,8 @@ export interface QuickDownloadParams {
   parsedEpisodeNumbers?: number[]; // 1-indexed numbers
   resolutionChoice?: string; // "r1", "r2", "r3", "r4", "1080P", "720P", "480P", "360P"
   language?: "VF" | "VOSTFR";
+  /** Catalog flag (`as` / `va`) — first token only (refonte 2026-09-21). */
+  source?: AnimeSourceId;
   isQuickCommand: boolean;
 }
 
@@ -120,6 +124,18 @@ export function parseQuickDownloadParams(input: string[] | string): QuickDownloa
   let episodesSpec: string | undefined;
   let episodesMode: "all" | "single" | "list" | "range" | undefined;
   let parsedEpisodeNumbers: number[] | undefined;
+
+  // 0. Catalog flag (`as` / `va`, optional trailing "=") — FIRST token only,
+  // and only when a title follows (`.a as` alone stays a literal query).
+  // Refonte 2026-09-21: one catalog per query, chosen by the user.
+  let source: AnimeSourceId | undefined;
+  if (tokens.length > 1) {
+    const first = tokens[0].toLowerCase().replace(/=+$/, "");
+    if (first === "as" || first === "va") {
+      source = first;
+      tokens.shift();
+    }
+  }
 
   // Working copy of tokens to mutate
   const remainingTokens: string[] = [];
@@ -245,6 +261,7 @@ export function parseQuickDownloadParams(input: string[] | string): QuickDownloa
     parsedEpisodeNumbers,
     resolutionChoice,
     language,
+    source,
     isQuickCommand
   };
 }

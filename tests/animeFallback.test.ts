@@ -200,25 +200,19 @@ describe("vf oracle strictness (8.62)", () => {
   });
 });
 
-describe("wiring (8.46)", () => {
-  it("novabox wires the fallback in single + batch flows behind NEBULA_VOSTFR_FALLBACK", () => {
+describe("wiring (8.46 → dormant since 8.69)", () => {
+  // 8.69 (refonte sources choisies): the cross-source fallback is DORMANT —
+  // the library below still works (kept for tests + potential reuse), but
+  // novabox never calls it anymore: one catalog per query, no source switch.
+  it("novabox no longer wires the fallback (mono-source strict)", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
-    expect((src.match(/NEBULA_VOSTFR_FALLBACK/g) || []).length).toBeGreaterThanOrEqual(2);
-    expect(src).toContain("getCrossSourceFallbackMirrors(");
-    expect(src).toContain("deliveredFilename"); // honest filename when language differs
-    expect(src).toContain("rescued"); // batch per-episode rescue
-    expect(src).toContain("fallbackLangDelivered"); // batch summary note
-    // 8.62: franime VF oracle + honest delivered-language notes
-    expect(src).toContain("franimeVfOracle(");
-    expect(src).toContain("fbLanguageNote");
-    expect(src).toContain("unconfirmedLangCount");
-    expect(src).toContain("langue non confirmée par la source");
+    expect(src).not.toContain("getCrossSourceFallbackMirrors(");
+    expect(src).not.toContain("NEBULA_VOSTFR_FALLBACK");
+    expect(src).not.toContain("franimeVfOracle(");
   });
 
-  it("env surfaces document the toggle (default ON, 0 disables)", () => {
-    const env = fs.readFileSync(".env.example", "utf-8");
-    expect(env).toContain("NEBULA_VOSTFR_FALLBACK");
-    const sh = fs.readFileSync("manage.sh", "utf-8");
-    expect(sh).toContain("NEBULA_VOSTFR_FALLBACK");
+  it("the toggle is gone from operator surfaces too", () => {
+    expect(fs.readFileSync(".env.example", "utf-8")).not.toContain("NEBULA_VOSTFR_FALLBACK");
+    expect(fs.readFileSync("manage.sh", "utf-8")).not.toContain("NEBULA_VOSTFR_FALLBACK");
   });
 });
