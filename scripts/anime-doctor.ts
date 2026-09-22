@@ -52,6 +52,11 @@ import {
   fetchHlsTracksAndSizes,
   pickOptimalStream,
 } from "../src/bot/services/animeStreamExtractor.js";
+import {
+  voiranimeSearch,
+  voiranimeEpisodes,
+  voiranimeEpisodePlayer,
+} from "../src/bot/services/voiranimeClient.js";
 
 const FULL = process.argv.includes("--full");
 const PROXY_ARG = (() => {
@@ -662,6 +667,160 @@ try {
   row("4", "episodes.js", "FAIL", e.message, undefined, true);
 }
 
+// ------------------- Stages V1-V4: voir-anime chain (VF source) -------------------
+hr();
+console.log("STAGE V1 - voir-anime search (/?s=, the VF source chain)");
+hr();
+
+let vaEntryUrl = "";
+try {
+  const vaResults = await withTimeout(voiranimeSearch(TEST_QUERY), 20000, "voir-anime search");
+  if (vaResults.length > 0) {
+    const vfCount = vaResults.filter((r) => r.isVf).length;
+    const sample = vaResults
+      .slice(0, 5)
+      .map((r) => `${r.slug}${r.isVf ? " [VF]" : " [non-VF]"}`)
+      .join(", ");
+    row(
+      "V1",
+      "voir-anime search (/?s=)",
+      "PASS",
+      `${vaResults.length} results — ${vfCount} VF (-vf) / ${vaResults.length - vfCount} non-VF. Sample: ${sample}`,
+    );
+    const firstVf = vaResults.find((r) => r.isVf) || vaResults[0];
+    vaEntryUrl = firstVf.url;
+  } else {
+    row(
+      "V1",
+      "voir-anime search (/?s=)",
+      "FAIL",
+      "HTTP OK but 0 results parsed",
+      "Madara search markup changed -> update parseVoiranimeSearch() in src/bot/services/voiranimeClient.ts.",
+    );
+  }
+} catch (e: any) {
+  row(
+    "V1",
+    "voir-anime search (/?s=)",
+    "FAIL",
+    e.message,
+    "voir-anime.to unreachable/WAF from this host -> the VF source would be blind here.",
+  );
+}
+
+hr();
+console.log("STAGE V2 - voir-anime episode list (first VF entry)");
+hr();
+
+let vaFirstEpisodeUrl = "";
+if (vaEntryUrl) {
+  try {
+    const vaEpisodes = await withTimeout(voiranimeEpisodes(vaEntryUrl), 20000, "voir-anime episodes");
+    if (vaEpisodes.length > 0) {
+      row(
+        "V2",
+        "voir-anime episodes",
+        "PASS",
+        `${vaEpisodes.length} episodes (first: ${vaEpisodes[0].label || vaEpisodes[0].url.split("/").pop()}), max n=${Math.max(...vaEpisodes.map((e) => e.n))}`,
+      );
+      vaFirstEpisodeUrl = vaEpisodes[0].url;
+    } else {
+      row(
+        "V2",
+        "voir-anime episodes",
+        "FAIL",
+        "page fetched but 0 episodes parsed",
+        "Episode-list markup changed -> update parseVoiranimeEpisodes() in voiranimeClient.ts.",
+      );
+    }
+  } catch (e: any) {
+    row("V2", "voir-anime episodes", "FAIL", e.message);
+  }
+} else {
+  row("V2", "voir-anime episodes", "SKIP", "no entry URL from V1");
+}
+
+hr();
+console.log("STAGE V3 - voir-anime player extraction (first episode)");
+hr();
+
+let vaPlayerUrl = "";
+if (vaFirstEpisodeUrl) {
+  try {
+    const player = await withTimeout(voiranimeEpisodePlayer(vaFirstEpisodeUrl), 20000, "voir-anime player");
+    if (player) {
+      let host: string;
+      try {
+        host = new URL(player).host;
+      } catch {
+        host = player;
+      }
+      row("V3", "voir-anime player", "PASS", `${host} - ${player.slice(0, 80)}`);
+      vaPlayerUrl = player;
+    } else {
+      row(
+        "V3",
+        "voir-anime player",
+        "FAIL",
+        "episode page fetched but no player iframe found",
+        "Player embed markup changed -> update parseVoiranimePlayer() in voiranimeClient.ts.",
+      );
+    }
+  } catch (e: any) {
+    row("V3", "voir-anime player", "FAIL", e.message);
+  }
+} else {
+  row("V3", "voir-anime player", "SKIP", "no episode URL from V2");
+}
+
+hr();
+if (FULL) {
+  console.log("STAGE V4 - voir-anime stream + HLS probe (--full)");
+  hr();
+  if (vaPlayerUrl) {
+    const safe = await isSafeDownloadUrl(vaPlayerUrl).catch(() => false);
+    if (!safe) {
+      row("V4", "voir-anime stream", "FAIL", `${vaPlayerUrl} - blocked by urlSafety (SSRF guard)`);
+    } else {
+      try {
+        const extracted = await withTimeout(extractMultiHostStream(vaPlayerUrl), 25000, "voir-anime extract");
+        if (extracted && extracted.url) {
+          try {
+            const tracks = await withTimeout(
+              fetchHlsTracksAndSizes(extracted.url, extracted.headers.Referer || "", undefined),
+              20000,
+              "voir-anime hls",
+            );
+            const pick = pickOptimalStream(tracks);
+            row(
+              "V4",
+              "voir-anime stream + HLS",
+              tracks.length && tracks[0].url ? "PASS" : "WARN",
+              `${extracted.hostName} ${extracted.type} - ${tracks.length} tracks [${tracks.map((t) => t.resolution).join(", ")}]; would pick ${pick.resolution}`,
+            );
+          } catch (e: any) {
+            row("V4", "voir-anime HLS", "FAIL", `stream found (${extracted.hostName}) but manifest failed: ${e.message}`);
+          }
+        } else {
+          row(
+            "V4",
+            "voir-anime stream",
+            "FAIL",
+            "no stream extracted from the player",
+            "The voir-anime player host needs a dedicated extractor - see stage 5 known gaps (ANIME_DOWNLOAD_AUDIT.md R1/R3).",
+          );
+        }
+      } catch (e: any) {
+        row("V4", "voir-anime stream", "FAIL", e.message);
+      }
+    }
+  } else {
+    row("V4", "voir-anime stream", "SKIP", "no player URL from V3");
+  }
+} else {
+  console.log("STAGE V4 - skipped (re-run with --full for the voir-anime stream probe)");
+}
+
 // ------------------------------ Report ------------------------------
 hr();
 console.log("RESULTS");
@@ -703,6 +862,12 @@ if (fatalP0Fails.length) {
 } else {
   console.log(
     "\nDiagnosis: the full chain works from this server. If WhatsApp delivery still fails, check the\nbot logs around [NOVABOX]/[MIRROR_FALLBACK] and the WhatsApp 100MB/2GB attachment limits.",
+  );
+}
+const vaFails = rows.filter((r) => r.stage.startsWith("V") && r.status === "FAIL");
+if (vaFails.length) {
+  console.log(
+    "\nNote: voir-anime chain incomplete (V1-V4 above) - the VF source is degraded on this host.",
   );
 }
 process.exit(fatalP0Fails.length ? 1 : 0);

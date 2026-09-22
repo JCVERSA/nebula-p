@@ -2506,3 +2506,42 @@ plafonnée à 10 Mo, seuil de similarité 40 % (en dessous = « aucune
 correspondance fiable »). Registre 18 → 19, inventaire + menu mis à jour.
 Tests : formatage, épisodes multiples, bruit < 40 %, quotas 429/402,
 câblage. 440/440 (47 fichiers).
+
+## §8.68 — anime-doctor : stages voir-anime V1-V4 (2026-09-21)
+
+Contexte : nouveau conteneur owner — boucle curl : anime-sama.to **200**
+(débloqué depuis cette IP), voir-anime.to 200, nakanime.tv 404,
+api.franime.fr 403. Doctor complet revalidé côté anime-sama (10 pass :
+fetch.php, panneau, epsN, ansembed HLS 480P/1080P ; sibnet + sendvid sans
+extracteur = gaps connus R1/R3). Refonte « sources choisies » décidée
+(remplace à terme l'ordre de sources 8.53 et le plan clients vf/vostfr du
+08-09, abandonné avec nakanime) : recherche + téléchargement sur UN
+catalogue choisi par l'utilisateur, VF par défaut, fallback inter-sources
+même langue sur titre introuvable, noms de sources confidentiels dans les
+messages. Or la chaîne voir-anime (recherche → épisodes → player → flux)
+est codée depuis 8.17/8.55 mais n'a jamais été couverte par le doctor —
+décider de la politique vostfr-voir-anime et de la source par défaut
+exigeait des faits.
+
+Changement (lecture seule, zéro comportement bot) :
+`scripts/anime-doctor.ts` gagne 4 stages voir-anime APRÈS le stage 7, qui
+utilisent les vraies fonctions du client (`voiranimeSearch`,
+`voiranimeEpisodes`, `voiranimeEpisodePlayer` — exactement ce que le bot
+appelle, proxy env inclus) :
+- **V1** recherche `/?s=` — PASS/FAIL + décomposition VF (-vf) vs non-VF
+  des slugs (répond à « voir-anime a-t-il du VOSTFR ? ») + échantillon ;
+- **V2** liste d'épisodes de la première entrée VF ;
+- **V3** extraction du player iframe du premier épisode ;
+- **V4** (--full) contrôle urlSafety + `extractMultiHostStream` +
+  `fetchHlsTracksAndSizes` — la preuve end-to-end du téléchargement.
+Les lignes V ne sont pas P0 (pas de loup qui crie sur la logique
+sama-only) ; un échec V ajoute une note « chaîne voir-anime incomplète »
+après le diagnostic.
+
+Vérification sandbox : tsc clean, eslint 0 erreur, doctor exécuté —
+échecs réseau propres (egress filtré), cascade V1 FAIL → V2/V3 SKIP,
+rapport intact. vitest 440/440 (47 fichiers).
+
+Suite : owner lance `npm run anime:doctor -- --full` sur le nouveau
+conteneur ; la décomposition V1 tranche la politique vostfr-voir-anime,
+V4 tranche la capacité de voir-anime à servir de téléchargeur.
