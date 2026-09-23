@@ -9,6 +9,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
+import { releaseDiskClaim } from "./diskClaims.js";
 
 export {
   BatchZipManager,
@@ -161,6 +162,11 @@ export function updateJobStatus(
     job.progressPercent = 92;
   }
   job.updatedAt = Date.now();
+  // 8.78: un état terminal libère la réservation disque du batch (garde-fou
+  // inter-bots — l'acquisition se fait dans novabox.sendFinalEpisode).
+  if (status === "completed" || status === "failed" || status === "cancelled") {
+    releaseDiskClaim(jobId);
+  }
 }
 
 /**
@@ -179,6 +185,7 @@ export function completeBatchJob(
   const job = batchJobs.get(jobId);
   if (!job) return;
 
+  releaseDiskClaim(jobId);
   job.status = "completed";
   job.progressPercent = 100;
   job.currentStatusText = `Batch download complete! ZIP Archive (${zipInfo.zipSizeMB} MB) is ready.`;
@@ -216,6 +223,7 @@ export function getBatchJob(id: string): BatchDownloadJob | null {
 export function cancelBatchJob(id: string): boolean {
   const job = batchJobs.get(id);
   if (!job) return false;
+  releaseDiskClaim(id);
   job.status = "cancelled";
   job.currentStatusText = "Batch download cancelled by user.";
   job.updatedAt = Date.now();
@@ -498,6 +506,10 @@ function pruneOldJobs() {
     const toDelete = sorted.slice(0, batchJobs.size - 15);
     for (const [k] of toDelete) {
       batchJobs.delete(k);
+      // 8.78: ceinture et bretelles — si un job est évincé sans être passé
+      // par un état terminal (moteur repris en main, bug), sa réservation
+      // disque ne doit pas survivre à son suivi.
+      releaseDiskClaim(k);
     }
   }
 }

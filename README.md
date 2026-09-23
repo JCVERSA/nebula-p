@@ -261,7 +261,7 @@ Built and battle-tested against real mirrors (every fix traced in
 - **Resilience** — when every mirror of an episode fails (CDN-level 403), the bot retries it on the secondary anime catalog (VF lists first, then VOSTFR; honest language in the filename) — disable with `NEBULA_VOSTFR_FALLBACK=0`
 - **YouTube / TikTok / Instagram** — `.ytv [360|480|720|1080]`, `.ytm` (AAC-converted audio), `.yts` (search links), `.tiktok` (no watermark, tikwm), `.instagram` (up to 20 media per post): original neb command ports with multi-API fallback chains (8.59)
 - **Delivery** — batches >1 episode arrive as ONE offline HTML page: per-episode direct buttons + automatic "Tout télécharger" (temp links 2 h TTL, HTTP range streaming); single episodes still get a plain link; optional season ZIP behind `NEBULA_BATCH_ZIP=1`
-- Resource ceilings: `NEBULA_NOVABOX_MAX_EPISODES` (12), `NEBULA_NOVABOX_MAX_BATCH_MB` (2048), `NEBULA_TEMP_MAX_BYTES` (4 GiB)
+- Resource ceilings: `NEBULA_NOVABOX_MAX_EPISODES` (12), `NEBULA_NOVABOX_MAX_BATCH_MB` (2048/bot), `NEBULA_TEMP_MAX_BYTES` (4 GiB), plus a cross-bot disk guard (8.78): every batch claims its ceiling in a shared claims dir and new batches are refused while free space would drop under `NEBULA_MIN_FREE_DISK_MB` (500)
 
 ## 🔑 Environment Variables
 
@@ -282,6 +282,9 @@ Copy `.env.example` to `.env` (or run `./manage.sh env`). Highlights:
 | `NEBULA_DOWNLOAD_TIMEOUT_MS` | no | Hard global deadline per episode download (default 600000 = 10 min) |
 | `NEBULA_WATCH_CRON` / `_QUIET` / `_TZ` | no | Episode watcher schedule (`0 */6 * * *`), quiet window (`23-7`) and timezone (`Africa/Douala`) |
 | `NEBULA_TEMP_MAX_BYTES` | no | Temp storage ceiling (4 GiB) |
+| `NEBULA_MIN_FREE_DISK_MB` | no | Cross-bot disk guard (8.78): free-space floor kept when admitting a new batch (500 MB) |
+| `NEBULA_DISK_GUARD` | no | `off` disables the cross-bot disk guard |
+| `NEBULA_HEALTH_SWEEP_MS` / `NEBULA_HEALTH_FAILS` | no | Supervisor health sweep (8.78): probe interval (60 s) and consecutive failures before a frozen engine is force-restarted (3) |
 | `NEBULA_AI_DAILY_LIMIT` / `_MAX_CONCURRENT` | no | AI budget (40/day/user) and concurrency (3) |
 | `NEBULA_PANEL_COMMANDS` | no | `off` disables sandboxed panel-created commands |
 | `NEBULA_ENABLE_LEGACY` | no | `1` re-enables the vendored legacy command corpus (quarantined by default) |

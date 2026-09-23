@@ -35,6 +35,7 @@ import {
 import { bestAnimeMatch, formatAnimeCard } from "../services/jikanClient.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus } from "../batchDownloadManager.js";
+import { acquireDiskClaim } from "../diskClaims.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
 import { probeVideoInfo, whatsappFitVideoOptions } from "../services/mediaToolkit.js";
@@ -69,7 +70,7 @@ interface HlsVariant {
   headers?: Record<string, string>;
 }
 
-interface AnimeSession {
+export interface AnimeSession {
   step: "select_anime" | "language" | "season" | "episode" | "resolution" | "single_stream_choice";
   /** Chosen catalog (refonte 8.69): "as" (default) or "va" — mono-source flow. */
   source: AnimeSourceId;
@@ -315,7 +316,7 @@ export function splitMirrorsByLanguage(
 /**
  * voiranime path: fetches each requested episode page and merges its player
  * embed URL (voembed.net & friends) into session.episodes as list 1, labelled
- * VF by construction (the entry slug ends with "-vf", audit 8.9).
+ * with the wired season's ACTUAL language (8.78: was hardcoded VF).
  */
 /**
  * Episode watcher actions (audit S4): `.a watch` subscribes the current chat
@@ -383,7 +384,7 @@ async function handleWatchAction(context: BotCommandContext, session: AnimeSessi
   );
 }
 
-async function fillVoiranimePlayers(session: AnimeSession, indices: number[]): Promise<void> {
+export async function fillVoiranimePlayers(session: AnimeSession, indices: number[]): Promise<void> {
   if (!session.voiranimeEpisodes || !session.voiranimeAnimeUrl) return;
   const lists: Record<number, string[]> = session.episodes || { 1: new Array(session.voiranimeEpisodes.length).fill("") };
   const labels = session.episodeListLabels || {};
@@ -402,7 +403,11 @@ async function fillVoiranimePlayers(session: AnimeSession, indices: number[]): P
     }
   } catch {}
   if ((lists[1] || []).some(Boolean)) {
-    labels[1] = { host, language: "VF" };
+    // 8.78 (bug isVf) : le label VF "par construction" (audit 8.9, epoque ou
+    // seul le VF va existait dans le pipeline) mentait pour une saison
+    // VOSTFR — splitMirrorsByLanguage jettait alors le seul vrai miroir va
+    // en secondaire. La saison cablee porte sa langue REELLE (policy 8.69).
+    labels[1] = { host, language: session.selectedLanguage || "VF" };
   }
   session.episodes = lists;
   session.episodeListLabels = labels;
@@ -555,7 +560,7 @@ async function executeQuickDownloadPipeline(
     const targetSeasonNum = quickParams.seasonNumber !== undefined ? quickParams.seasonNumber : 1;
     let targetSeason: AnimeSession["seasons"][number] | undefined;
     if (session.source === "va") {
-      const asEntries = wired.seasons.map((s) => ({ title: s.name, slug: s.subPath, url: s.url, isVf: true }));
+      const asEntries = wired.seasons.map((s) => ({ title: s.name, slug: s.subPath, url: s.url, isVf: s.language === "VF" }));
       const picked = resolveVoiranimeSeason(asEntries, targetSeasonNum);
       targetSeason = picked ? wired.seasons.find((s) => s.url === picked.url) : undefined;
     } else {
@@ -2112,6 +2117,22 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       episodeNumbers: indices.map((idx) => idx + 1),
     });
     updateJobStatus(batchJob.id, "downloading", `Processing ${indices.length} episodes in parallel`);
+
+    // 8.78 — garde-fou disque GLOBAL inter-bots : ce batch réclame son pire
+    // cas (plafond NEBULA_NOVABOX_MAX_BATCH_MB) dans un dossier partagé.
+    // Les autres moteurs du même hôte voient la réservation et refusent de
+    // démarrer si l'espace libre passait sous la réserve. Libérée dans
+    // batchDownloadManager aux états terminaux (completed/failed/cancelled).
+    const diskClaim = acquireDiskClaim(batchJob.id, MAX_BATCH_TOTAL_MB * 1024 * 1024);
+    if (!diskClaim.ok) {
+      updateJobStatus(batchJob.id, "failed", "Disk guard refused this batch", diskClaim.error);
+      await context.react("⚠️");
+      return context.reply(
+        `⚠️ *Espace disque insuffisant pour lancer ce batch.*\n\n` +
+        `${diskClaim.error}\n\n` +
+        `🛡️ _Les téléchargements en cours (tous bots confondus) ne sont pas affectés — réessaie une fois terminés._`
+      );
+    }
 
     const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string; expiresAt: number }> = [];
     let failedEpisodeCount = 0;

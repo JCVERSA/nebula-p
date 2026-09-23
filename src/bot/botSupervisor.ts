@@ -42,7 +42,7 @@ export interface BotStartResult {
   error?: string;
 }
 
-interface BotRuntime {
+export interface BotRuntime {
   slot: BotSlot;
   state: BotOverview["process"];
   child: ChildProcess | null;
@@ -53,6 +53,7 @@ interface BotRuntime {
   restartTimer: NodeJS.Timeout | null;
   readyTimer: NodeJS.Timeout | null;
   backoffMs: number;
+  healthFails: number;
 }
 
 const READY_TIMEOUT_MS = 30_000;
@@ -62,6 +63,12 @@ const STOP_GRACE_MS = 8_000;
 const BACKOFF_RESET_MS = 10 * 60_000; // 10 min de stabilité → compteur remis à zéro
 const PROXY_TIMEOUT_MS = 300_000;
 const STATUS_TIMEOUT_MS = 1_500;
+// 8.78 — sweep santé : un moteur peut GELER sans mourir (event loop bloquée,
+// heap saturé) : /api/health muet alors que le process vit. Le exit-handler
+// ne voit rien dans ce cas ; ce sweep traite le gel comme un crash.
+const HEALTH_SWEEP_MS = Math.max(15_000, Number(process.env.NEBULA_HEALTH_SWEEP_MS || 60_000));
+const HEALTH_FAIL_LIMIT = Math.max(1, Number(process.env.NEBULA_HEALTH_FAILS || 3));
+const HEALTH_TIMEOUT_MS = 5_000;
 
 /** Backoff exponentiel de relance : 5 s → 10 → 20 → 40 → 60 s (plafond). */
 export function computeBackoffMs(restarts: number): number {
@@ -165,6 +172,8 @@ export class BotSupervisor {
   private readonly enginePath: string;
   private readonly token: string;
   private active = false;
+  private healthSweepTimer: NodeJS.Timeout | null = null;
+  private sweeping = false;
 
   constructor(config: BotsConfig, opts: { enginePath?: string; token?: string } = {}) {
     this.config = config;
@@ -180,6 +189,7 @@ export class BotSupervisor {
         restartTimer: null,
         readyTimer: null,
         backoffMs: 0,
+        healthFails: 0,
       });
     }
     this.enginePath = opts.enginePath || path.join(process.cwd(), "dist", "engine.cjs");
@@ -239,6 +249,11 @@ export class BotSupervisor {
    */
   async start(): Promise<void> {
     this.active = true;
+    if (this.healthSweepTimer) clearInterval(this.healthSweepTimer);
+    this.healthSweepTimer = setInterval(() => {
+      void this.sweepHealthOnce();
+    }, HEALTH_SWEEP_MS);
+    this.healthSweepTimer.unref?.();
     const queue = Array.from(this.runtimes.values()).filter((rt) => rt.slot.enabled);
     for (let i = 0; i < queue.length; i++) {
       const rt = queue[i];
@@ -258,6 +273,10 @@ export class BotSupervisor {
 
   async stopAll(): Promise<void> {
     this.active = false;
+    if (this.healthSweepTimer) {
+      clearInterval(this.healthSweepTimer);
+      this.healthSweepTimer = null;
+    }
     const stops: Promise<void>[] = [];
     for (const id of this.runtimes.keys()) {
       stops.push(this.stopBot(id).then(() => undefined));
@@ -412,6 +431,60 @@ export class BotSupervisor {
     };
     rt.readyTimer = setTimeout(attempt, READY_POLL_MS);
     rt.readyTimer.unref?.();
+  }
+
+  /**
+   * 8.78 — un passage du sweep santé. Sondage /api/health de chaque moteur
+   * « running » ; après HEALTH_FAIL_LIMIT échecs consécutifs, le moteur est
+   * traité comme un crash : arrêt puis relance (même chemin que restartBot,
+   * backoff compris via spawnBot). Un succès remet le compteur à zéro.
+   * Les états non-running sont ignorés : « starting » est déjà couvert par
+   * pollReadiness, « backoff » par son restartTimer, « stopped » n'a pas
+   * d'enfant. Public pour être testable sans attendre l'intervalle.
+   */
+  async sweepHealthOnce(): Promise<void> {
+    if (!this.active || this.sweeping) return;
+    this.sweeping = true;
+    try {
+      for (const rt of this.runtimes.values()) {
+        if (!this.active) return;
+        if (!rt.child || rt.child.exitCode !== null) continue;
+        if (rt.intentionalStop) continue;
+        if (rt.state !== "running") continue;
+        const healthy = await this.probeChildHealth(rt);
+        if (healthy) {
+          if (rt.healthFails > 0) this.log(rt.slot.id, "sonde santé : moteur à nouveau joignable");
+          rt.healthFails = 0;
+          continue;
+        }
+        rt.healthFails += 1;
+        this.log(rt.slot.id, `sonde santé sans réponse (${rt.healthFails}/${HEALTH_FAIL_LIMIT})`);
+        if (rt.healthFails >= HEALTH_FAIL_LIMIT) {
+          rt.healthFails = 0;
+          // restartBot passe par stopBot (arrêt « intentionnel ») : le
+          // exit-handler n'incrémentera pas son compteur — on compte donc
+          // la relance forcée ici pour que l'overview reste honnête.
+          rt.restarts += 1;
+          this.log(rt.slot.id, "moteur gelé (process vivant mais injoignable) — redémarrage forcé");
+          await this.restartBot(rt.slot.id);
+        }
+      }
+    } finally {
+      this.sweeping = false;
+    }
+  }
+
+  /** Sondage /api/health de l'enfant (protégé pour être stubable en tests). */
+  protected async probeChildHealth(rt: BotRuntime): Promise<boolean> {
+    try {
+      const res = await axios.get(`http://127.0.0.1:${rt.slot.enginePort}/api/health`, {
+        timeout: HEALTH_TIMEOUT_MS,
+        validateStatus: () => true,
+      });
+      return res.status === 200;
+    } catch {
+      return false;
+    }
   }
 
   /** État WhatsApp (connecté, QR, pairing…) d'un enfant, ou null si injoignable. */

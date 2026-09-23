@@ -116,10 +116,15 @@ donne la vue complète.
   heap : OK au quotidien, mais évite 3 gros batchs anime **simultanés** —
   l'OOM killer viserait le plus gros process (un moteur : le superviseur le
   relance, le panneau survit).
-- **Disque** : le plafond par batch (2048 Mo) est par bot. Trois bots qui
-  batchent en même temps peuvent dépasser l'espace libre — un garde-fou
-  global inter-bots est prévu dans la session suivante. En attendant : un
-  gros batch à la fois.
+- **Disque** : le plafond par batch (2048 Mo) reste par bot, mais la
+  session 8.78 ajoute un garde-fou GLOBAL inter-bots : chaque batch
+  réserve son plafond dans un dossier partagé (`$TMPDIR/nebula-disk-claims`)
+  et un nouveau batch est refusé tant que l'espace libre passerait sous la
+  réserve (`NEBULA_MIN_FREE_DISK_MB`, 500 Mo). La réservation est libérée à
+  la fin du batch (completed/failed/cancelled) ; un moteur mort en cours de
+  batch est nettoyé automatiquement (PID orphelin). En cas de refus,
+  l'utilisateur reçoit un message FR clair et les batchs en cours ne sont
+  pas affectés. Contournement d'urgence : `NEBULA_DISK_GUARD=off`.
 - **Même IP pour tous** : 3 sessions WhatsApp depuis une seule IP VPS —
   risque de ban corrélé si comportement agressif. Reste sur des envois
   espacés (déjà le cas : batchs ~26 s).
@@ -129,6 +134,20 @@ donne la vue complète.
   changement de clé via le panneau s'applique immédiatement au bot dont tu
   viens de l'onglet — relance les autres (`nebula bot <id> restart`) pour
   qu'ils la prennent.
+
+## Garde-fous de supervision (8.78)
+
+- **Garde-fou disque inter-bots** — voir « Limites connues » ci-dessus :
+  réservations sur disque (flock logique par fichier JSON, visibles dans
+  `$TMPDIR/nebula-disk-claims`), budget = somme des réservations actives vs
+  espace libre du TMPDIR.
+- **Sweep santé des moteurs** : le superviseur sonde `/api/health` de chaque
+  moteur « running » toutes les 60 s (`NEBULA_HEALTH_SWEEP_MS`). Un moteur
+  GELÉ (process vivant mais injoignable — event loop bloquée, heap saturé)
+  est redémarré de force après 3 échecs consécutifs
+  (`NEBULA_HEALTH_FAILS`), comme un crash : le compteur « relances » de
+  l'onglet Multi-Bots reflète ces relances forcées. Les moteurs morts
+  restent couverts par le relanceur à backoff exponentiel (inchangé).
 
 ## Dépannage
 
