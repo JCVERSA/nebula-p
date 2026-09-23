@@ -142,11 +142,12 @@ describe("applyLanguagePolicy — mono-source, strict (8.69)", () => {
 });
 
 describe("anonymized messages (8.42, extended 8.69)", () => {
-  it("searchEmptyMessage points to the other flag without naming any site", () => {
-    const m1 = searchEmptyMessage("vinland", "as");
-    const m2 = searchEmptyMessage("vinland", "va");
-    expect(m1).toContain("`.a va vinland`");
-    expect(m2).toContain("`.a as vinland`");
+  it("searchEmptyMessage guides spelling + the other flag, without naming any site", () => {
+    const m1 = searchEmptyMessage("sololeveling", "va");
+    const m2 = searchEmptyMessage("vinland", "as");
+    expect(m1).toContain("Vérifie l'orthographe");
+    expect(m1).toContain("sépare bien les mots");
+    expect(m2).toContain("`.a va <titre>`");
     expect(PRIVACY_RE.test(m1)).toBe(false);
     expect(PRIVACY_RE.test(m2)).toBe(false);
   });

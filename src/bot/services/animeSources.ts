@@ -190,7 +190,8 @@ export function applyLanguagePolicy<T extends { language?: SeasonLanguage }>(
 export function searchEmptyMessage(query: string, source: AnimeSourceId): string {
   return (
     `❌ *Aucun résultat* pour "${query}" sur ce catalogue.\n\n` +
-    `💡 *Essaie l'autre catalogue :* \`.a ${otherFlagOf(source)} ${query}\``
+    `✍️ *Vérifie l'orthographe* — sépare bien les mots du titre (ex : « solo leveling »).\n\n` +
+    `💡 *Tu peux aussi essayer l'autre catalogue :* \`.a ${otherFlagOf(source)} <titre>\``
   );
 }
 

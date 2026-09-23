@@ -133,4 +133,31 @@ describe("source routing wiring pins (the 8.49b lesson: pin the wiring, not just
     expect(fs.readFileSync(".env.example", "utf8")).not.toContain("NEBULA_VOSTFR_FALLBACK");
     expect(fs.readFileSync("src/bot/commands/novabox.ts", "utf8")).not.toContain("NEBULA_VOSTFR_FALLBACK");
   });
+
+  // 8.70 — field-report UX pins (owner's first .a test, 2026-09-21)
+  it("the season screen never stacks the policy header AND the switch hint (8.70)", () => {
+    const source = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");
+    // def + exactly 2 call sites (both screens)
+    expect(source.split("seasonScreenLanguageHint(").length - 1).toBe(3);
+    // both call sites are the hint arm of a ternary whose other arm is the header
+    expect((source.match(/\? wired\.header \+ /g) || []).length).toBe(2);
+    // the old stacked label ("langue demandee absente" suffix) is gone
+    expect(source).not.toContain("langue demand\u00e9e absente)_");
+  });
+
+  it("a lone catalog flag answers with help, not a literal search (8.70)", () => {
+    const source = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");
+    const guard = source.indexOf('["as", "va"].includes((args[0] || "").toLowerCase()');
+    expect(guard).toBeGreaterThan(0);
+    // the guard sits BEFORE the usage screen and before any searchAnime call
+    const usagePos = source.indexOf("// If no args and no active session, show usage");
+    expect(guard).toBeLessThan(usagePos);
+  });
+
+  it("session timeout is 10 minutes with a French expiry message (8.70)", () => {
+    const source = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");
+    expect(source).toContain("10 * 60 * 1000");
+    expect(source).toContain("Session expirée");
+    expect(source).not.toContain("Session Expired:");
+  });
 });

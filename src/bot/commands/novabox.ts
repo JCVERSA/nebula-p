@@ -114,7 +114,7 @@ interface AnimeSession {
 const sessions = new Map<string, AnimeSession>();
 const MAX_ACTIVE_SESSIONS = 500;
 
-const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutes (8.70: 5 cut users mid-flow)
 
 // Resource ceilings for batch work triggered by untrusted WhatsApp users.
 const MAX_BATCH_EPISODES = Math.max(1, Number(process.env.NEBULA_NOVABOX_MAX_EPISODES || 12));
@@ -843,7 +843,7 @@ const animeCommand: BotCommand = {
       clearTimeout(session.timer);
       session.timer = setTimeout(() => {
         clearUserSession(sender);
-        context.reply("⏳ *Session Expired:* Your Anime download session has ended due to inactivity. Please start a new query with `.a <name>`.");
+        context.reply("⏳ *Session expirée* — trop longtemps sans activité.\n\n🔁 Relance ta recherche quand tu veux : `.a <titre>`");
       }, SESSION_TIMEOUT);
     };
 
@@ -861,28 +861,41 @@ const animeCommand: BotCommand = {
       );
     }
 
+    // 8.70: a catalog flag ALONE is not a search — the old behavior
+    // searched the literal word "as" (production log evidence). Guide instead.
+    if (args.length === 1 && ["as", "va"].includes((args[0] || "").toLowerCase().replace(/=+$/, ""))) {
+      await context.react("📘");
+      return context.reply(
+        `📘 *Catalogues au choix :*\n\n` +
+        `• \`.a <titre>\` — catalogue complet *(défaut)*\n` +
+        `• \`.a va <titre>\` — catalogue VF\n\n` +
+        `*Exemples :* \`.a solo leveling\` · \`.a va solo leveling\`\n\n` +
+        `_💡 Astuce : sépare bien les mots du titre (« solo leveling », pas « sololeveling »)._`
+      );
+    }
+
     // If no args and no active session, show usage
     if (args.length === 0 && !sessions.has(sender)) {
       await context.react("🎬");
       return context.reply(
         `🤖 *Nebula Bot - Anime Novabox Downloader* 🎬\n\n` +
-        `Search, play, and get direct ad-free download/streaming resources for any anime!\n\n` +
+        `Recherche, téléchargement et streaming direct sans pub pour n'importe quel anime !\n\n` +
         `*Catalogues (source au choix) :*\n` +
         `• Catalogue complet *(défaut)* : \`.a [titre]\`\n` +
         `• Catalogue VF : \`.a va [titre]\`\n` +
         `• Langue : \`.a [titre] vostfr\` _(VF par défaut)_\n\n` +
-        `*Quick Commands & Direct Download:*\n` +
-        `• Direct season download: \`.a jjk s3 all r2\`\n` +
-        `• Direct single episode: \`.a jjk s3 ep6 r2\`\n` +
-        `• Direct episode list: \`.a jjk s3 e1,2,3,5,7,8,9 r2\`\n` +
-        `• Direct episode range: \`.a jjk s3 2-9 r2\`\n` +
-        `• Search & choose resolution: \`.a solo leveling s1 all\`\n\n` +
-        `*Interactive Navigation:*\n` +
-        `• Search anime: \`.a [name]\` (e.g. \`.a Demon Slayer\`)\n` +
-        `• Select anime: \`.a [number]\` (e.g. \`.a 1\`)\n` +
-        `• Select season: \`.a s[number]\` (e.g. \`.a s1\`)\n` +
-        `• Select episode: \`.a ep[number]\` (e.g. \`.a ep1\`)\n` +
-        `• Select resolution: \`.a r [number]\` (e.g. \`.a r 1\`)`
+        `*Téléchargement direct :*\n` +
+        `• Saison entière : \`.a jjk s3 all r2\`\n` +
+        `• Un épisode : \`.a jjk s3 ep6 r2\`\n` +
+        `• Liste d'épisodes : \`.a jjk s3 e1,2,3,5,7,8,9 r2\`\n` +
+        `• Plage d'épisodes : \`.a jjk s3 2-9 r2\`\n` +
+        `• Recherche + choix qualité : \`.a solo leveling s1 all\`\n\n` +
+        `*Navigation interactive :*\n` +
+        `• Rechercher : \`.a [titre]\` (ex. \`.a Demon Slayer\`)\n` +
+        `• Choisir l'anime : \`.a [numéro]\` (ex. \`.a 1\`)\n` +
+        `• Choisir la saison : \`.a s[numéro]\` (ex. \`.a s1\`)\n` +
+        `• Choisir l'épisode : \`.a ep[numéro]\` (ex. \`.a ep1\`)\n` +
+        `• Choisir la qualité : \`.a r [numéro]\` (ex. \`.a r 1\`)`
       );
     }
 
@@ -926,7 +939,7 @@ const animeCommand: BotCommand = {
 
         const results = session.searchResults || [];
         if (choiceIndex < 0 || choiceIndex >= results.length) {
-          return context.reply(`❌ *Invalid Selection:* Please choose a valid anime number between *1* and *${results.length}*.\nExample: \`.a 1\``);
+          return context.reply(`❌ *Choix invalide :* réponds avec un numéro entre *1* et *${results.length}*.\nExemple : \`.a 1\``);
         }
 
         const chosen = results[choiceIndex];
@@ -940,7 +953,7 @@ const animeCommand: BotCommand = {
         session.animeUrl = chosen.url;
 
         await context.react("⏳");
-        await context.reply(`✨ *Selected:* *${chosen.title}*\n🔗 Chargement des saisons...`);
+        await context.reply(`✨ *Sélectionné :* *${chosen.title}*\n🔗 Chargement des saisons...`);
 
         try {
           // 8.69 (refonte sources choisies): wire the CHOSEN catalog with
@@ -981,15 +994,18 @@ const animeCommand: BotCommand = {
 
           await context.react("📂");
           return context.reply(
-            `🎬 *Novabox - Select Season* 🎬\n` +
+            `🎬 *Novabox - Choisissez la Saison* 🎬\n` +
             `• *Anime:* ${chosen.title}\n` +
-            `• *Language:* 🇫🇷 *${wired.language}*` +
-            (wired.header ? " _(langue demandée absente)_" : "") +
-            seasonScreenLanguageHint(wired.language, session.languages.includes("VF")) + `\n\n` +
-            (wired.header ? wired.header + `\n` : `*Available Seasons:*\n`) +
+            `• *Langue:* 🇫🇷 *${wired.language}*\n` +
+            // ONE clear notice, never two: when the requested language is
+            // missing, the policy header replaces the switch hint (8.70).
+            (wired.header
+              ? wired.header + `\n\n`
+              : seasonScreenLanguageHint(wired.language, session.languages.includes("VF")) + `\n\n`) +
+            `*Saisons disponibles :*\n` +
             `${seasonsList}\n\n` +
             (wired.guideHint ? wired.guideHint + `\n\n` : ``) +
-            `👉 Reply with: \`.a s[number]\` (e.g., \`.a s1\`)`
+            `👉 Réponds avec : \`.a s[numéro]\` (ex : \`.a s1\`)`
           );
 
 
@@ -1046,14 +1062,14 @@ const animeCommand: BotCommand = {
         }
 
         if (seasonIndex < 0 || seasonIndex >= session.seasons.length) {
-          return context.reply(`❌ *Invalid Selection:* Please choose a valid season number between *1* and *${session.seasons.length}*.\nExample: \`.a s1\` or \`.a s1 d-\` to download entire season`);
+          return context.reply(`❌ *Choix invalide :* réponds avec un numéro de saison entre *1* et *${session.seasons.length}*.\nExemple : \`.a s1\` — ou \`.a s1 d-\` pour télécharger toute la saison`);
         }
 
         const selectedSeason = session.seasons[seasonIndex];
         session.selectedSeason = selectedSeason;
 
         await context.react("⏳");
-        await context.reply(`🔍 *Fetching episode listings for ${selectedSeason.name}...*`);
+        await context.reply(`🔍 *Chargement des épisodes de ${selectedSeason.name}...*`);
 
         try {
           if (selectedSeason.isVoiranime) {
@@ -1062,7 +1078,7 @@ const animeCommand: BotCommand = {
             const vaEps = (await voiranimeEpisodes(selectedSeason.url)).filter((e) => e.n > 0);
             if (vaEps.length === 0) {
               clearUserSession(sender);
-              return context.reply(`❌ *Error:* No numbered episodes found on the VF entry. Session terminated.`);
+              return context.reply(`❌ *Erreur :* aucun épisode numéroté trouvé pour cette entrée. Session terminée.`);
             }
             session.voiranimeAnimeUrl = selectedSeason.url;
             session.voiranimeEpisodes = vaEps;
@@ -1074,7 +1090,7 @@ const animeCommand: BotCommand = {
 
             if (!eps || Object.keys(eps).length === 0) {
               clearUserSession(sender);
-              return context.reply("❌ *Error:* No episodes found in this season file. Session terminated.");
+              return context.reply("❌ *Erreur :* aucun épisode trouvé pour cette saison. Session terminée.");
             }
 
             session.episodes = eps;
@@ -1106,7 +1122,7 @@ const animeCommand: BotCommand = {
             }
 
             await context.react("🔍");
-            await context.reply(`🔎 *Inspecting VidMoly stream for ${selectedSeason.name} (Total: ${totalEpisodes} Episodes)...*`);
+            await context.reply(`🔎 *Analyse du flux vidéo pour ${selectedSeason.name} (${totalEpisodes} épisodes)...*`);
 
             const resolved = await resolveEpisodeStream(session.episodes || {}, 0);
             const hlsUrl = resolved.hlsUrl;
@@ -1127,31 +1143,31 @@ const animeCommand: BotCommand = {
               : `*r1.* 1080P Full HD\n*r2.* 720P High Definition\n*r3.* 480P Medium Quality\n*r4.* 360P Mobile Quality`;
 
             return context.reply(
-              `🎬 *Novabox - Full Season Batch Download* 📦\n` +
-              `• *Anime:* ${session.animeTitle}\n` +
-              `• *Language:* ${session.selectedLanguage}\n` +
-              `• *Season:* ${selectedSeason.name} (All ${totalEpisodes} episodes)\n` +
-              `• *Player Engine:* 📺 ${resolved.playerName || "VidMoly"}\n\n` +
-              `*Select resolution for all ${totalEpisodes} episodes:*\n` +
+              `🎬 *Novabox - Saison complète* 📦\n` +
+              `• *Anime :* ${session.animeTitle}\n` +
+              `• *Langue :* ${session.selectedLanguage}\n` +
+              `• *Saison :* ${selectedSeason.name} (${totalEpisodes} épisodes)\n` +
+              `• *Lecteur :* 📺 ${resolved.playerName || "VidMoly"}\n\n` +
+              `*Choisis la qualité pour les ${totalEpisodes} épisodes :*\n` +
               `${resOptions}\n\n` +
-              `👉 Reply with: \`.a r [number]\` (e.g., \`.a r 1\` or \`.a r 2\`)`
+              `👉 Réponds avec : \`.a r [numéro]\` (ex : \`.a r 1\` ou \`.a r 2\`)`
             );
           }
 
           session.step = "episode";
           
           return context.reply(
-            `🎬 *Novabox - Select Episode(s)* 🎬\n` +
-            `• *Anime:* ${session.animeTitle}\n` +
-            `• *Language:* ${session.selectedLanguage}\n` +
-            `• *Season:* ${selectedSeason.name}\n\n` +
-            `📦 *Total Episodes available:* ${totalEpisodes}\n\n` +
-            `*Options:*\n` +
-            `• Single episode: \`.a e2\` (or \`.a 2\` / \`.a ep2\`)\n` +
-            `• Multiple episodes: \`.a e2,e3,e4,e7,e9\` (or \`.a 2,3,4,7,9\`)\n` +
-            `• Episode range: \`.a 1-5\` (or \`.a e1-e5\`)\n` +
-            `• 🔔 Suivre les nouveaux épisodes: \`.a watch\`\n\n` +
-            `👉 Reply with your desired episode(s):`
+            `🎬 *Novabox - Choisis l’épisode(s)* 🎬\n` +
+            `• *Anime :* ${session.animeTitle}\n` +
+            `• *Langue :* ${session.selectedLanguage}\n` +
+            `• *Saison :* ${selectedSeason.name}\n\n` +
+            `📦 *Épisodes disponibles :* ${totalEpisodes}\n\n` +
+            `*Options :*\n` +
+            `• Un épisode : \`.a e2\` (ou \`.a 2\` / \`.a ep2\`)\n` +
+            `• Plusieurs épisodes : \`.a e2,e3,e4,e7,e9\` (ou \`.a 2,3,4,7,9\`)\n` +
+            `• Plage d'épisodes : \`.a 1-5\` (ou \`.a e1-e5\`)\n` +
+            `• 🔔 Suivre les nouveaux épisodes : \`.a watch\`\n\n` +
+            `👉 Réponds avec le(s) épisode(s) voulu(s) :`
           );
         } catch (err: any) {
           console.error("[NOVABOX] Failed to parse episodes:", err);
@@ -1305,33 +1321,33 @@ const animeCommand: BotCommand = {
           }).join("\n");
 
           return context.reply(
-            `🎬 *Novabox - Select Real Stream Resolution* 🎬\n` +
-            `• *Anime:* ${session.animeTitle}\n` +
-            `• *Language:* ${session.selectedLanguage}\n` +
-            `• *Season:* ${session.selectedSeason?.name}\n` +
-            `• *Selected Episodes:* ${episodeSummary} (${selectedIndices.length} total)\n` +
-            `• *Active Stream Source:* 📺 ${hostName}\n\n` +
-            `*Exact Available Resolutions (Fast 480p/360p prioritized):*\n` +
+            `🎬 *Novabox - Choisis la Qualité* 🎬\n` +
+            `• *Anime :* ${session.animeTitle}\n` +
+            `• *Langue :* ${session.selectedLanguage}\n` +
+            `• *Saison :* ${session.selectedSeason?.name}\n` +
+            `• *Épisodes :* ${episodeSummary} (${selectedIndices.length} au total)\n` +
+            `• *Flux actif :* 📺 ${hostName}\n\n` +
+            `*Qualités réellement disponibles (480p/360p rapides en priorité) :*\n` +
             `${resOptions}\n\n` +
-            `👉 Reply with: \`.a r [number]\` (e.g., \`.a r 1\` or \`.a r1\`)`
+            `👉 Réponds avec : \`.a r [numéro]\` (ex : \`.a r 1\` ou \`.a r1\`)`
           );
         } else {
           // Standard resolution fallback when manifest could not be read
           session.step = "resolution";
           await context.react("⚙️");
           return context.reply(
-            `🎬 *Novabox - Select Resolution* 🎬\n` +
-            `• *Anime:* ${session.animeTitle}\n` +
-            `• *Language:* ${session.selectedLanguage}\n` +
-            `• *Season:* ${session.selectedSeason?.name}\n` +
-            `• *Selected Episodes:* ${episodeSummary} (${selectedIndices.length} total)\n\n` +
-            `⚠️ _Real qualities unavailable (protected playlist) — sizes are estimates._\n` +
-            `*Choose your preferred download quality (adaptive attempt):*\n` +
-            `*r1.* 480P Medium Quality (~75 MB - Fast download, direct video)\n` +
-            `*r2.* 360P Mobile Quality (~45 MB - Instant download)\n` +
-            `*r3.* 720P High Definition (~180 MB)\n` +
-            `*r4.* 1080P Full HD (~350 MB)\n\n` +
-            `👉 Reply with: \`.a r [number]\` (e.g., \`.a r 1\` or \`.a r1\`)`
+            `🎬 *Novabox - Choisis la Qualité* 🎬\n` +
+            `• *Anime :* ${session.animeTitle}\n` +
+            `• *Langue :* ${session.selectedLanguage}\n` +
+            `• *Saison :* ${session.selectedSeason?.name}\n` +
+            `• *Épisodes :* ${episodeSummary} (${selectedIndices.length} au total)\n\n` +
+            `⚠️ _Qualités réelles indisponibles (playlist protégée) — tailles estimées._\n` +
+            `*Choisis ta qualité de téléchargement :*\n` +
+            `*r1.* 480P Qualité moyenne (~75 Mo — téléchargement rapide, vidéo directe)\n` +
+            `*r2.* 360P Qualité mobile (~45 Mo — téléchargement instantané)\n` +
+            `*r3.* 720P Haute définition (~180 Mo)\n` +
+            `*r4.* 1080P Full HD (~350 Mo)\n\n` +
+            `👉 Réponds avec : \`.a r [numéro]\` (ex : \`.a r 1\` ou \`.a r1\`)`
           );
         }
       }
@@ -1383,7 +1399,7 @@ const animeCommand: BotCommand = {
             `\n🌌 _Nebula Bot - Your ultimate media center_`
           );
         } else {
-          return context.reply("❌ *Invalid Selection:* Please choose *1* (Compress & Send) or *2* (Direct Links).\nExample: `.a 1`");
+          return context.reply("❌ *Choix invalide :* réponds *1* (compresser et envoyer) ou *2* (liens directs).\nExemple : `.a 1`");
         }
       }
 
@@ -1434,7 +1450,7 @@ const animeCommand: BotCommand = {
 
         if (!resChoice) {
           const maxChoice = variants.length > 0 ? variants.length : 4;
-          return context.reply(`❌ *Invalid Selection:* Please choose a valid resolution choice (1 to ${maxChoice}).\nExample: \`.a r 1\` or \`.a r1\``);
+          return context.reply(`❌ *Choix invalide :* réponds avec une qualité entre *1* et *${maxChoice}*.\nExemple : \`.a r 1\` ou \`.a r1\``);
         }
 
         await context.react("🚀");
@@ -1582,13 +1598,14 @@ const animeCommand: BotCommand = {
         return context.reply(
           `🎬 *Novabox - Choisissez la Saison* 🎬\n` +
           `• *Anime:* ${chosen.title}\n` +
-          `• *Langue:* 🇫🇷 *${wired.language}*` +
-          (wired.header ? ` _(langue demandée absente)_` : ``) +
-          seasonScreenLanguageHint(wired.language, newSession.languages.includes("VF")) + `\n\n` +
-          (wired.header ? wired.header + `\n` : `*Saisons disponibles :*\n`) +
+          `• *Langue:* 🇫🇷 *${wired.language}*\n` +
+          (wired.header
+            ? wired.header + `\n\n`
+            : seasonScreenLanguageHint(wired.language, newSession.languages.includes("VF")) + `\n\n`) +
+          `*Saisons disponibles :*\n` +
           `${seasonsList}\n\n` +
           (wired.guideHint ? wired.guideHint + `\n\n` : ``) +
-          `👉 Répondez avec : \`.a s[numéro]\` (ex : \`.a s1\`)`
+          `👉 Réponds avec : \`.a s[numéro]\` (ex : \`.a s1\`)`
         );
 
       }

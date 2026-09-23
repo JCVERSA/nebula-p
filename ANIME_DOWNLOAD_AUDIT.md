@@ -2613,3 +2613,43 @@ dormance (module conservé comme bibliothèque). **vitest 453/453
 Reste V1b (après rapport doctor --full) : vérification terrain de la
 chaîne va (players → flux → ffmpeg) ; test terrain `.a as <titre>` /
 `.a va <titre>` sur le nouveau conteneur (anime-sama 200 confirmé).
+
+## §8.70 — Retour terrain 8.69 : correctifs UX du premier test `.a` (2026-09-21)
+
+**Rapport owner (WhatsApp + logs)** : `.a va sololeveling` → 0 résultat
+(requête collée — la recherche WP du catalogue va ne matche pas
+« sololeveling », il faut « solo leveling ») ; `.a as solo leveling` → 5
+résultats ; `.a 1` → écran saisons correct MAIS triplement redondant
+(libellé « langue demandée absente » + hint 8.17 « VF non disponible » +
+header « Aucune VF pour ce titre » = 3× la même info) ; `.a vf` → re-liste
+VOSTFR correcte ; session expirée en anglais au bout de 5 min. Un log
+montrait aussi une recherche du mot littéral « as » (`.a as` seul).
+Vérifié dans les logs : le catalogue as n'a réellement AUCUN sous-chemin
+vf pour Solo Leveling (wiring « 2 season(s) in VOSTFR ») — le comportement
+mono-source était correct ; la VF, si elle existe, est sur l'autre
+catalogue (test manquant : `.a va solo leveling` AVEC espaces).
+`[Registry] Skipped unloadable command file: watch.ts` = bruit bénin :
+`.w` est enregistré statiquement ; le scan disque ne peut pas re-charger
+le .ts dans le bundle prod (dist/server.cjs).
+
+Correctifs (8.70) :
+1. **Écran saisons dé-dupliqué** : quand la langue demandée est absente,
+   le header de politique REMPLACE le hint de switch (un seul message
+   clair) ; libellés 100 % FR (« Select Season » → « Choisissez la
+   Saison », etc.).
+2. **Flag seul = aide, pas recherche** : `.a as` / `.a va` seul répond
+   l'aide catalogues + astuce orthographe (avant : recherche littérale
+   du mot « as », preuve en log).
+3. **searchEmptyMessage** : ajoute « Vérifie l'orthographe — sépare bien
+   les mots du titre » + guide autre catalogue avec `<titre>` générique
+   (avant : répétait la requête fautive telle quelle).
+4. **Session 5 → 10 min** + message d'expiration en français.
+5. **Passage FR complet du flux interactif** : usage, sélections invalides
+   (anime/saison/résolution/choix 1-2), « Selected », chargement épisodes,
+   erreurs épisodes, analyse flux, écran batch saison, écran choix
+   épisodes, écrans qualité (réelle + repli) — 19 remplacements.
+
+Tests : +3 pins (searchOrder) — écran sans empilement header+hint,
+flag seul avant toute recherche, timeout 10 min + expiration FR ;
+searchEmptyMessage mis à jour (orthographe + guide). **vitest 456/456
+(48 fichiers)**, tsc clean, eslint 0 erreur.
