@@ -78,27 +78,113 @@ The interactive flow defaults to VF too — and never lies about the language ac
 ## 🏗️ Architecture
 
 ```mermaid
-flowchart LR
-  subgraph Clients
-    W["📱 WhatsApp users"]
-    B["🌐 Browser (control panel)"]
-  end
-  subgraph CF["Cloudflare Edge"]
-    T["Cloudflare Tunnel (HTTPS)"]
-  end
-  subgraph VPS["Container (managed via manage.sh)"]
-    APP["Express + React panel :3000<br/>auth · rate-limit · /api"]
-    ENGINE["Bot engine (Baileys)<br/>moderation · registry · 150+ cmds"]
-    ANIME["Anime engine<br/>voir-anime.to → voembed/VidMoly → HLS"]
-    HLS["Cat-Catch HLS downloader<br/>segments → ffmpeg remux"]
-    STORE[("temp store<br/>/tmp · tokens · 2h TTL")]
-  end
+flowchart TD
 
-  W <-->|multi-device| ENGINE
-  B -->|HTTPS| T --> APP
-  APP --- ENGINE
-  ENGINE --> ANIME --> HLS --> STORE
-  ANIME --> G["Gemini AI (optional)"]
+subgraph group_runtime["Bot Runtime"]
+  node_server["Server bootstrap<br/>[server.ts]"]
+  node_supervisor["Bot supervisor<br/>[botSupervisor.ts]"]
+  node_engine["WhatsApp bot engine<br/>[botEngine.ts]"]
+  node_registry["Command registry<br/>[commandRegistry.ts]"]
+end
+
+subgraph group_anime["Anime Media"]
+  node_anime_command["Anime commands<br/>[anime.ts]"]
+  node_anime_parser["Quick anime parser"]
+  node_anime_sources["Anime source resolver<br/>[animeSources.ts]"]
+  node_anime_clients["Anime source clients"]
+  node_stream["Stream extraction"]
+  node_hls["HLS downloader<br/>[hlsDownloader.ts]"]
+  node_watch["Episode watcher"]
+end
+
+subgraph group_ai["AI Services"]
+  node_ai_command["AI commands<br/>[ai.ts]"]
+  node_ai_engine["AI fallback client<br/>[geminiClient.ts]"]
+  node_ai_memory[("Conversation memory<br/>[aiMemory.ts]")]
+end
+
+subgraph group_panel["Web Control Panel"]
+  node_web_app["Panel API<br/>[app.ts]"]
+  node_panel_ui["Panel interface<br/>[App.tsx]"]
+  node_panel_factory["Panel app factory<br/>[panelApp.ts]"]
+end
+
+subgraph group_delivery["Download Delivery"]
+  node_batch["Batch job manager"]
+  node_zip["Batch ZIP manager<br/>[batchZipManager.ts]"]
+  node_temp_store[("Temporary download store")]
+end
+
+node_whatsapp(("WhatsApp users"))
+node_browser(("Panel users"))
+node_baileys["WhatsApp platform"]
+node_catalogs["Anime catalogs"]
+node_gemini["Gemini AI"]
+node_nim["NVIDIA NIM"]
+
+node_whatsapp -->|"sends commands"| node_engine
+node_engine -->|"connects through"| node_baileys
+node_server -->|"starts bots"| node_supervisor
+node_server -->|"creates panel"| node_panel_factory
+node_panel_factory -->|"controls bots"| node_supervisor
+node_engine -->|"dispatches commands"| node_registry
+node_registry -->|"registers"| node_anime_command
+node_engine -->|"dispatches"| node_anime_command
+node_anime_command -->|"parses request"| node_anime_parser
+node_anime_command -->|"resolves source"| node_anime_sources
+node_anime_sources -->|"queries catalog"| node_anime_clients
+node_anime_clients -->|"fetches metadata"| node_catalogs
+node_anime_command -->|"resolves episode stream"| node_stream
+node_stream -->|"downloads segments"| node_hls
+node_engine -->|"starts watcher"| node_watch
+node_watch -->|"sends notifications"| node_engine
+node_engine -->|"dispatches"| node_ai_command
+node_ai_command -->|"generates response"| node_ai_engine
+node_engine -->|"generates direct reply"| node_ai_engine
+node_engine -->|"reads context"| node_ai_memory
+node_ai_engine -->|"requests generation"| node_gemini
+node_ai_engine -.->|"falls back"| node_nim
+node_browser -->|"uses panel"| node_panel_ui
+node_panel_ui -->|"calls API"| node_web_app
+node_web_app -->|"controls session"| node_engine
+node_anime_command -->|"tracks batch"| node_batch
+node_batch -->|"requests packaging"| node_zip
+node_zip -->|"registers archive"| node_temp_store
+node_web_app -->|"serves downloads"| node_temp_store
+
+click node_server "https://github.com/jcversa/nebula-p/blob/main/server.ts"
+click node_supervisor "https://github.com/jcversa/nebula-p/blob/main/src/bot/botSupervisor.ts"
+click node_engine "https://github.com/jcversa/nebula-p/blob/main/src/bot/botEngine.ts"
+click node_registry "https://github.com/jcversa/nebula-p/blob/main/src/bot/commandRegistry.ts"
+click node_anime_command "https://github.com/jcversa/nebula-p/blob/main/src/bot/commands/anime.ts"
+click node_anime_parser "https://github.com/jcversa/nebula-p/blob/main/src/bot/utils/quickAnimeParser.ts"
+click node_anime_sources "https://github.com/jcversa/nebula-p/blob/main/src/bot/services/animeSources.ts"
+click node_anime_clients "https://github.com/jcversa/nebula-p/tree/main/src/bot/services"
+click node_stream "https://github.com/jcversa/nebula-p/blob/main/src/bot/services/animeStreamExtractor.ts"
+click node_hls "https://github.com/jcversa/nebula-p/blob/main/src/bot/services/hlsDownloader.ts"
+click node_watch "https://github.com/jcversa/nebula-p/blob/main/src/bot/services/episodeWatchService.ts"
+click node_ai_command "https://github.com/jcversa/nebula-p/blob/main/src/bot/commands/ai.ts"
+click node_ai_engine "https://github.com/jcversa/nebula-p/blob/main/src/bot/geminiClient.ts"
+click node_ai_memory "https://github.com/jcversa/nebula-p/blob/main/src/bot/services/aiMemory.ts"
+click node_web_app "https://github.com/jcversa/nebula-p/blob/main/app.ts"
+click node_panel_ui "https://github.com/jcversa/nebula-p/blob/main/src/App.tsx"
+click node_panel_factory "https://github.com/jcversa/nebula-p/blob/main/src/panel/panelApp.ts"
+click node_batch "https://github.com/jcversa/nebula-p/blob/main/src/bot/batchDownloadManager.ts"
+click node_zip "https://github.com/jcversa/nebula-p/blob/main/src/bot/services/batchZipManager.ts"
+click node_temp_store "https://github.com/jcversa/nebula-p/blob/main/src/bot/tempDownloadManager.ts"
+
+classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+class node_server,node_supervisor,node_engine,node_registry,node_whatsapp,node_browser toneBlue
+class node_anime_command,node_anime_parser,node_anime_sources,node_anime_clients,node_stream,node_hls,node_watch toneAmber
+class node_ai_command,node_ai_engine,node_ai_memory toneMint
+class node_web_app,node_panel_ui,node_panel_factory toneRose
+class node_batch,node_zip,node_temp_store,node_baileys,node_catalogs,node_gemini,node_nim toneIndigo
 ```
 
 **Repo layout**
