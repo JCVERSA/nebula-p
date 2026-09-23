@@ -15,7 +15,12 @@ import axios from "axios";
  */
 
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
-export const NIM_DEFAULT_MODEL = "meta/llama-3.3-70b-instruct";
+// 8.71: NVIDIA rotates hosted models and returns HTTP 410 Gone for retired
+// ones. meta/llama-3.3-70b-instruct (the previous default) was retired on
+// 2026-08-25 — production evidence: every NIM call answered 410. Current
+// replacement (September 2026): nvidia/nemotron-3-super-120b-a12b. Override
+// anytime with NEBULA_NIM_MODEL — copy the exact id from build.nvidia.com.
+export const NIM_DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b";
 
 const NIM_PLACEHOLDERS = new Set(["", "MY_NVIDIA_API_KEY", "YOUR_API_KEY_HERE", "nvapi-xxx"]);
 
@@ -117,5 +122,12 @@ export async function nimChat(
 
   const status = lastError?.response?.status;
   const detail = lastError?.response?.data?.error?.message || lastError?.message || String(lastError);
+  if (status === 410) {
+    // 8.71: retired model — tell the operator exactly what to do.
+    throw new Error(
+      `NVIDIA NIM error (HTTP 410): model "${getNimModel()}" was retired by NVIDIA — ` +
+        `set NEBULA_NIM_MODEL to a current model from build.nvidia.com`
+    );
+  }
   throw new Error(status ? `NVIDIA NIM error (HTTP ${status}): ${detail}` : `NVIDIA NIM error: ${detail}`);
 }

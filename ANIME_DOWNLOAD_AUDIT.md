@@ -2653,3 +2653,40 @@ Tests : +3 pins (searchOrder) — écran sans empilement header+hint,
 flag seul avant toute recherche, timeout 10 min + expiration FR ;
 searchEmptyMessage mis à jour (orthographe + guide). **vitest 456/456
 (48 fichiers)**, tsc clean, eslint 0 erreur.
+
+## §8.71 — IA : modèle NIM retiré par NVIDIA (410) + fin du silence en chat privé (2026-09-23)
+
+**Rapport owner (logs prod)** : chats privés IA en échec toute la journée —
+Gemini non configuré jusqu'à 17h41 (clé ajoutée via le panneau, la 1re était
+invalide, la 2e valide mais Google en surcharge 503 sur les 3 modèles), et le
+secours NVIDIA NIM répondait **HTTP 410** sur chaque appel. Cause racine
+CONFIRMÉE (build.nvidia.com, carte du modèle) : *meta/llama-3.3-70b-instruct*
+— le modèle par défaut du bot — a été **retiré par NVIDIA le 2026-08-25**.
+Autre constat : en cas d'échec IA en chat privé, le catch ne faisait que
+logger — l'utilisateur recevait **aucune réponse** (logs : mêmes utilisateurs
+réessayant 3-5×). Bonus du rapport : **premier téléchargement prod de la
+refonte 8.69** — Mushoku Tensei VOSTFR 480P S03E13, 84,57 Mo, pipeline
+26,5 s, rendu WhatsApp en 4,9 s (Cat-Catch 143 segments) — et doctor --full
+reçu : V1 **4 résultats va dont 2 VF + 2 non-VF** (voir-anime a donc AUSSI
+du VOSTFR), V2 13 épisodes, V3 player voembed — la chaîne découverte va est
+100 % verte ; V4/stage 6 en WARN « 0 tracks » (manifeste inaccessible à
+l'instant de la sonde) alors que le téléchargement réel a réussi le même
+jour → CDN vmeas/voe intermittent, pas un blocage structurel.
+
+Changements (8.71) :
+1. `nimClient.ts` : `NIM_DEFAULT_MODEL` → **nvidia/nemotron-3-super-120b-a12b**
+   (remplacement constaté septembre 2026 — remplaçable via NEBULA_NIM_MODEL,
+   copier l'id exact depuis build.nvidia.com) ; erreur HTTP 410 désormais
+   actionnable : nomme le modèle retiré + « set NEBULA_NIM_MODEL to a current
+   model from build.nvidia.com ».
+2. `botEngine.ts` : l'échec IA en chat privé répond maintenant un message FR
+   honnête (« L'IA est momentanément indisponible — réessaie dans un
+   instant ») au lieu du silence total.
+3. Surfaces env alignées (.env.example, menu `nebula env`).
+
+Tests : +1 (410 → message actionnable, modèle nommé) ; assertions du défaut
+mises à jour. **vitest 457/457 (48 fichiers)**, tsc clean.
+
+Action owner requise (aucune pour le défaut après update) : si NVIDIA a
+encore tourné le catalogue, `nebula env` → NEBULA_NIM_MODEL = <id actuel
+de build.nvidia.com>.

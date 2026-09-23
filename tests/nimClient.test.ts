@@ -54,8 +54,8 @@ describe("nimClient — configuration", () => {
     expect(isNimConfigured()).toBe(false);
   });
 
-  it("default model is llama-3.3-70b, overridable via NEBULA_NIM_MODEL", () => {
-    expect(NIM_DEFAULT_MODEL).toBe("meta/llama-3.3-70b-instruct");
+  it("default model is the current NVIDIA catalog entry, overridable via NEBULA_NIM_MODEL (8.71)", () => {
+    expect(NIM_DEFAULT_MODEL).toBe("nvidia/nemotron-3-super-120b-a12b");
     expect(getNimModel()).toBe(NIM_DEFAULT_MODEL);
     process.env.NEBULA_NIM_MODEL = "qwen/qwen3-235b-a22b";
     expect(getNimModel()).toBe("qwen/qwen3-235b-a22b");
@@ -84,7 +84,7 @@ describe("nimClient — chat completions", () => {
     expect(capture).toHaveLength(1);
     expect(capture[0].url).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
     expect(capture[0].config.headers.Authorization).toBe("Bearer nvapi-test-key-123456789");
-    expect(capture[0].body.model).toBe("meta/llama-3.3-70b-instruct");
+    expect(capture[0].body.model).toBe("nvidia/nemotron-3-super-120b-a12b");
     expect(capture[0].body.messages).toEqual([
       { role: "system", content: "Tu es Nebula." },
       { role: "user", content: "Salut" }
@@ -101,6 +101,15 @@ describe("nimClient — chat completions", () => {
     const out = await nimChat("q", undefined, { post });
     expect(out).toBe("OK après retry");
     expect(capture).toHaveLength(2);
+  });
+
+  it("410 Gone names the retired model and the NEBULA_NIM_MODEL fix (8.71)", async () => {
+    const err: any = new Error("Request failed with status code 410");
+    err.response = { status: 410 };
+    const post = async () => { throw err; };
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("was retired by NVIDIA");
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("NEBULA_NIM_MODEL");
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("nvidia/nemotron-3-super-120b-a12b");
   });
 
   it("surfaces a truthful error (HTTP status) on non-transient failures", async () => {

@@ -808,6 +808,16 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
             } catch (error: any) {
               console.error("[Private Chat AI Error]:", error);
               addLog(`❌ [Private Chat AI Error]: ${error.message}`);
+              // 8.71: users used to get TOTAL SILENCE when the AI chain
+              // failed (production logs: the same users retrying 3-5x).
+              // Honest French notice, same tone as the other messages.
+              try {
+                await sock.sendMessage(
+                  senderJid,
+                  { text: "😕 *L’IA est momentanément indisponible.*\n\n🔁 *Réessaie dans un instant.*\n_Si ça persiste, préviens l’administrateur du bot._" },
+                  { quoted: msg }
+                );
+              } catch {}
             }
           } else {
             // Friendly fallback guide if AI key is not yet configured
