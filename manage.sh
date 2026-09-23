@@ -4,7 +4,7 @@
 #  Dépôt   : https://github.com/JCVERSA/nebula-p (branche main)
 #  Usage   : ./manage.sh <commande>   (voir: ./manage.sh help)
 #
-#  Commandes : start | stop | restart | status | update | setup | clone
+#  Commandes : start | stop | restart | pair | status | update | setup | clone
 #              env [list|set|get|unset|edit] | logs [filtre] | clean
 #              doctor | watchdog | version
 # ============================================================================
@@ -63,6 +63,12 @@ die()  { ko "$*" >&2; exit 1; }
 # Helpers
 # ---------------------------------------------------------------------------
 bot_pids() { pgrep -f "${NODE_PATTERN}" 2>/dev/null || true; }
+
+# Moteurs enfants multi-bots (8.75) : lancés par le panneau superviseur, ils
+# ne comptent pas dans is_running (le panneau seul prouve que le déploiement
+# est debout — un enfant orphelin s'auto-arrête quand son parent disparaît).
+ENGINE_PATTERN="dist/engine[.]cjs"
+engine_pids() { pgrep -f "${ENGINE_PATTERN}" 2>/dev/null || true; }
 
 is_running() { [ -n "$(bot_pids)" ]; }
 
@@ -181,7 +187,10 @@ cmd_start() {
   [ -f "${ENV_FILE}" ] || warn "Aucun .env trouvé — ./manage.sh env pour le configurer"
 
   hdr "Démarrage du bot"
-  ( cd "${APP_DIR}" && nohup npm start >"${LOG_FILE}" 2>&1 & )
+  # 8.75 multi-bots : le panneau superviseur ne charge plus Baileys (les
+  # moteurs enfants l'ont) — budget heap réduit, réglable. Lancement node
+  # direct (plus de wrapper npm) pour un pgrep/arrêt plus propres.
+  ( cd "${APP_DIR}" && NODE_ENV=production nohup node --max-old-space-size="${NEBULA_PANEL_MEMORY_MB:-256}" --expose-gc dist/server.cjs >"${LOG_FILE}" 2>&1 & )
   info "Process lancé, log: ${LOG_FILE}"
 
   info "Attente du panneau sur le port ${PORT} (45 s max)…"
@@ -199,24 +208,211 @@ cmd_stop() {
   hdr "Arrêt du bot"
   local pids; pids="$(bot_pids)"
   if [ -z "${pids}" ]; then
-    info "Le bot n'était pas en cours d'exécution."
+    info "Le panneau n'était pas en cours d'exécution."
+  else
+    info "PID(s): $(echo "${pids}" | tr '\n' ' ') — SIGTERM…"
+    kill ${pids} 2>/dev/null || true
+    local deadline=$(( $(date +%s) + 10 ))
+    while [ -n "$(bot_pids)" ] && [ "$(date +%s)" -lt "${deadline}" ]; do sleep 1; done
+    pids="$(bot_pids)"
+    if [ -n "${pids}" ]; then
+      warn "Ne s'est pas arrêté en 10 s — SIGKILL."
+      kill -9 ${pids} 2>/dev/null || true
+      sleep 1
+    fi
+    if [ -n "$(bot_pids)" ]; then ko "Échec de l'arrêt du panneau (PID: $(bot_pids | tr '\n' ' '))"; exit 1; fi
+    ok "Panneau arrêté proprement."
+  fi
+
+  # 8.75 multi-bots : balayage des moteurs enfants restants (normalement déjà
+  # arrêtés par le SIGTERM du panneau ou leur garde orpheline).
+  local epids; epids="$(engine_pids)"
+  if [ -z "${epids}" ]; then
+    ok "Aucun moteur enfant restant."
     return 0
   fi
-  info "PID(s): $(echo "${pids}" | tr '\n' ' ') — SIGTERM…"
-  kill ${pids} 2>/dev/null || true
-  local deadline=$(( $(date +%s) + 10 ))
-  while [ -n "$(bot_pids)" ] && [ "$(date +%s)" -lt "${deadline}" ]; do sleep 1; done
-  pids="$(bot_pids)"
-  if [ -n "${pids}" ]; then
-    warn "Ne s'est pas arrêté en 10 s — SIGKILL."
-    kill -9 ${pids} 2>/dev/null || true
+  info "Moteur(s) enfant(s) encore vivant(s) ($(echo "${epids}" | tr '\n' ' ')) — SIGTERM…"
+  kill ${epids} 2>/dev/null || true
+  local edeadline=$(( $(date +%s) + 8 ))
+  while [ -n "$(engine_pids)" ] && [ "$(date +%s)" -lt "${edeadline}" ]; do sleep 1; done
+  epids="$(engine_pids)"
+  if [ -n "${epids}" ]; then
+    warn "Moteur récalcitrant — SIGKILL."
+    kill -9 ${epids} 2>/dev/null || true
     sleep 1
   fi
-  if [ -n "$(bot_pids)" ]; then ko "Échec de l'arrêt (PID: $(bot_pids | tr '\n' ' '))"; exit 1; fi
-  ok "Bot arrêté proprement."
+  if [ -n "$(engine_pids)" ]; then ko "Échec de l'arrêt d'un moteur enfant (PID: $(engine_pids | tr '\n' ' '))"; exit 1; fi
+  ok "Moteurs enfants arrêtés."
 }
 
 cmd_restart() { cmd_stop; cmd_start; }
+
+# ---------------------------------------------------------------------------
+# Connexion par code d'appariement (8.74) : appelle l'API panneau locale
+# (déjà protégée par PANEL_TOKEN) et affiche le code à saisir sur le téléphone.
+# ---------------------------------------------------------------------------
+cmd_pair() {
+  require_repo
+  # 8.75 : « pair <numéro> » (bot par défaut) ou « pair <bot> <numéro> ».
+  local bot="" phone_arg="${1:-}"
+  if [ $# -ge 2 ]; then
+    bot="${1}"
+    phone_arg="${2}"
+  fi
+  local phone
+  phone="$(printf '%s' "${phone_arg}" | tr -cd '0-9')"
+  if [ -z "$phone" ] || [ "${#phone}" -lt 8 ] || [ "${#phone}" -gt 16 ]; then
+    ko "Usage: $(basename "$0") pair [bot] <numero international>"
+    echo " Exemple : $(basename "$0") pair 237690000000"
+    echo " Exemple : $(basename "$0") pair bot2 237690000000  (bot précis, voir '$(basename "$0") bots')"
+    echo " (numéro WhatsApp complet avec indicatif pays, sans + ni espaces)"
+    return 1
+  fi
+  local pair_query=""
+  [ -n "$bot" ] && pair_query="?bot=${bot}"
+  local port token
+  port="$(env_value PORT)"; port="${port:-3000}"
+  token="$(env_value PANEL_TOKEN)"
+  if [ -z "$token" ]; then
+    ko "PANEL_TOKEN introuvable dans ${ENV_FILE} — définis ta clé via '$(basename "$0") env'"
+    return 1
+  fi
+  if ! curl -s -o /dev/null -m 5 "http://127.0.0.1:${port}/"; then
+    ko "Le panneau ne répond pas sur le port ${port} — lance d'abord : $(basename "$0") start"
+    return 1
+  fi
+  hdr "CONNEXION PAR CODE D'APPARIEMENT (+${phone})${bot:+ — bot ${bot}}"
+  echo " ℹ Arrêt de la session actuelle et demande d'un code aux serveurs WhatsApp…"
+  local resp out code
+  resp="$(curl -s -m 50 -X POST "http://127.0.0.1:${port}/api/bot/pair-code${pair_query}" \
+    -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' \
+    -d "{\"phoneNumber\":\"${phone}\"}")"
+  out="$(printf '%s' "$resp" | node -e 'let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{try{const j=JSON.parse(d);if(j.code)console.log("OK:"+j.code);else console.log("ERR:"+(j.error||"réponse inattendue du panneau"))}catch(e){console.log("ERR:réponse invalide du panneau")}})' 2>/dev/null || echo "ERR:node indisponible")"
+  case "$out" in
+    OK:*)
+      code="${out#OK:}"
+      ok "Code d'appariement généré"
+      echo
+      echo " ${C_BOLD}${C_CYAN}      ${code}      ${C_RESET}"
+      echo
+      echo " Sur ton téléphone WhatsApp :"
+      echo " ${C_BOLD}Paramètres > Appareils connectés > Connecter un appareil >${C_RESET}"
+      echo " ${C_BOLD}Connecter avec un numéro de téléphone à la place${C_RESET}"
+      echo " Saisis le code ci-dessus — le bot se connecte automatiquement."
+      ;;
+    *)
+      ko "${out#ERR:}"
+      echo " Vérifie que le bot n'est pas déjà connecté ('$(basename "$0") status') puis réessaie."
+      return 1
+      ;;
+  esac
+}
+
+
+# ---------------------------------------------------------------------------
+# MULTI-BOTS (8.75) : liste des bots et contrôle par bot
+# ---------------------------------------------------------------------------
+bots_api() {
+  # $1 = METHOD, $2 = chemin API — sort le corps brut (vide si panneau KO)
+  local port token
+  port="$(env_value PORT)"; port="${port:-3000}"
+  token="$(env_value PANEL_TOKEN)"
+  if [ -z "$token" ]; then
+    ko "PANEL_TOKEN introuvable dans ${ENV_FILE} — définis ta clé via '$(basename "$0") env'"
+    return 1
+  fi
+  if ! curl -s -o /dev/null -m 5 "http://127.0.0.1:${port}/"; then
+    ko "Le panneau ne répond pas sur le port ${port} — lance d'abord : $(basename "$0") start"
+    return 1
+  fi
+  curl -s -m 30 -X "$1" "http://127.0.0.1:${port}$2" \
+    -H "Authorization: Bearer ${token}" -H "Content-Type: application/json"
+}
+
+cmd_bots() {
+  require_repo
+  local resp out
+  resp="$(bots_api GET /api/bots)" || return 1
+  hdr "BOTS DU DÉPLOIEMENT"
+  out="$(printf '%s' "$resp" | node -e '
+    let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
+      let j; try { j=JSON.parse(d); } catch(e){ console.log("ERR:réponse invalide du panneau"); return; }
+      if (!j.bots) { console.log("ERR:"+(j.error||"réponse inattendue du panneau")); return; }
+      if (j.config && j.config.error) { console.log("CONFIG_ERR:"+j.config.error); return; }
+      for (const b of j.bots) {
+        const proc = b.process==="running" ? "lancé" : b.process==="starting" ? "démarrage" : b.process==="backoff" ? "relance planifiée" : "arrêté";
+        const wa = b.whatsapp && b.whatsapp.status ? String(b.whatsapp.status) : "inconnu";
+        const def = b.isDefault ? " · défaut" : "";
+        const en = b.enabled ? "" : " · désactivé (bots.json)";
+        console.log("BOT\t"+b.id+"\t"+b.name+def+en+"\t"+proc+"\tWhatsApp: "+wa+"\tPID "+(b.pid==null?"-":b.pid)+"\tport "+b.enginePort+"\t"+b.restarts+" relance(s)");
+      }
+    });' 2>/dev/null || echo "ERR:node indisponible")"
+  case "$out" in
+    ERR:*) ko "${out#ERR:}"; return 1 ;;
+    CONFIG_ERR:*)
+      ko "bots.json invalide — AUCUN bot lancé :"
+      echo " ${out#CONFIG_ERR:}"
+      echo " Corrige bots.json puis : $(basename "$0") restart"
+      return 1 ;;
+  esac
+  printf '%s\n' "$out" | while IFS=$'\t' read -r _ id name proc wa pid _port restarts; do
+    [ -n "${id:-}" ] || continue
+    printf " ${C_BOLD}%-12s${C_RESET} %-20s %-17s %-30s %-9s %s\n" "$id" "$name" "$proc" "$wa" "$pid" "$restarts"
+  done
+  echo
+  info "Connexion d'un numéro : $(basename "$0") pair [bot] <numéro>"
+  info "Contrôle par bot     : $(basename "$0") bot <id> <start|stop|restart|status>"
+}
+
+cmd_bot() {
+  require_repo
+  if [ $# -lt 2 ]; then
+    ko "Usage: $(basename "$0") bot <id> <start|stop|restart|status>"
+    echo " Bots connus : $(basename "$0") bots"
+    return 1
+  fi
+  local id="$1" action="$2" resp out
+  case "$action" in
+    start|stop|restart) ;;
+    status)
+      hdr "BOT ${id} — STATUT"
+      resp="$(bots_api GET "/api/bot/status?bot=${id}")" || return 1
+      out="$(printf '%s' "$resp" | node -e '
+        let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
+          let j; try { j=JSON.parse(d); } catch(e){ console.log("ERR:réponse invalide"); return; }
+          if (j.error) { console.log("ERR:"+j.error); return; }
+          console.log("STATUS\t"+(j.status||"?")+"\t"+(j.connectionMode||"")+"\t"+(j.pairingNumber||""));
+          const logs = Array.isArray(j.logs) ? j.logs.slice(-6) : [];
+          for (const l of logs) console.log("LOG\t"+l);
+        });' 2>/dev/null || echo "ERR:node indisponible")"
+      case "$out" in
+        ERR:*) ko "${out#ERR:}"; return 1 ;;
+      esac
+      printf '%s\n' "$out" | while IFS=$'\t' read -r tag a b c; do
+        case "$tag" in
+          STATUS) echo " ${C_BOLD}WhatsApp${C_RESET}: ${a}   ${C_BOLD}mode${C_RESET}: ${b}   ${C_BOLD}numéro${C_RESET}: ${c:-—}" ;;
+          LOG)    echo "   ${a}" ;;
+        esac
+      done
+      echo
+      info "Contrôle process : $(basename "$0") bot ${id} <start|stop|restart>"
+      return 0
+      ;;
+    *) ko "Action inconnue: ${action} (start|stop|restart|status)"; return 1 ;;
+  esac
+  hdr "BOT ${id} — ${action}"
+  resp="$(bots_api POST "/api/bots/${id}/${action}")" || return 1
+  out="$(printf '%s' "$resp" | node -e '
+    let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
+      let j; try { j=JSON.parse(d); } catch(e){ console.log("ERR:réponse invalide du panneau"); return; }
+      if (j.success) console.log("OK:"+(j.message||"fait"));
+      else console.log("ERR:"+(j.error||"échec"));
+    });' 2>/dev/null || echo "ERR:node indisponible")"
+  case "$out" in
+    OK:*) ok "${out#OK:}" ;;
+    *) ko "${out#ERR:}"; return 1 ;;
+  esac
+}
 
 # ---------------------------------------------------------------------------
 # STATUS
@@ -262,6 +458,28 @@ cmd_status() {
     [ "${code}" != "000" ] && ok "URL publique   : ${pub} → HTTP ${code}" || warn "URL publique   : ${pub} → injoignable (tunnel lancé ?)"
   else
     warn "URL publique   : APP_URL non défini dans .env"
+  fi
+
+  # Multi-bots (8.75) : aperçu des moteurs enfants
+  echo
+  local hcode token_bots
+  hcode="$(http_code "http://127.0.0.1:${PORT}/api/health")"
+  token_bots="$(env_value PANEL_TOKEN)"
+  if [ "${hcode}" != "000" ] && [ -n "${token_bots}" ]; then
+    curl -s -m 10 "http://127.0.0.1:${PORT}/api/bots" \
+      -H "Authorization: Bearer ${token_bots}" \
+      | node -e '
+        let d="";process.stdin.on("data",c=>d+=c);process.stdin.on("end",()=>{
+          let j; try { j=JSON.parse(d); } catch(e){ return; }
+          if (!j.bots) return;
+          for (const b of j.bots) {
+            const proc = b.process==="running" ? "lancé" : b.process==="starting" ? "démarrage" : b.process==="backoff" ? "relance planifiée" : "arrêté";
+            const wa = b.whatsapp && b.whatsapp.status ? String(b.whatsapp.status) : "inconnu";
+            console.log(" "+b.id.padEnd(12)+(b.name||b.id).padEnd(16)+proc.padEnd(18)+"WhatsApp: "+wa+(b.isDefault?"   (défaut)":""));
+          }
+        });' 2>/dev/null || true
+  else
+    info "Bots : panneau local injoignable ou PANEL_TOKEN absent"
   fi
 
   # Stockage
@@ -604,7 +822,7 @@ cmd_doctor() {
   echo
   if [ -f "${ENV_FILE}" ]; then
     ok ".env présent (${ENV_FILE})"
-    [ -n "$(env_value PANEL_TOKEN)" ] && ok "PANEL_TOKEN défini" || warn "PANEL_TOKEN vide — une clé aléatoire sera générée au démarrage (affichée une fois dans le log)"
+    [ -n "$(env_value PANEL_TOKEN)" ] && ok "PANEL_TOKEN défini" || warn "PANEL_TOKEN vide — une clé sera générée et persistée dans .env au premier démarrage (8.75)"
     [ -n "$(env_value APP_URL)" ] && ok "APP_URL = $(env_value APP_URL)" || warn "APP_URL vide — les liens de téléchargement utiliseront une URL détectée (moins fiable)"
   else
     warn ".env ABSENT — ./manage.sh env"
@@ -711,6 +929,9 @@ ${C_BOLD}Cycle de vie${C_RESET}
    ${C_BOLD}start${C_RESET}      Démarre le bot (nohup) et vérifie que le panneau répond
    ${C_BOLD}stop${C_RESET}       Arrêt propre (SIGTERM puis SIGKILL si besoin)
    ${C_BOLD}restart${C_RESET}    stop + start
+   ${C_BOLD}pair${C_RESET}      Connecte un numéro par code d'appariement (sans QR) : nebula pair [bot] 237690000000
+   ${C_BOLD}bots${C_RESET}      Liste les bots du déploiement (multi-bots) : état process + WhatsApp
+   ${C_BOLD}bot${C_RESET}       Contrôle un bot précis : nebula bot <id> <start|stop|restart|status>
    ${C_BOLD}status${C_RESET}     État complet: process, RAM vs cgroup, panneau, tunnel, disque
    ${C_BOLD}logs${C_RESET} [f]   Suit le log en direct (/root/bot.log); ex: nebula logs NOVABOX
 
@@ -742,6 +963,9 @@ case "${1:-help}" in
   start)   shift || true; cmd_start "$@" ;;
   stop)    shift || true; cmd_stop "$@" ;;
   restart) shift || true; cmd_restart "$@" ;;
+  pair)    shift || true; cmd_pair "$@" ;;
+  bots)    shift || true; cmd_bots "$@" ;;
+  bot)     shift || true; cmd_bot "$@" ;;
   status)  shift || true; cmd_status "$@" ;;
   update)  shift || true; cmd_update "$@" ;;
   setup)   shift || true; cmd_setup "$@" ;;

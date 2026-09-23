@@ -57,7 +57,8 @@ The interactive flow defaults to VF too — and never lies about the language ac
 | 🔔 | **New-episode watcher** — `.a watch` on a VF season: cron polling (default every 6 h), quiet hours 23h–7h, WhatsApp notification with the ready-made download command; `.a unwatch <title>` / `.a watchlist` |
 | 📦 | **Batch episodes** — `1-12` ranges, sequential pipeline hardened for ~1 GB containers, one offline HTML download page per batch (per-episode buttons + "Tout télécharger" in Chrome, 2 h TTL), optional season ZIP via `NEBULA_BATCH_ZIP=1` |
 | 🤖 | **Gemini AI** — chat, image generation, audio transcription, voice conversations with TTS, per-user daily budget + global concurrency cap; **NVIDIA NIM fallback** keeps `.ai` alive through Gemini outages (text, `meta/llama-3.3-70b-instruct` by default); defined persona (sober, mirrors the user's language, WhatsApp-tailored, overridable via `NEBULA_AI_PERSONALITY; per-conversation persistent memory (sliding 10 h TTL, rolling summary, `.ai forget`) | |
-| 💬 | **WhatsApp multi-device** (Baileys) — QR pairing from the panel, auto-reconnect, bad-session recovery |
+| 💬 | **WhatsApp multi-device** (Baileys) — QR **and pairing-code** linking, auto-reconnect, bad-session recovery |
+| 🤖 | **Multi-bots** (8.75) — up to 8 WhatsApp bots in one deployment: per-bot process/session/persona, crash-isolated, see [docs/MULTI_BOTS.md](docs/MULTI_BOTS.md) |
 | 🧩 | **Curated command set** (owner decision 8.59): `.a` anime, `.ytv`/`.ytm`/`.yts` YouTube, `.tiktok`/`.instagram` downloads, `.w` episode watch, `.ai`/`.image`, `.define`, `.sweb`, `.qr`, `.base64`, `.getpp`, `.whois`, `.ping`/`.menu`/`.help` + sandboxed panel-created ones (no fs/process/network, no restart) — the inventory is locked by a registry test; the legacy corpus, its CJS bridge (8.56), the media toolkit, moderation suite and coin system were REMOVED |
 | 🛡️ | **Welcome/goodbye + RoleGuard** core wiring kept for the group experience; the moderation command suite was removed in the 8.59 curation |
 | 🖥️ | **Web control panel** — live simulator, secrets manager (masked), command customizer, analytics, ZIP export |
@@ -152,6 +153,9 @@ Requirements: **Node.js ≥ 22** and `ffmpeg` on PATH for media — see [Require
 | `./manage.sh env` | Interactive `.env` wizard — 26 documented keys, secrets masked |
 | `./manage.sh doctor` | Full diagnostic: node/ffmpeg/.env/RAM/disk/network, exit 1 on blockers |
 | `./manage.sh clean` | Purges orphan staging (>1h) and expired temp files (>3h) |
+| `./manage.sh pair [bot] <phone>` | Links a WhatsApp number with an 8-digit pairing code (no QR needed) |
+| `./manage.sh bots` | Multi-bots overview: per-bot process + WhatsApp state (8.75) |
+| `./manage.sh bot <id> <start/stop/restart/status>` | Controls one bot's engine process |
 
 ## 📺 Anime engine
 

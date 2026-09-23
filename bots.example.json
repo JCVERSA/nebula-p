@@ -1,0 +1,34 @@
+{
+  "_commentaire": "Copie ce fichier en bots.json pour activer le multi-bots. Sans bots.json, un seul bot « nebula » tourne sur les chemins historiques (nebula_auth_info/ + database/). id : slug minuscule (a-z 0-9 - _) ; name : libellé affiché ; persona : remplace la persona IA du projet (vide = persona par défaut) ; enginePort : port local du moteur (127.0.0.1, unique par bot) ; maxOldSpaceMb : plafond heap Node du process (Mo) ; enabled : false = configuré mais non lancé ; autoStart : reconnexion automatique si une session WhatsApp appairée existe.",
+  "bots": [
+    {
+      "id": "nebula",
+      "name": "Nebula",
+      "enabled": true,
+      "authDir": "nebula_auth_info",
+      "dataDir": "database",
+      "enginePort": 4001,
+      "maxOldSpaceMb": 192,
+      "persona": "",
+      "autoStart": true
+    },
+    {
+      "id": "bot2",
+      "name": "Bot 2",
+      "enabled": false,
+      "enginePort": 4002,
+      "maxOldSpaceMb": 192,
+      "persona": "Tu es Bot 2, l'assistant WhatsApp de l'équipe. Réponds en français, court et direct.",
+      "autoStart": true
+    },
+    {
+      "id": "bot3",
+      "name": "Bot 3",
+      "enabled": false,
+      "enginePort": 4003,
+      "maxOldSpaceMb": 192,
+      "persona": "",
+      "autoStart": true
+    }
+  ]
+}

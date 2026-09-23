@@ -16,3 +16,8 @@ recovery/
 # Python byte-code (uvr runner)
 __pycache__/
 *.pyc
+
+# Multi-bots (8.75) : config par installation — jamais dans le dépôt
+bots.json
+bots/*/auth/
+bots/*/data/
