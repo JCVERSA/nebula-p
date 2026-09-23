@@ -425,6 +425,8 @@ ENV_KEYS=(
   "GEMINI_API_KEY|Clé Gemini pour l'IA (texte/image/transcription)"
   "NVIDIA_NIM_API_KEY|Clé NVIDIA NIM (nvapi-…) — IA de secours si Gemini absent/épuisé (gratuite sur build.nvidia.com)"
   "NEBULA_NIM_MODEL|Modèle NIM (défaut nvidia/nemotron-3-super-120b-a12b — l ancien llama-3.3-70b a été retiré par NVIDIA)"
+  "NEBULA_AI_GEMINI_BUDGET_MS|Budget max (ms) pour les essais Gemini avant bascule vers NIM (défaut 25000)"
+  "NEBULA_AI_PRIMARY|Moteur IA primaire pour le texte : gemini (défaut) ou nim — les images vont toujours à Gemini (NIM ne voit pas les images)"
   "NEBULA_AI_PERSONALITY|Remplace TOUTE la personnalité IA (system prompt) — vide = persona Nebula intégrée"
   "NEBULA_AI_MEMORY_TTL_HOURS|Durée de vie (heures) de la mémoire IA par discussion — glissante, 0 = désactivée (défaut 10)"
   "NEBULA_AI_MEMORY_MAX_TURNS|Tours bruts gardés avant compaction en résumé (défaut 20)"

@@ -4,7 +4,7 @@ import path from "path";
 /**
  * Per-user AI budget.
  *
- * Anyone who can message the bot can trigger Gemini calls (`.ai`, `.image`,
+ * Anyone who can message the bot can trigger Gemini calls (`.ai`,
  * automatic DM replies). Without a budget that is unlimited API spend for
  * any contact. This module enforces:
  *  - a daily request allowance per sender (default 40, env NEBULA_AI_DAILY_LIMIT)

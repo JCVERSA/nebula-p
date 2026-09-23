@@ -15,7 +15,6 @@ import whoisCommand from "./commands/whois.js";
 import traceCommand from "./commands/trace.js";
 import menuCommand from "./commands/menu.js";
 import aiCommand from "./commands/ai.js";
-import imageCommand from "./commands/image.js";
 import defineCommand from "./commands/define.js";
 import helpCommand from "./commands/help.js";
 import swebCommand from "./commands/sweb.js";
@@ -75,7 +74,6 @@ const defaultCommands = [
   menuCommand,
   helpCommand,
   aiCommand,
-  imageCommand,
   defineCommand,
   swebCommand,
   watchCommand,

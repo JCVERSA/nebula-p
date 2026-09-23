@@ -2690,3 +2690,63 @@ mises à jour. **vitest 457/457 (48 fichiers)**, tsc clean.
 Action owner requise (aucune pour le défaut après update) : si NVIDIA a
 encore tourné le catalogue, `nebula env` → NEBULA_NIM_MODEL = <id actuel
 de build.nvidia.com>.
+
+## §8.72 — IA : le timeout externe tuait la chaîne avant le secours NIM (2026-09-23)
+
+**Rapport owner (logs prod, 18h13)** : Gemini en surcharge (503 « high
+demand » sur les 3 modèles) → le bot enchaînait ses retries (3 modèles ×
+3 tentatives, ~7 s par appel sur endpoint encombré) → **« AI request
+timed out »** à exactement +60 s — et AUCUNE ligne « falling back to
+NVIDIA NIM » : la course de 60 s de withAIConcurrency tuait la requête
+AU MILIEU des retries Gemini, le secours NIM n'était jamais atteint.
+Cause racine : la boucle Gemini n'avait aucune notion de temps.
+
+Changements (8.72) :
+1. **Budget de phase** (`geminiClient.ts`) : toute la phase Gemini est
+   plafonnée à 25 s par défaut (`NEBULA_AI_GEMINI_BUDGET_MS`, plancher
+   1 s) ; à budget épuisé → bascule immédiate vers NIM, qui dispose du
+   reste de la course externe (60 s). Garantie structurelle : le
+   secours est TOUJOURS atteint.
+2. **Timeout par appel SDK** : chaque `generateContent` porte
+   `config.httpOptions.timeout = 10 s` (@google/genai ≥ 2.4) — un
+   modèle qui pend ne peut plus dévorer le budget.
+3. **Bug latent corrigé** : une réponse Gemini vide (succès sans texte)
+   rebouclait le MÊME modèle à l'infini (retries jamais décrémentés) —
+   désormais : passage au modèle suivant.
+4. Surfaces env : .env.example + menu `nebula env`.
+
+Tests : `tests/aiFallbackDeadline.test.ts` (nouveau, 4) — journée
+Gemini encombrée simulée (503 lents) → NIM atteint dans le budget
+(< 4 s) et non à 60 s ; timeout par appel présent sur chaque requête ;
+réponses vides → modèle suivant (≤ 3 appels, plus de boucle infinie) ;
+plancher du budget documenté et appliqué. **vitest 461/461
+(49 fichiers)**, tsc clean, eslint 0 erreur.
+
+## §8.73 — IA : moteur primaire configurable + suppression de `.image` (2026-09-23)
+
+Décisions owner (Q&R du jour) : (1) switch de l'ordre des moteurs avec
+défaut Gemini (reco acceptée) ; (2) **suppression de la génération
+d'images** — « le bot est un spécialiste pour télécharger des animés, pas
+pour les images » ; (3) timeout externe global gardé à 60 s. Owner annonce
+une nouvelle erreur anime à corriger en priorité (non encore fournie).
+
+Changements :
+1. **`geminiClient.ts` — `NEBULA_AI_PRIMARY`** (`gemini` défaut | `nim`) :
+   NIM primaire sert les prompts texte en premier ; en échec, la chaîne
+   Gemini prend le relais (budget 8.72), et le sauvetage NIM final peut le
+   retenter une fois. **Prompts avec image → TOUJOURS Gemini d'abord** (NIM
+   ne voit pas les images) — `promptHasImageParts` + log explicite. Nouvel
+   export `getPrimaryAIEngine`.
+2. **Suppression `.image`** (owner 8.73) : `commands/image.ts` supprimé,
+   registre nettoyé (19 → **18 commandes**), ligne menu retirée, inventaire
+   mis à jour (`commandInventory.test.ts`), `generateImageWithFallback`
+   (Gemini imagen + Pollinations) retiré du client — plus aucune génération
+   d'image dans le bot. La VISION (images envoyées en privé à l'IA) reste :
+   elle passe par Gemini et dégrade proprement.
+3. Surfaces env : `.env.example` + menu `nebula env` (NEBULA_AI_PRIMARY).
+
+Tests : `tests/aiPrimarySwitch.test.ts` (nouveau, 6) — défaut Gemini sans
+toucher NIM ; NIM primaire prioritaire ; échec NIM → secours Gemini ;
+prompts vision routés Gemini même en NIM primaire ; épuisement des deux →
+erreur honnête ; parsing de NEBULA_AI_PRIMARY. **vitest 467/467
+(50 fichiers)**, tsc clean, eslint 0 erreur.

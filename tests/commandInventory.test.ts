@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { initRegistry, getCommands, getCommand } from "../src/bot/commandRegistry.js";
 
 /**
- * Inventaire DÉFINITIF des commandes (curation owner, 8.59).
+ * Inventaire DÉFINITIF des commandes (curation owner, 8.59 ; .image retirée en 8.73).
  *
  * La liste ci-dessous est LA vérité absolue décidée par le owner :
- *   .define .sweb .ping .menu .help .image .qr .base64 .getpp .whois
+ *   .define .sweb .ping .menu .help .qr .base64 .getpp .whois
  *   .watch .ai .ytv .yts .ytm .tiktok .instagram + toutes les commandes
  *   novabox (intouchables).
  *
@@ -18,7 +18,6 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "menu", aliases: ["commands", "cmds"] },
   { name: "help", aliases: ["h", "info"] },
   { name: "ai", aliases: [] },
-  { name: "image", aliases: [] },
   { name: "define", aliases: [] },
   { name: "sweb", aliases: ["ssweb", "screenshot", "ss", "webss"] },
   { name: "w", aliases: ["watch", "veille", "watchlist"] },
