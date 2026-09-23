@@ -190,7 +190,12 @@ cmd_start() {
   # 8.75 multi-bots : le panneau superviseur ne charge plus Baileys (les
   # moteurs enfants l'ont) — budget heap réduit, réglable. Lancement node
   # direct (plus de wrapper npm) pour un pgrep/arrêt plus propres.
-  ( cd "${APP_DIR}" && NODE_ENV=production nohup node --max-old-space-size="${NEBULA_PANEL_MEMORY_MB:-256}" --expose-gc dist/server.cjs >"${LOG_FILE}" 2>&1 & )
+  # 8.76 (audit ARCH-02) : le plafond se règle dans .env
+  # (NEBULA_PANEL_MEMORY_MB) — env shell prioritaire, fallback 256 Mo.
+  local panel_mem
+  panel_mem="${NEBULA_PANEL_MEMORY_MB:-$(env_value NEBULA_PANEL_MEMORY_MB)}"
+  case "${panel_mem}" in ''|*[!0-9]*) panel_mem="256" ;; esac
+  ( cd "${APP_DIR}" && NODE_ENV=production nohup node --max-old-space-size="${panel_mem}" --expose-gc dist/server.cjs >"${LOG_FILE}" 2>&1 & )
   info "Process lancé, log: ${LOG_FILE}"
 
   info "Attente du panneau sur le port ${PORT} (45 s max)…"
@@ -679,6 +684,7 @@ env_upsert() { # $1 clé, $2 valeur
   [ -f "${ENV_FILE}" ] && [ -s "${ENV_FILE}" ] && [ -n "$(tail -c1 "${ENV_FILE}")" ] && echo >> "${ENV_FILE}"
   local tmp="${ENV_FILE}.tmp"
   { grep -vE "^${k}=" "${ENV_FILE}" 2>/dev/null; echo "${k}=\"${v}\""; } > "${tmp}" && mv "${tmp}" "${ENV_FILE}"
+  chmod 600 "${ENV_FILE}" 2>/dev/null || true   # 8.76 audit SEC-04 : clés API dedans
   ok "${k} enregistré."
 }
 
@@ -712,6 +718,7 @@ cmd_env() {
       [ $# -ge 2 ] || die "Usage: ./manage.sh env unset CLE"
       local tmp="${ENV_FILE}.tmp"
       grep -vE "^$2=" "${ENV_FILE}" 2>/dev/null > "${tmp}" && mv "${tmp}" "${ENV_FILE}"
+      chmod 600 "${ENV_FILE}" 2>/dev/null || true   # 8.76 audit SEC-04
       ok "$2 supprimée du .env"
       ;;
     edit)

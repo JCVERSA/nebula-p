@@ -107,7 +107,7 @@ multi-bots, session suivante).
 
 ## Vigilances (VPS ~954 Mo RAM, ~3 Go disque restants)
 
-- **Mémoire** : panneau 256 Mo (réglable `NEBULA_PANEL_MEMORY_MB`) + chaque
+- **Mémoire** : panneau 256 Mo (réglable dans `.env` via `NEBULA_PANEL_MEMORY_MB`, 8.76) + chaque
   moteur 192 Mo (réglable `maxOldSpaceMb`). 3 bots = ~830 Mo de plafonds
   heap : OK au quotidien, mais évite 3 gros batchs anime **simultanés** —
   l'OOM killer viserait le plus gros process (un moteur : le superviseur le

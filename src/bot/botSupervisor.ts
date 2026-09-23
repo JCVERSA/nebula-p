@@ -70,6 +70,23 @@ export function computeBackoffMs(restarts: number): number {
 }
 
 /**
+ * Pipe la réponse amont (moteur enfant) vers la réponse client en coupant
+ * l'amont si le client part avant la fin (audit 8.76 / ARCH-01) : sans cette
+ * garde, un client qui annule un gros média laissait le téléchargement amont
+ * courir jusqu'à completion pour personne.
+ */
+export type ClientAbortWritable = NodeJS.WritableStream & { readonly writableEnded?: boolean };
+
+export function pipeUpstreamToClient(upstreamData: NodeJS.ReadableStream, res: ClientAbortWritable): void {
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      (upstreamData as any)?.destroy?.();
+    }
+  });
+  upstreamData.pipe(res);
+}
+
+/**
  * Environnement d'un moteur enfant : isole session + données + persona, et
  * propage le reste (clés IA, proxy, PANEL_TOKEN…) du panneau parent. Pure,
  * donc testable sans spawn.
@@ -87,6 +104,15 @@ export function buildChildEnv(slot: BotSlot, baseEnv: NodeJS.ProcessEnv): NodeJS
   return env;
 }
 
+/** Best-effort : le .env contient PANEL_TOKEN et les clés IA → 0600 (audit 8.76 / SEC-04). */
+function restrictEnvFilePermissions(file: string): void {
+  try {
+    fs.chmodSync(file, 0o600);
+  } catch {
+    // FS sans chmod (Windows dev) ou fichier disparu : sans conséquence ici.
+  }
+}
+
 /**
  * Garantit un PANEL_TOKEN stable et partagé panneau/enfants. Sans cette étape,
  * chaque process générerait son propre jeton aléatoire (panelAuth) et le
@@ -96,16 +122,21 @@ export function buildChildEnv(slot: BotSlot, baseEnv: NodeJS.ProcessEnv): NodeJS
  * persistance dans .env (+ process.env). Retourne le jeton effectif.
  */
 export function ensurePanelToken(envFile: string | undefined = undefined): string {
+  const file = envFile || process.env.NEBULA_ENV_FILE || path.join(process.cwd(), ".env");
+  // SEC-04 : resserrer les perms du .env AVANT tout retour — dotenv a déjà
+  // chargé le jeton dans l'environnement au boot, le early-return ci-dessous
+  // ne doit pas court-circuler le durcissement (trou trouvé en E2E 8.76).
+  restrictEnvFilePermissions(file);
+
   const existing = process.env.PANEL_TOKEN?.trim();
   if (existing) return existing;
-
-  const file = envFile || process.env.NEBULA_ENV_FILE || path.join(process.cwd(), ".env");
   try {
     if (fs.existsSync(file)) {
       const content = fs.readFileSync(file, "utf-8");
       const match = content.match(/^\s*PANEL_TOKEN\s*=\s*(\S+)\s*$/m);
       if (match?.[1]) {
         process.env.PANEL_TOKEN = match[1];
+        restrictEnvFilePermissions(file);
         return match[1];
       }
     }
@@ -120,6 +151,7 @@ export function ensurePanelToken(envFile: string | undefined = undefined): strin
     fs.appendFileSync(file, `${prefix}# PANEL_TOKEN généré par le superviseur multi-bots (8.75)\nPANEL_TOKEN=${token}\n`, {
       encoding: "utf-8",
     });
+    restrictEnvFilePermissions(file);
     console.log(`🔑 PANEL_TOKEN généré et persisté dans ${file} (partagé panneau + moteurs)`);
   } catch (e: any) {
     console.warn(`⚠️ Impossible de persister PANEL_TOKEN dans ${file} : ${e?.message || e}`);
@@ -452,7 +484,7 @@ export class BotSupervisor {
         const value = upstream.headers[name];
         if (value) res.setHeader(name, value);
       }
-      upstream.data.pipe(res);
+      pipeUpstreamToClient(upstream.data, res);
     } catch (e: any) {
       const code = e?.code || "";
       if (code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ETIMEDOUT" || code === "ECONNABORTED") {
@@ -502,7 +534,7 @@ export class BotSupervisor {
           const value = upstream.headers[name];
           if (value) res.setHeader(name, value);
         }
-        upstream.data.pipe(res);
+        pipeUpstreamToClient(upstream.data, res);
         return;
       } catch {
         // Moteur injoignable : on tente le suivant.

@@ -228,6 +228,7 @@ step "7/7 · Configuration"
 # ---------------------------------------------------------------------------
 if [ ! -f "$INSTALL_DIR/.env" ]; then
   if cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env" 2>/dev/null; then
+    chmod 600 "$INSTALL_DIR/.env" 2>/dev/null || true   # audit 8.76 SEC-04 : clés API
     ok ".env de départ créé depuis l'exemple (pré-rempli avec les défauts)."
   else
     warn "Impossible de créer le .env — crée-le: cp .env.example .env"

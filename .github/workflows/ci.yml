@@ -18,5 +18,7 @@ jobs:
         run: npm ci
       - name: Typecheck (tsc --noEmit)
         run: npx tsc --noEmit
+      - name: Lint (eslint, errors only)
+        run: npx eslint . --quiet
       - name: Tests (vitest)
         run: npx vitest run --reporter=dot

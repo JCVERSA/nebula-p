@@ -114,10 +114,14 @@ export function createPanelApp(supervisor: PanelSupervisor): express.Express {
   const MAX_RATE_LIMIT_KEYS = 5000;
   const buckets = new Map<string, { count: number; resetAt: number }>();
 
-  function rateLimit(max: number, windowMs: number) {
+  function rateLimit(max: number, windowMs: number, keyPrefix?: string) {
     return (req: Request, res: Response, next: NextFunction) => {
       const peer = req.socket.remoteAddress || "unknown";
-      const key = `${req.path}|${peer}`;
+      // keyPrefix : bucket partagé entre plusieurs chemins (ex. tous les
+      // liens médias) au lieu d'un bucket par chemin — sinon un scan de
+      // jetons aléatoires obtenait un bucket neuf à chaque essai
+      // (audit 8.76 / SEC-03).
+      const key = `${keyPrefix ?? req.path}|${peer}`;
       const now = Date.now();
       const bucket = buckets.get(key);
       if (!bucket || bucket.resetAt < now) {
@@ -182,11 +186,14 @@ export function createPanelApp(supervisor: PanelSupervisor): express.Express {
   });
 
   // ---------------------------------------------------------------------------
-  // Santé du panneau (sonde publique — aucune information sensible)
+  // Santé du panneau (sonde publique — aucune information sensible).
+  // Le DÉTAIL de l'erreur bots.json n'est renvoyé qu'aux requêtes
+  // authentifiées (audit 8.76 / SEC-02) : la sonde publique n'expose qu'un
+  // booléen de validité.
   // ---------------------------------------------------------------------------
-  app.get("/api/health", (_req, res) => {
+  app.get("/api/health", (req, res) => {
     const cfg = supervisor.describeConfig();
-    res.json({
+    const payload: Record<string, unknown> = {
       status: "ok",
       mode: "panel",
       uptimeSeconds: Math.floor(process.uptime()),
@@ -194,8 +201,13 @@ export function createPanelApp(supervisor: PanelSupervisor): express.Express {
       nodeVersion: process.version,
       botsConfigured: cfg.total,
       botsEnabled: cfg.enabled,
-      botsConfigError: cfg.error || null,
-    });
+      botsConfigValid: !cfg.error,
+    };
+    if (panelAuth.isAuthenticated(req)) {
+      payload.botsConfigError = cfg.error || null;
+      payload.botsConfigSource = cfg.source;
+    }
+    res.json(payload);
   });
 
   // ---------------------------------------------------------------------------
@@ -291,10 +303,14 @@ export function createPanelApp(supervisor: PanelSupervisor): express.Express {
   app.all("/api/batch-downloads-stats", proxyHandler);
 
   // Liens médias publics (sans auth) → sondage des moteurs par jeton.
-  app.get("/api/media/download/*", async (req, res) => {
+  // Rate limit dédié à bucket partagé (audit 8.76 / SEC-03) : ces routes ne
+  // sont couvertes par le limiteur général (/api) que partiellement (/d/*
+  // y échappe) et chaque jeton inconnu coûte une requête par moteur lancé.
+  const mediaLimiter = rateLimit(120, 60_000, "media");
+  app.get("/api/media/download/*", mediaLimiter, async (req, res) => {
     await supervisor.proxyMediaProbe(req, res);
   });
-  app.get("/d/*", async (req, res) => {
+  app.get("/d/*", mediaLimiter, async (req, res) => {
     await supervisor.proxyMediaProbe(req, res);
   });
 

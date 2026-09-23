@@ -117,12 +117,23 @@ describe("Panel multi-bots : authentification", () => {
 });
 
 describe("Panel multi-bots : santé et vue bots", () => {
-  it("la sonde santé décrit le mode panneau", async () => {
+  it("la sonde santé décrit le mode panneau sans divulguer la configuration", async () => {
     const res = await request(app).get("/api/health");
     expect(res.status).toBe(200);
     expect(res.body.mode).toBe("panel");
     expect(res.body.botsConfigured).toBe(2);
     expect(res.body.botsEnabled).toBe(2);
+    // 8.76 / SEC-02 : pas de détail d'erreur bots.json sans authentification.
+    expect(res.body.botsConfigValid).toBe(true);
+    expect(res.body.botsConfigError).toBeUndefined();
+    expect(res.body.botsConfigSource).toBeUndefined();
+  });
+
+  it("la sonde santé authentifiée inclut le détail de configuration", async () => {
+    const res = await request(app).get("/api/health").set(auth);
+    expect(res.status).toBe(200);
+    expect(res.body.botsConfigError).toBeNull();
+    expect(res.body.botsConfigSource).toBe("file");
   });
 
   it("GET /api/bots fusionne état process + état WhatsApp", async () => {
@@ -209,5 +220,21 @@ describe("Panel multi-bots : routage du proxy", () => {
     const res2 = await request(app).get("/api/media/download/tok9");
     expect(res2.status).toBe(200);
     expect(res2.body.media).toBe(true);
+  });
+
+  it("plafonne les liens médias en fréquence même à jetons distincts (anti-scan)", async () => {
+    // 8.76 / SEC-03 : bucket partagé par peer — chaque jeton aléatoire ne
+    // doit pas ouvrir un budget neuf. Les 2 requêtes du test précédent sont
+    // déjà comptées ; on doit rencontrer 429 avant la fin de la boucle.
+    let saw429 = false;
+    for (let i = 0; i < 130; i++) {
+      const res = await request(app).get(`/d/scan-${i}`);
+      if (res.status === 429) {
+        saw429 = true;
+        break;
+      }
+      expect(res.status).toBe(200);
+    }
+    expect(saw429).toBe(true);
   });
 });

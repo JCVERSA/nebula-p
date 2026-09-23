@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "fs";
 import path from "path";
-import { BotSupervisor, buildChildEnv, computeBackoffMs, ensurePanelToken } from "../src/bot/botSupervisor.js";
+import { PassThrough } from "stream";
+import { BotSupervisor, buildChildEnv, computeBackoffMs, ensurePanelToken, pipeUpstreamToClient } from "../src/bot/botSupervisor.js";
 import { defaultSingleBot, parseBotsConfig } from "../src/bot/botsConfig.js";
 
 /**
@@ -61,6 +62,39 @@ describe("buildChildEnv", () => {
     const base = { GEMINI_API_KEY: "k" };
     buildChildEnv(defaultSingleBot(), base);
     expect(base).toEqual({ GEMINI_API_KEY: "k" });
+  });
+});
+
+describe("pipeUpstreamToClient (abort client — audit 8.76 / ARCH-01)", () => {
+  it("détruit le flux amont quand le client coupe avant la fin", async () => {
+    const upstream = new PassThrough();
+    const res = new PassThrough();
+    pipeUpstreamToClient(upstream, res);
+    upstream.write("donnees partielles");
+    expect(String(res.read())).toBe("donnees partielles");
+    res.destroy(); // le client part
+    await new Promise((resolve) => setImmediate(resolve));
+    // L'amont n'était pas terminé (pas de end()) : seul notre handler a pu
+    // le détruire — autoDestroy ne s'applique qu'après une fin naturelle.
+    expect(upstream.destroyed).toBe(true);
+    expect(upstream.readableEnded).toBe(false);
+  });
+
+  it("ne coupe rien quand la réponse se termine normalement (données complètes)", async () => {
+    const upstream = new PassThrough();
+    const res = new PassThrough();
+    const received: string[] = [];
+    res.on("data", (chunk) => received.push(String(chunk)));
+    pipeUpstreamToClient(upstream, res);
+    const closed = new Promise<void>((resolve) => res.on("close", () => resolve()));
+    upstream.write("ok");
+    upstream.end();
+    await closed;
+    // Le client a tout reçu et la réponse s'est terminée proprement — le
+    // handler d'abort n'a rien interrompu (autoDestroy de Node marque
+    // destroyed après une fin NATURELLE, ce n'est donc pas l'indicateur).
+    expect(res.writableEnded).toBe(true);
+    expect(received.join("")).toBe("ok");
   });
 });
 
@@ -149,12 +183,24 @@ describe("ensurePanelToken (jeton partagé panneau/enfants)", () => {
     expect(fs.existsSync(envFile)).toBe(false);
   });
 
+  it("resserre les perms d'un .env existant même quand le jeton vient de l'environnement (dotenv)", () => {
+    // Chemin prod réel : dotenv charge .env AVANT ensurePanelToken →
+    // early-return. Le chmod ne doit pas être court-circuité (E2E 8.76).
+    const envFile = path.join(tmpDir, "env-dotenv.env");
+    fs.writeFileSync(envFile, "PANEL_TOKEN=depuis-dotenv\n", { mode: 0o644 });
+    process.env.PANEL_TOKEN = "depuis-dotenv";
+    expect(ensurePanelToken(envFile)).toBe("depuis-dotenv");
+    expect(fs.statSync(envFile).mode & 0o777).toBe(0o600);
+  });
+
   it("lit et adopte le PANEL_TOKEN du .env", () => {
     delete process.env.PANEL_TOKEN;
     const envFile = path.join(tmpDir, "env-lu.env");
     fs.writeFileSync(envFile, "GEMINI_API_KEY=x\nPANEL_TOKEN=venv\n");
     expect(ensurePanelToken(envFile)).toBe("venv");
     expect(process.env.PANEL_TOKEN).toBe("venv");
+    // 8.76 / SEC-04 : adoption d'un .env existant → perms resserrées aussi.
+    expect(fs.statSync(envFile).mode & 0o777).toBe(0o600);
   });
 
   it("génère et persiste un jeton quand rien n'existe", () => {
@@ -165,6 +211,8 @@ describe("ensurePanelToken (jeton partagé panneau/enfants)", () => {
     expect(process.env.PANEL_TOKEN).toBe(token);
     const content = fs.readFileSync(envFile, "utf-8");
     expect(content).toContain(`PANEL_TOKEN=${token}`);
+    // 8.76 / SEC-04 : le .env contient les clés → permissions 0600.
+    expect(fs.statSync(envFile).mode & 0o777).toBe(0o600);
     // Le fichier réutilise le jeton persisté à l'appel suivant.
     delete process.env.PANEL_TOKEN;
     expect(ensurePanelToken(envFile)).toBe(token);

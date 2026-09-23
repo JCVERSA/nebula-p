@@ -6,16 +6,23 @@
 
 **WhatsApp Media &amp; AI Command Center** — anime VF downloader, Gemini AI, dynamic commands and a full web control panel, in one container.
 
+[![CI](https://github.com/JCVERSA/p/actions/workflows/ci.yml/badge.svg)](https://github.com/JCVERSA/p/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-1.1.0-8b5cf6?style=flat-square)](./package.json)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A522-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](./tsconfig.json)
-[![Tests](https://img.shields.io/badge/tests-439%2F439%20passing-brightgreen?style=flat-square)](#-tests)
+[![Tests](https://img.shields.io/badge/tests-vitest-brightgreen?style=flat-square&logo=vitest)](#-tests)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
 [![WhatsApp](https://img.shields.io/badge/WhatsApp-Baileys%20multi--device-25D366?style=flat-square&logo=whatsapp&logoColor=white)](https://github.com/WhiskeySockets/Baileys)
 [![ffmpeg](https://img.shields.io/badge/ffmpeg-HLS%20%2B%20remux-007EC7?style=flat-square&logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
 [![Panel](https://img.shields.io/badge/panel-React%20%2B%20Express-61DAFB?style=flat-square&logo=react&logoColor=black)](./app.ts)
 
 </div>
+
+---
+
+## 🧭 Contents
+
+**[What it looks like](#-what-it-looks-like)** · **[Features](#-features)** · **[Command Flow](#-command-flow)** · **[Architecture](#-architecture)** · **[Quick Start](#-quick-start)** · **[Anime engine](#-anime-engine)** · **[Environment variables](#-environment-variables)** · **[Tests](#-tests)** · **[Security](#-security-notes)** · **[Docs](#-documentation)** · **[Extending](#-extending)**
 
 ---
 
@@ -64,9 +71,9 @@ The interactive flow defaults to VF too — and never lies about the language ac
 | 🖥️ | **Web control panel** — live simulator, secrets manager (masked), command customizer, analytics, ZIP export |
 | 🛰️ | **One-command ops** — `manage.sh start/stop/update/doctor/env/logs/clean` on any VPS, behind a Cloudflare Tunnel |
 
-## 🎥 Preview
+## 🔄 Command Flow
 
-![Nebula Bot preview](preview.gif)
+<img src="docs/images/command-flow.svg" alt="Nebula Bot — command flow: WhatsApp message through the engine (access control, command registry, anime pipeline, AI fallback) and back with document links" width="960"/>
 
 ## 🏗️ Architecture
 
