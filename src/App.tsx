@@ -74,6 +74,9 @@ import { BrowserIdentitySelector } from "./components/BrowserIdentitySelector";
 import { BatchDownloadStatus } from "./components/BatchDownloadStatus";
 import AccessControlPanel from "./components/AccessControlPanel";
 import SecurityExtras from "./components/SecurityExtras";
+import BotsPanel from "./components/BotsPanel";
+import { ActiveBotProvider } from "./lib/botContext";
+import { withBotParam } from "./lib/botSelection";
 import SpotlightCard from "./components/SpotlightCard";
 import ShinyText from "./components/ShinyText";
 import HeroChip from "./components/HeroChip";
@@ -157,6 +160,14 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  // 8.77 multi-bots : bot piloté par le panneau (null = bot par défaut).
+  const [activeBotId, setActiveBotId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("nebula-active-bot") || null;
+    } catch {
+      return null;
+    }
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [quickTerminalOpen, setQuickTerminalOpen] = useState(false);
   const [isStartingBot, setIsStartingBot] = useState(false);
@@ -633,6 +644,47 @@ export default function App() {
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, activeBotId]);
+
+  // 8.77 : changer de bot invalide l'état d'affichage WhatsApp (QR/pairing)
+  // et persiste le choix. Le polling ci-dessus se réarme et rafraîchit seul.
+  const firstBotEffectRun = useRef(true);
+  useEffect(() => {
+    try {
+      if (activeBotId) localStorage.setItem("nebula-active-bot", activeBotId);
+      else localStorage.removeItem("nebula-active-bot");
+    } catch {}
+    if (firstBotEffectRun.current) {
+      firstBotEffectRun.current = false;
+      return;
+    }
+    setQrUrl(null);
+    setQrReceivedAt(null);
+    setPairingCode("");
+    setPairingExpiresAt(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBotId]);
+
+  // 8.77 : une sélection sauvegardée qui n'existe plus (bots.json changé)
+  // est silencieusement remise à zéro — sinon le panneau piloterait un 404.
+  useEffect(() => {
+    if (!isAuthenticated || !activeBotId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/bots", { credentials: "same-origin" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const ids = Array.isArray(data?.bots) ? data.bots.map((b: any) => String(b?.id ?? "")) : [];
+        if (!cancelled && ids.length > 0 && !ids.includes(activeBotId)) {
+          setActiveBotId(null);
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -677,9 +729,13 @@ export default function App() {
   }, [pairingExpiresAt, pairingCode]);
 
   /** Central fetch wrapper: uses the HttpOnly session cookie; 401 → locked UI. */
+  // 8.77 multi-bots : ajoute ?bot=<id> aux routes par-bot quand un bot
+  // non-défaut est sélectionné (les routes du panneau ne changent jamais).
+  const botUrl = (url: string) => withBotParam(url, activeBotId);
+
   const apiFetch = async (url: string, init?: RequestInit): Promise<Response | null> => {
     try {
-      const res = await fetch(url, {
+      const res = await fetch(botUrl(url), {
         ...init,
         credentials: "same-origin",
       });
@@ -755,7 +811,7 @@ export default function App() {
       }
 
       if (data?.status === "qr_ready") {
-        const qrRes = await fetch("/api/bot/qr");
+        const qrRes = await fetch(botUrl("/api/bot/qr"));
         if (qrRes.ok) {
           const qrData = await qrRes.json();
           if (qrData && qrData.qrUrl) {
@@ -772,7 +828,7 @@ export default function App() {
 
   const fetchSecretStatus = async () => {
     try {
-      const res = await fetch("/api/bot/secrets");
+      const res = await fetch(botUrl("/api/bot/secrets"));
       if (!res.ok) return;
       const data = await res.json();
       const gemini = Array.isArray(data?.secrets)
@@ -796,7 +852,7 @@ export default function App() {
   const startBot = async () => {
     setIsStartingBot(true);
     try {
-      await fetch("/api/bot/start", { method: "POST" });
+      await fetch(botUrl("/api/bot/start"), { method: "POST" });
       await fetchStatus();
     } catch (e) {
     } finally {
@@ -806,7 +862,7 @@ export default function App() {
 
   const stopBot = async () => {
     try {
-      await fetch("/api/bot/stop", { method: "POST" });
+      await fetch(botUrl("/api/bot/stop"), { method: "POST" });
       setPairingCode("");
       setPairingExpiresAt(null);
       fetchStatus();
@@ -844,7 +900,7 @@ export default function App() {
     addSystemLog(`📱 Requesting 8-digit Pairing Code for +${cleanDigits}...`);
 
     try {
-      const res = await fetch("/api/bot/pair-code", {
+      const res = await fetch(botUrl("/api/bot/pair-code"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phoneNumber: cleanDigits }),
@@ -884,7 +940,7 @@ export default function App() {
 
   const clearBotLogs = async () => {
     try {
-      await fetch("/api/bot/clear-logs", { method: "POST" });
+      await fetch(botUrl("/api/bot/clear-logs"), { method: "POST" });
       fetchStatus();
     } catch (e) {}
   };
@@ -895,9 +951,9 @@ export default function App() {
     setQrReceivedAt(Date.now());
     setQrTimeLeft(50);
     try {
-      await fetch("/api/bot/stop", { method: "POST" });
+      await fetch(botUrl("/api/bot/stop"), { method: "POST" });
       await new Promise((resolve) => setTimeout(resolve, 800));
-      await fetch("/api/bot/start", { method: "POST" });
+      await fetch(botUrl("/api/bot/start"), { method: "POST" });
       await fetchStatus();
     } catch (e) {
       console.error(e);
@@ -930,7 +986,7 @@ export default function App() {
         timestamp: new Date().toLocaleTimeString(),
       });
 
-      const res = await fetch("/api/bot/retry", { method: "POST" });
+      const res = await fetch(botUrl("/api/bot/retry"), { method: "POST" });
       const data = await res.json().catch(() => ({}));
 
       if (res.ok && data.success) {
@@ -985,7 +1041,7 @@ export default function App() {
     setGeminiPlaygroundOutput("");
     addSystemLog(`🤖 Asking Gemini (${geminiModel}): "${geminiPlaygroundPrompt.slice(0, 40)}..."`);
     try {
-      const res = await fetch("/api/bot/chat", {
+      const res = await fetch(botUrl("/api/bot/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1010,7 +1066,7 @@ export default function App() {
     setBroadcastStatus(null);
     addSystemLog(`📢 Dispatching broadcast message: "${broadcastText.slice(0, 30)}..."`);
     try {
-      const res = await fetch("/api/bot/chat", {
+      const res = await fetch(botUrl("/api/bot/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1050,7 +1106,7 @@ export default function App() {
     setIsSavingConfig(true);
     setConfigMessage("");
     try {
-      const res = await fetch("/api/bot/config", {
+      const res = await fetch(botUrl("/api/bot/config"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formConfig),
@@ -1076,7 +1132,7 @@ export default function App() {
     setIsSavingSecret(true);
     setSecretMessage("");
     try {
-      const res = await fetch("/api/bot/secrets", {
+      const res = await fetch(botUrl("/api/bot/secrets"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "GEMINI_API_KEY", value: secretValue }),
@@ -1105,7 +1161,7 @@ export default function App() {
     setIsSavingSecret(true);
     setSecretMessage("");
     try {
-      const res = await fetch("/api/bot/secrets", {
+      const res = await fetch(botUrl("/api/bot/secrets"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "GEMINI_API_KEY" }),
@@ -1131,7 +1187,7 @@ export default function App() {
     setIsSavingNimSecret(true);
     setNimSecretMessage("");
     try {
-      const res = await fetch("/api/bot/secrets", {
+      const res = await fetch(botUrl("/api/bot/secrets"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "NVIDIA_NIM_API_KEY", value: nimSecretValue }),
@@ -1160,7 +1216,7 @@ export default function App() {
     setIsSavingNimSecret(true);
     setNimSecretMessage("");
     try {
-      const res = await fetch("/api/bot/secrets", {
+      const res = await fetch(botUrl("/api/bot/secrets"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "NVIDIA_NIM_API_KEY" }),
@@ -1186,7 +1242,7 @@ export default function App() {
     setIsSavingOwnerSecret(true);
     setOwnerSecretMessage("");
     try {
-      const res = await fetch("/api/bot/secrets", {
+      const res = await fetch(botUrl("/api/bot/secrets"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "OWNER_NUMBER", value: ownerSecretValue }),
@@ -1215,7 +1271,7 @@ export default function App() {
     setIsSavingOwnerSecret(true);
     setOwnerSecretMessage("");
     try {
-      const res = await fetch("/api/bot/secrets", {
+      const res = await fetch(botUrl("/api/bot/secrets"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: "OWNER_NUMBER" }),
@@ -1303,7 +1359,7 @@ export default function App() {
     setIsSavingCode(true);
     setEditorMessage("");
     try {
-      const res = await fetch("/api/bot/commands/save", {
+      const res = await fetch(botUrl("/api/bot/commands/save"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: selectedCommand.name, code: commandCode }),
@@ -1330,7 +1386,7 @@ export default function App() {
     setIsGeneratingCommand(true);
     setAiGenMessage("🧬 Nebula AI is synthesizing the code...");
     try {
-      const res = await fetch("/api/bot/commands/generate", {
+      const res = await fetch(botUrl("/api/bot/commands/generate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1372,7 +1428,7 @@ export default function App() {
     setIsSimulating(true);
 
     try {
-      const res = await fetch("/api/bot/simulate", {
+      const res = await fetch(botUrl("/api/bot/simulate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ senderName: "Owner", text: cmdText }),
@@ -1416,7 +1472,7 @@ export default function App() {
     setIsSimulating(true);
 
     try {
-      const res = await fetch("/api/bot/simulate", {
+      const res = await fetch(botUrl("/api/bot/simulate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ senderName: "Owner", text }),
@@ -1462,7 +1518,7 @@ export default function App() {
     setIsSimulating(true);
 
     try {
-      const res = await fetch("/api/bot/simulate", {
+      const res = await fetch(botUrl("/api/bot/simulate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ senderName: "Owner", text: userMsgText }),
@@ -1508,7 +1564,7 @@ export default function App() {
     setIsSimulating(true);
 
     try {
-      const res = await fetch("/api/bot/simulate", {
+      const res = await fetch(botUrl("/api/bot/simulate"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ senderName: "Owner", text: "🎙️ [Voice Note]" }),
@@ -1570,7 +1626,7 @@ export default function App() {
         setIsTranscribing(true);
         try {
           const base64Audio = await blobToBase64(audioBlob);
-          const response = await fetch("/api/gemini/transcribe", {
+          const response = await fetch(botUrl("/api/gemini/transcribe"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ audioBase64: base64Audio, mimeType: "audio/webm" }),
@@ -1615,7 +1671,7 @@ export default function App() {
     setIsPlayingVoice(false);
 
     try {
-      const res = await fetch("/api/gemini/voice-conversation", {
+      const res = await fetch(botUrl("/api/gemini/voice-conversation"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: textPrompt }),
@@ -1662,7 +1718,7 @@ export default function App() {
         setIsTranscribing(true);
         try {
           const base64Audio = await blobToBase64(audioBlob);
-          const response = await fetch("/api/gemini/transcribe", {
+          const response = await fetch(botUrl("/api/gemini/transcribe"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ audioBase64: base64Audio, mimeType: "audio/webm" }),
@@ -1846,6 +1902,7 @@ export default function App() {
         <Topbar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
+          activeBotId={activeBotId}
           botStatus={status}
           onResetSession={clearAuthAndRetryConnection}
           isResetting={isClearingAuth}
@@ -1880,7 +1937,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Main scrollable body */}
+        {/* Main scrollable body — 8.77 : les sections reçoivent le bot sélectionné via le contexte */}
+        <ActiveBotProvider botId={activeBotId}>
         <main className="flex-1 overflow-y-auto bg-black p-3 sm:p-6 md:p-8 pb-28 md:pb-8 dark-scroll">
           <div className="max-w-6xl mx-auto space-y-6">
             <AnimatePresence mode="wait">
@@ -1891,6 +1949,11 @@ export default function App() {
                 exit={{ opacity: 0, y: -15, scale: 0.995 }}
                 transition={{ type: "spring", stiffness: 380, damping: 28 }}
               >
+                {/* ============================================================ MULTI-BOTS */}
+                {activeTab === "bots" && (
+                  <BotsPanel activeBotId={activeBotId} onSelectBot={setActiveBotId} />
+                )}
+
                 {/* ============================================================ OVERVIEW */}
                 {activeTab === "overview" && (
                   <div className="space-y-6 animate-fade-in">
@@ -2495,7 +2558,7 @@ export default function App() {
                           <button onClick={() => setActiveTab("simulator")} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer">
                             <MessageSquare className="w-3.5 h-3.5" /> Open Simulator
                           </button>
-                          <a href="/api/bot/download-zip" className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer">
+                          <a href={botUrl("/api/bot/download-zip")} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer">
                             <FileDown className="w-3.5 h-3.5" /> Project ZIP
                           </a>
                         </div>
@@ -4741,7 +4804,7 @@ export default function App() {
                       </p>
                     </div>
                     <a
-                      href="/api/bot/download-zip"
+                      href={botUrl("/api/bot/download-zip")}
                       className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm rounded-xl flex items-center gap-2 transition shadow-lg shadow-amber-500/10 whitespace-nowrap cursor-pointer"
                     >
                       <FileDown className="w-4 h-4" />
@@ -5318,7 +5381,7 @@ export default function App() {
                             setIsClearingAuth(true);
                             addSystemLog("🧹 Clearing session auth directory without reconnecting...");
                             try {
-                              const res = await fetch("/api/bot/clear-auth", { method: "POST" });
+                              const res = await fetch(botUrl("/api/bot/clear-auth"), { method: "POST" });
                               const data = await res.json().catch(() => ({}));
                               if (res.ok && data.success) {
                                 const count = data.filesRemoved || 0;
@@ -5386,6 +5449,7 @@ export default function App() {
           </AnimatePresence>
         </div>
       </main>
+        </ActiveBotProvider>
 
         {/* Footer */}
         <footer className="px-6 py-4 text-center text-zinc-500 text-xs border-t border-white/10 bg-black">

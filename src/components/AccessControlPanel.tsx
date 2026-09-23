@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useBotUrl } from "../lib/botContext";
 import { ShieldCheck, RefreshCw, Save, Trash2 } from "lucide-react";
 
 interface AccessPolicy {
@@ -21,6 +22,7 @@ const EMPTY_POLICY: AccessPolicy = {
 };
 
 export default function AccessControlPanel() {
+  const botUrl = useBotUrl();
   const [data, setData] = useState<AccessData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -33,7 +35,7 @@ export default function AccessControlPanel() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/bot/access", { credentials: "same-origin" });
+      const res = await fetch(botUrl("/api/bot/access"), { credentials: "same-origin" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as AccessData;
       setData(json);
@@ -74,7 +76,7 @@ export default function AccessControlPanel() {
     setSaving(true);
     setMessage("");
     try {
-      const res = await fetch(`/api/bot/access/${encodeURIComponent(selected)}`, {
+      const res = await fetch(botUrl(`/api/bot/access/${encodeURIComponent(selected)}`), {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -96,7 +98,7 @@ export default function AccessControlPanel() {
     setMessage("");
     try {
       // Reset to defaults = remove the custom policy row.
-      const res = await fetch(`/api/bot/access/${encodeURIComponent(group)}`, {
+      const res = await fetch(botUrl(`/api/bot/access/${encodeURIComponent(group)}`), {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },

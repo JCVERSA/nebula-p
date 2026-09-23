@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import {
+  Bot,
   X,
   Home,
   QrCode,
@@ -47,6 +48,7 @@ interface DrawerItem {
 const ITEMS: DrawerItem[] = [
   // Getting started
   { id: "overview", label: "Overview", icon: <Home size={18} />, category: "start" },
+  { id: "bots", label: "Multi-Bots", icon: <Bot size={18} />, category: "start" },
   { id: "connect", label: "WhatsApp Connect", icon: <QrCode size={18} />, category: "start" },
   { id: "simulator", label: "Simulator", icon: <Terminal size={18} />, category: "start" },
 

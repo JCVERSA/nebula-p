@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useBotUrl } from "../lib/botContext";
 import { History, Download, Upload, RefreshCw, Trash2 } from "lucide-react";
 
 interface AuditEvent {
@@ -12,6 +13,7 @@ interface AuditEvent {
 
 /** M13-adjacent observability: audit trail + backup/restore + AI usage. */
 export default function SecurityExtras() {
+  const botUrl = useBotUrl();
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -21,7 +23,7 @@ export default function SecurityExtras() {
   const loadAudit = async () => {
     setAuditLoading(true);
     try {
-      const res = await fetch("/api/bot/audit?limit=60", { credentials: "same-origin" });
+      const res = await fetch(botUrl("/api/bot/audit?limit=60"), { credentials: "same-origin" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       setEvents(json.events || []);
@@ -34,7 +36,7 @@ export default function SecurityExtras() {
 
   const loadAiUsage = async () => {
     try {
-      const res = await fetch("/api/bot/analytics", { credentials: "same-origin" });
+      const res = await fetch(botUrl("/api/bot/analytics"), { credentials: "same-origin" });
       if (!res.ok) return;
       const json = await res.json();
       if (json.aiUsage) setAiUsage(json.aiUsage);
@@ -49,7 +51,7 @@ export default function SecurityExtras() {
   const downloadBackup = async () => {
     setMessage("");
     try {
-      const res = await fetch("/api/bot/backup", { credentials: "same-origin" });
+      const res = await fetch(botUrl("/api/bot/backup"), { credentials: "same-origin" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const blob = new Blob([JSON.stringify(json, null, 2)], { type: "application/json" });
@@ -70,7 +72,7 @@ export default function SecurityExtras() {
     try {
       const text = await file.text();
       const json = JSON.parse(text);
-      const res = await fetch("/api/bot/backup/restore", {
+      const res = await fetch(botUrl("/api/bot/backup/restore"), {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
@@ -89,7 +91,7 @@ export default function SecurityExtras() {
   const clearAudit = async () => {
     if (!window.confirm("Clear the entire audit trail? This action is itself recorded.")) return;
     try {
-      const res = await fetch("/api/bot/audit", { method: "DELETE", credentials: "same-origin" });
+      const res = await fetch(botUrl("/api/bot/audit"), { method: "DELETE", credentials: "same-origin" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setMessage("🧹 Audit trail cleared.");
       loadAudit();

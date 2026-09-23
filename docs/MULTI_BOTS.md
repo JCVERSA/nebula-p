@@ -100,10 +100,14 @@ Le premier bot existant n'a rien à faire : il garde sa session actuelle.
 | `nebula start / stop / restart / status`  | inchangé — s'applique à TOUT le déploiement         |
 | `nebula update`                           | inchangé — coupe tous les bots, build, relance      |
 
-Le panneau web continue de piloter le **bot par défaut** sans changement ;
-l'API accepte `?bot=<id>` (ou l'en-tête `x-nebula-bot`) sur toutes les routes
-par-bot. `GET /api/bots` donne la vue complète (à consommer par le frontend
-multi-bots, session suivante).
+Le panneau web a un onglet **Multi-Bots** (8.77) : une carte par bot (état
+process, état WhatsApp, redémarrages, code d'appariement quand il est prêt)
+avec les actions Start / Stop / Restart et un bouton **Control** — le panneau
+entier (statut, QR, config, commandes, batchs, groupes, sécurité) pilote alors
+le bot choisi, et la sélection survit à un rechargement. Sans sélection, tout
+continue de piloter le **bot par défaut**. L'API accepte aussi `?bot=<id>`
+(ou l'en-tête `x-nebula-bot`) sur toutes les routes par-bot ; `GET /api/bots`
+donne la vue complète.
 
 ## Vigilances (VPS ~954 Mo RAM, ~3 Go disque restants)
 

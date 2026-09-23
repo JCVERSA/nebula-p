@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "motion/react";
 import {
   Home,
+  Bot,
   QrCode,
   Terminal,
   Cpu,
@@ -23,6 +24,7 @@ import { ConnectionStatus } from "../lib/types";
 
 export type NavTab =
   | "overview"
+  | "bots"
   | "connect"
   | "commands"
   | "simulator"
@@ -180,6 +182,13 @@ export default function Sidebar({
               active={activeTab === "overview"}
               collapsed={collapsed}
               onClick={() => setActiveTab("overview")}
+            />
+            <NavItem
+              icon={<Bot size={16} />}
+              label="Multi-Bots"
+              active={activeTab === "bots"}
+              collapsed={collapsed}
+              onClick={() => setActiveTab("bots")}
             />
             <NavItem
               icon={<QrCode size={16} />}

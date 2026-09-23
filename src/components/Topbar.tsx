@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Zap, RotateCcw, Power, Activity, Palette, X as CloseIcon } from "lucide-react";
+import { ChevronDown, Zap, RotateCcw, Power, Activity, Palette, X as CloseIcon, Bot } from "lucide-react";
 import { NavTab } from "./Sidebar";
 import { ConnectionStatus } from "../lib/types";
 import ShinyText from "./ShinyText";
@@ -8,6 +8,8 @@ import ShinyText from "./ShinyText";
 interface TopbarProps {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
+  /** 8.77 multi-bots : bot non-défaut actuellement piloté par le panneau. */
+  activeBotId?: string | null;
   botStatus: ConnectionStatus | "pair_code";
   onResetSession: () => void;
   isResetting: boolean;
@@ -26,6 +28,7 @@ const THEMES = [
 
 const TAB_TITLES: Record<NavTab, string> = {
   overview: "Overview",
+  bots: "Multi-Bots",
   connect: "WhatsApp Connect",
   commands: "Commands Registry",
   simulator: "Bot Simulator",
@@ -45,6 +48,7 @@ const TAB_TITLES: Record<NavTab, string> = {
 export default function Topbar({
   activeTab,
   setActiveTab,
+  activeBotId,
   botStatus,
   onResetSession,
   isResetting,
@@ -144,6 +148,16 @@ export default function Topbar({
         <span className="font-bold text-xs text-white tracking-wide uppercase px-2 py-0.5 rounded bg-white/5 border border-white/5 truncate max-w-[120px] sm:max-w-none">
           {TAB_TITLES[activeTab] || "Dashboard"}
         </span>
+        {activeBotId && (
+          <button
+            onClick={() => setActiveTab("bots")}
+            title="Bot currently controlled by this panel — click to manage bots"
+            className="flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-bold text-cyan-300 transition hover:bg-cyan-500/20 cursor-pointer"
+          >
+            <Bot size={12} />
+            <span className="truncate max-w-[100px]">{activeBotId}</span>
+          </button>
+        )}
 
         {/* Search Input bar from Preline Admin Layout, placed after breadcrumbs */}
         <div className="hidden lg:block relative max-w-xs w-full ml-6">
