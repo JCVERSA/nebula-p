@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import { BotCommand } from "../types.js";
 import { runFfmpegKit } from "../services/mediaToolkit.js";
+import { isSafeDownloadUrl } from "../urlSafety.js";
 
 /**
  * `.song` / `.ytm` — portage natif de l'original neb (media/song.js, owner
@@ -77,6 +78,12 @@ const AUDIO_APIS: Array<{ name: string; fetch: (url: string) => Promise<AudioApi
 const MAX_AUDIO_BYTES = 60 * 1024 * 1024; // garde-fou mémoire (conteneur ~954 Mo)
 
 async function downloadBuffer(url: string): Promise<Buffer> {
+  // 8.84 (audit commandes C2) : l'URL vient d'une API tierce — on ne fait
+  // JAMAIS de requête serveur vers une adresse non validée par la garde
+  // SSRF (IP privée/loopback/metadata bloquées, DNS épinglé).
+  if (!(await isSafeDownloadUrl(url))) {
+    throw new Error("URL de téléchargement refusée par la garde SSRF");
+  }
   const res = await axios.get(url, {
     responseType: "arraybuffer",
     timeout: 90000,

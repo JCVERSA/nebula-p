@@ -45,16 +45,21 @@ describe("persona — base prompt", () => {
     expect(command).not.toBe(dm);
   });
 
-  it("stays compact enough for a system prompt (< 6000 chars)", () => {
-    expect(getPersonaPrompt("dm").length).toBeLessThan(6000);
+  it("stays compact enough for a system prompt (< 10000 chars, commande IA incluse)", () => {
+    // 8.79 : le bloc de connaissance des commandes (fiche .a + inventaire)
+    // est ajouté au persona — ~7k chars au total restent négligeables pour
+    // un prompt système Gemini/NIM.
+    expect(getPersonaPrompt("dm").length).toBeLessThan(10000);
   });
 });
 
 describe("persona — operator override", () => {
-  it("NEBULA_AI_PERSONALITY replaces the whole persona", () => {
+  it("NEBULA_AI_PERSONALITY remplace la voix mais PAS la connaissance des commandes (8.79)", () => {
     process.env.NEBULA_AI_PERSONALITY = "Tu es VEGA, une IA test. Réponds en une phrase.";
     const p = getPersonaPrompt("dm");
-    expect(p).toBe("Tu es VEGA, une IA test. Réponds en une phrase.");
+    expect(p.startsWith("Tu es VEGA, une IA test. Réponds en une phrase.")).toBe(true);
+    expect(p).toContain("# Tes commandes");
+    expect(p).not.toContain("# Identity");
   });
 
   it("a whitespace-only override is ignored (falls back to the base)", () => {

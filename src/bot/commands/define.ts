@@ -17,7 +17,9 @@ const defineCommand: BotCommand = {
 
     try {
       const url = `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`;
-      const res = await fetch(url);
+      // 8.84 (audit commandes C4) : timeout dur — avant, un API qui traîne
+      // laissait la commande suspendue plusieurs minutes sans réponse.
+      const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
 
       if (res.status === 404) {
         return context.reply(`❌ *Aucune définition trouvée pour « ${word} ».*\nVérifie l\u2019orthographe (dictionnaire anglais).`);

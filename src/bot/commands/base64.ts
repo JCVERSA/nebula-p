@@ -66,6 +66,13 @@ const base64Command: BotCommand = {
           break;
         case "frombinary": {
           const binParts = text.trim().split(/\s+/);
+          // 8.84 (audit C8) : entrée invalide = erreur claire — avant,
+          // parseInt(NaN) produisait des caractères NUL silencieux.
+          if (!binParts.length || binParts.some(b => !/^[01]{1,16}$/.test(b))) {
+            return void (await context.reply(
+              `❌ Entrée binaire invalide — des 0 et 1 séparés par des espaces sont attendus.\n\nEx: \`.base64 frombinary 01001000 01101001\``
+            ));
+          }
           result = binParts.map(b => String.fromCharCode(parseInt(b, 2))).join("");
           break;
         }

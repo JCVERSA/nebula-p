@@ -30,21 +30,28 @@ const whoisCommand: BotCommand = {
       }
       if (!target) target = context.sender;
 
-      // ── Membres du groupe ────────────────────────────────────────────────
-      const members = context.getGroupMembers ? await context.getGroupMembers(from) : [];
+      // ── Membres du groupe / chat privé (8.84, audit C6) ──────────────────
+      // En privé, getGroupMembers renvoie [] et l'ancien code répondait
+      // « pas dans le groupe » même pour soi-même — on affiche désormais
+      // le profil sans exigence d'appartenance.
+      const isGroup = from.endsWith("@g.us");
       const resolvedTarget = target as string;
+      const members = isGroup && context.getGroupMembers ? await context.getGroupMembers(from) : [];
       const participant = members.find(m => m.id === resolvedTarget || m.number === resolvedTarget.split("@")[0]);
 
-      if (!participant) {
+      if (isGroup && !participant) {
         return void (await context.reply("❌ Cet utilisateur n'est pas dans le groupe."));
       }
 
-      const finalTarget: string = participant.id;
+      const finalTarget: string = participant?.id || resolvedTarget;
       const number = finalTarget.split("@")[0];
-      const isAdmin = participant.admin === "admin" || participant.admin === "superadmin";
-      const isOwnerGroup = participant.admin === "superadmin";
+      const isAdmin = participant?.admin === "admin" || participant?.admin === "superadmin";
+      const isOwnerGroup = participant?.admin === "superadmin";
+      // 8.84 (audit C7) : comparaison EXACTE — l'ancien includes() en
+      // sous-chaîne affichait le badge 👑 à tout numéro contenant l'owner.
       const ownerCfg = getConfig().ownerNumber;
-      const isBotOwner = ownerCfg.includes(number);
+      const ownerNumbers = ownerCfg.split(/[^0-9]+/).filter(Boolean);
+      const isBotOwner = ownerNumbers.includes(number);
 
       // ── Profil WhatsApp (photo + statut) ──────────────────────────────────
       let ppUrl: string | null = null;
@@ -66,7 +73,15 @@ const whoisCommand: BotCommand = {
       // ── Carte de profil ──────────────────────────────────────────────────
       let text = `👤 *PROFIL*\n\n`;
       text += `📛 *Numéro :* @${number}\n`;
-      text += `🎫 *Rôle :* ${isOwnerGroup ? "👑 Propriétaire du groupe" : isAdmin ? "🛡️ Administrateur" : "👤 Membre"}\n`;
+      text += `🎫 *Rôle :* ${
+        !isGroup
+          ? "👤 Contact (chat privé)"
+          : isOwnerGroup
+            ? "👑 Propriétaire du groupe"
+            : isAdmin
+              ? "🛡️ Administrateur"
+              : "👤 Membre"
+      }\n`;
       if (statusText) text += `💬 *Statut :* ${statusText}\n`;
       if (badges.length) text += `\n🏅 *Badges :* ${badges.join(" | ")}\n`;
 

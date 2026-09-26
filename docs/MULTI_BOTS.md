@@ -118,7 +118,10 @@ donne la vue complète.
   relance, le panneau survit).
 - **Disque** : le plafond par batch (2048 Mo) reste par bot, mais la
   session 8.78 ajoute un garde-fou GLOBAL inter-bots : chaque batch
-  réserve son plafond dans un dossier partagé (`$TMPDIR/nebula-disk-claims`)
+  réserve son besoin RÉEL estimé (taille/épisode × épisodes × 1,5,
+  plafonnée par `NEBULA_NOVABOX_MAX_BATCH_MB` — 8.81, retour terrain :
+  avant, la réservation portait le plafond entier de 2048 Mo et bloquait
+  les petits disques) dans un dossier partagé (`$TMPDIR/nebula-disk-claims`)
   et un nouveau batch est refusé tant que l'espace libre passerait sous la
   réserve (`NEBULA_MIN_FREE_DISK_MB`, 500 Mo). La réservation est libérée à
   la fin du batch (completed/failed/cancelled) ; un moteur mort en cours de
@@ -141,6 +144,15 @@ donne la vue complète.
   réservations sur disque (flock logique par fichier JSON, visibles dans
   `$TMPDIR/nebula-disk-claims`), budget = somme des réservations actives vs
   espace libre du TMPDIR.
+- **Garde taille du log (8.82)** : la couche crypto WhatsApp (libsignal)
+  crache de gros dumps de session par message reçu ; en conteneur Docker,
+  cron/logrotate ne tourne souvent pas et `/root/bot.log` a mangé ~2 Go en
+  3 jours (disque à 996 Mo → batchs refusés). Le process superviseur
+  tronque désormais le log au plafond (`NEBULA_LOG_MAX_MB`, 150 Mo,
+  vérif toutes les 10 min) — sans dépendre de cron. La redirection du log
+  passe en append (`>>`) : après truncate, les écritures retombent à
+  l'EOF (plus de fichier sparse). La rotation logrotate est aussi durcie
+  (quotidienne + maxsize 100 Mo) en best-effort.
 - **Sweep santé des moteurs** : le superviseur sonde `/api/health` de chaque
   moteur « running » toutes les 60 s (`NEBULA_HEALTH_SWEEP_MS`). Un moteur
   GELÉ (process vivant mais injoignable — event loop bloquée, heap saturé)

@@ -195,7 +195,11 @@ cmd_start() {
   local panel_mem
   panel_mem="${NEBULA_PANEL_MEMORY_MB:-$(env_value NEBULA_PANEL_MEMORY_MB)}"
   case "${panel_mem}" in ''|*[!0-9]*) panel_mem="256" ;; esac
-  ( cd "${APP_DIR}" && NODE_ENV=production nohup node --max-old-space-size="${panel_mem}" --expose-gc dist/server.cjs >"${LOG_FILE}" 2>&1 & )
+  # 8.82 : redirection APPEND (>>) — après un truncate (LogGuard), les
+  # écritures retombent à l'EOF (= 0) ; avec l'ancien ">" le fd gardait
+  # son offset et le fichier re-gonflait en sparse. NEBULA_LOG_FILE
+  # active le garde de taille in-app (src/bot/logGuard.ts).
+  ( cd "${APP_DIR}" && NODE_ENV=production NEBULA_LOG_FILE="${LOG_FILE}" nohup node --max-old-space-size="${panel_mem}" --expose-gc dist/server.cjs >>"${LOG_FILE}" 2>&1 & )
   info "Process lancé, log: ${LOG_FILE}"
 
   info "Attente du panneau sur le port ${PORT} (45 s max)…"
@@ -568,8 +572,13 @@ cmd_update() {
   fi
 }
 
-# 8.51 : rotation hebdomadaire du log du bot (idempotent — appelé par setup
-# ET update : l'owner ne passe QUE par update en routine).
+# 8.51 : rotation du log du bot (idempotent — appelé par setup ET update :
+# l'owner ne passe QUE par update en routine).
+# 8.82 : quotidien + plafond 100 Mo (la couche crypto WhatsApp crache des
+# dumps géants par message reçu — l'hebdo sans plafond laissait le log
+# gonfler en Go entre deux passages). BEST-EFFORT : dans un conteneur
+# Docker sans cron, logrotate ne tourne pas — la protection PRINCIPALE est
+# le garde in-app (src/bot/logGuard.ts, branché par NEBULA_LOG_FILE).
 # copytruncate : le bot garde son fd ouvert, il ne faut PAS déplacer le fichier.
 # Heredoc NON quoté : le chemin est résolu ICI (logrotate ne fait aucune
 # expansion shell — un heredoc quoté écrirait un literal ${...} invalide).
@@ -578,8 +587,9 @@ install_logrotate() {
   if command -v logrotate >/dev/null 2>&1 && cat > "${lr}" 2>/dev/null <<LR
 ${LOG_FILE}
 {
-  weekly
-  rotate 4
+  daily
+  maxsize 100M
+  rotate 3
   compress
   missingok
   notifempty

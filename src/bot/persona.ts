@@ -1,3 +1,5 @@
+import { buildCommandKnowledge } from "./commandKnowledge.js";
+
 /**
  * Nebula AI persona (audit 8.37, 2026-09-01).
  *
@@ -53,12 +55,19 @@ const SURFACE_SUFFIX: Record<PersonaSurface, string> = {
   dm: "Context: this is a 1-on-1 private WhatsApp conversation. Your replies should feel like natural chat messages from a sharp, reliable assistant."
 };
 
-/** Returns the system prompt for the given surface. */
+/**
+ * Returns the system prompt for the given surface.
+ *
+ * 8.79: the command knowledge block (src/bot/commandKnowledge.ts) is ALWAYS
+ * appended — including on a NEBULA_AI_PERSONALITY override. Owner decision:
+ * a custom persona replaces the VOICE, never the command-guidance SKILL.
+ */
 export function getPersonaPrompt(surface: PersonaSurface = "command", botName = "Nebula"): string {
   const override = (process.env.NEBULA_AI_PERSONALITY || "").trim();
+  const knowledge = buildCommandKnowledge();
   if (override) {
-    return override;
+    return override + "\n\n" + knowledge;
   }
   const base = PERSONA_BASE.split("{{BOT}}").join(botName);
-  return base + "\n\n" + SURFACE_SUFFIX[surface];
+  return base + "\n\n" + SURFACE_SUFFIX[surface] + "\n\n" + knowledge;
 }

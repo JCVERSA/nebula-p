@@ -62,8 +62,8 @@ The interactive flow defaults to VF too — and never lies about the language ac
 | 📺 | **Anime VF downloader** — voir-anime.to (VF-first) with nakanime fallback, VidMoly/Voe HLS mirrors, cat-catch style segment downloader, honest quality+size labels, WhatsApp-friendly files (~90 MB/ep), MyAnimeList info cards (`.anime`, Jikan), anime identification from a screenshot (`.trace`, trace.moe) |
 | 🗣️ | **VF by default** — quick mode *and* interactive menus; `.a vostfr` switches back; honest "VF non disponible" when a title has no dub |
 | 🔔 | **New-episode watcher** — `.a watch` on a VF season: cron polling (default every 6 h), quiet hours 23h–7h, WhatsApp notification with the ready-made download command; `.a unwatch <title>` / `.a watchlist` |
-| 📦 | **Batch episodes** — `1-12` ranges, sequential pipeline hardened for ~1 GB containers, one offline HTML download page per batch (per-episode buttons + "Tout télécharger" in Chrome, 2 h TTL), optional season ZIP via `NEBULA_BATCH_ZIP=1` |
-| 🤖 | **Gemini AI** — chat, image generation, audio transcription, voice conversations with TTS, per-user daily budget + global concurrency cap; **NVIDIA NIM fallback** keeps `.ai` alive through Gemini outages (text, `meta/llama-3.3-70b-instruct` by default); defined persona (sober, mirrors the user's language, WhatsApp-tailored, overridable via `NEBULA_AI_PERSONALITY; per-conversation persistent memory (sliding 10 h TTL, rolling summary, `.ai forget`) | |
+| 📦 | **Batch episodes** — `1-12` ranges, sequential pipeline hardened for ~1 GB containers, one offline HTML download page per batch (per-episode buttons + "Tout télécharger" in Chrome, sliding 30 min TTL reset on each download, 2 h total cap), optional season ZIP via `NEBULA_BATCH_ZIP=1` |
+| 🤖 | **Gemini AI** — chat, image generation, audio transcription, voice conversations with TTS, per-user daily budget + global concurrency cap; **NVIDIA NIM fallback** keeps `.ai` alive through Gemini outages (text, `meta/llama-3.3-70b-instruct` by default); defined persona (sober, mirrors the user's language, WhatsApp-tailored, overridable via `NEBULA_AI_PERSONALITY; **command-aware (8.79)** — the AI knows every registered command (auto-synced, panel commands included) and proactively guides users to the exact one to type, with a hand-written step-by-step `.a` walkthrough; per-conversation persistent memory (sliding 10 h TTL, rolling summary, `.ai forget`) | |
 | 💬 | **WhatsApp multi-device** (Baileys) — QR **and pairing-code** linking, auto-reconnect, bad-session recovery |
 | 🤖 | **Multi-bots** (8.75) — up to 8 WhatsApp bots in one deployment: per-bot process/session/persona, crash-isolated, see [docs/MULTI_BOTS.md](docs/MULTI_BOTS.md) |
 | 🧩 | **Curated command set** (owner decision 8.59): `.a` anime, `.ytv`/`.ytm`/`.yts` YouTube, `.tiktok`/`.instagram` downloads, `.w` episode watch, `.ai`/`.image`, `.define`, `.sweb`, `.qr`, `.base64`, `.getpp`, `.whois`, `.ping`/`.menu`/`.help` + sandboxed panel-created ones (no fs/process/network, no restart) — the inventory is locked by a registry test; the legacy corpus, its CJS bridge (8.56), the media toolkit, moderation suite and coin system were REMOVED |
@@ -260,8 +260,8 @@ Built and battle-tested against real mirrors (every fix traced in
 - **Container-friendly** — sequential batches, disk-streamed segments with backpressure, capped V8 heap, streaming (STORE) ZIP writer instead of in-RAM archives, startup debris purge
 - **Resilience** — when every mirror of an episode fails (CDN-level 403), the bot retries it on the secondary anime catalog (VF lists first, then VOSTFR; honest language in the filename) — disable with `NEBULA_VOSTFR_FALLBACK=0`
 - **YouTube / TikTok / Instagram** — `.ytv [360|480|720|1080]`, `.ytm` (AAC-converted audio), `.yts` (search links), `.tiktok` (no watermark, tikwm), `.instagram` (up to 20 media per post): original neb command ports with multi-API fallback chains (8.59)
-- **Delivery** — batches >1 episode arrive as ONE offline HTML page: per-episode direct buttons + automatic "Tout télécharger" (temp links 2 h TTL, HTTP range streaming); single episodes still get a plain link; optional season ZIP behind `NEBULA_BATCH_ZIP=1`
-- Resource ceilings: `NEBULA_NOVABOX_MAX_EPISODES` (12), `NEBULA_NOVABOX_MAX_BATCH_MB` (2048/bot), `NEBULA_TEMP_MAX_BYTES` (4 GiB), plus a cross-bot disk guard (8.78): every batch claims its ceiling in a shared claims dir and new batches are refused while free space would drop under `NEBULA_MIN_FREE_DISK_MB` (500)
+- **Delivery** — batches >1 episode arrive as ONE offline HTML page: per-episode direct buttons + automatic "Tout télécharger" (sliding 30 min link TTL reset on each download, 2 h total cap — `NEBULA_LINK_TTL_MIN`; HTTP range streaming); single episodes still get a plain link; optional season ZIP behind `NEBULA_BATCH_ZIP=1`
+- Resource ceilings: `NEBULA_NOVABOX_MAX_EPISODES` (12), `NEBULA_NOVABOX_MAX_BATCH_MB` (2048/bot), `NEBULA_TEMP_MAX_BYTES` (2 GiB), plus a cross-bot disk guard (8.78, real-need claim since 8.81): every batch claims its real estimated need (per-episode size × episodes × 1.5, capped by the batch ceiling) in a shared claims dir and new batches are refused while free space would drop under `NEBULA_MIN_FREE_DISK_MB` (500) — the refusal tells the user how many episodes still fit
 
 ## 🔑 Environment Variables
 
@@ -281,10 +281,12 @@ Copy `.env.example` to `.env` (or run `./manage.sh env`). Highlights:
 | `NEBULA_NOVABOX_MAX_EPISODES` / `_MAX_BATCH_MB` | no | Batch ceilings (12 / 2048) |
 | `NEBULA_DOWNLOAD_TIMEOUT_MS` | no | Hard global deadline per episode download (default 600000 = 10 min) |
 | `NEBULA_WATCH_CRON` / `_QUIET` / `_TZ` | no | Episode watcher schedule (`0 */6 * * *`), quiet window (`23-7`) and timezone (`Africa/Douala`) |
-| `NEBULA_TEMP_MAX_BYTES` | no | Temp storage ceiling (4 GiB) |
+| `NEBULA_TEMP_MAX_BYTES` | no | Temp storage ceiling (2 GiB since 8.83 — sized for small containers) |
+| `NEBULA_LINK_TTL_MIN` | no | Sliding TTL of download links in minutes (30, clamped 5-120) — each download resets the timer, total link life capped at 2 h (8.83) |
 | `NEBULA_MIN_FREE_DISK_MB` | no | Cross-bot disk guard (8.78): free-space floor kept when admitting a new batch (500 MB) |
 | `NEBULA_DISK_GUARD` | no | `off` disables the cross-bot disk guard |
 | `NEBULA_HEALTH_SWEEP_MS` / `NEBULA_HEALTH_FAILS` | no | Supervisor health sweep (8.78): probe interval (60 s) and consecutive failures before a frozen engine is force-restarted (3) |
+| `NEBULA_LOG_FILE` / `NEBULA_LOG_MAX_MB` | no | In-app log size guard (8.82): log path (set by `manage.sh`) and cap before truncation (150 MB) — the WhatsApp crypto layer dumps large session traces per message, and in Docker containers cron/logrotate often never runs |
 | `NEBULA_AI_DAILY_LIMIT` / `_MAX_CONCURRENT` | no | AI budget (40/day/user) and concurrency (3) |
 | `NEBULA_PANEL_COMMANDS` | no | `off` disables sandboxed panel-created commands |
 | `NEBULA_ENABLE_LEGACY` | no | `1` re-enables the vendored legacy command corpus (quarantined by default) |

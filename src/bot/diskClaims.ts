@@ -190,6 +190,18 @@ export function acquireDiskClaim(jobId: string, expectedBytes: number): AcquireR
   return { ok: true, freeBytes, claimedBytes: claimedByOthers };
 }
 
+/**
+ * Octets encore allouables à un NOUVEAU batch (espace libre − réserve
+ * minimale), ou null si l'espace libre est illisible. Sert uniquement au
+ * conseil « combien d'épisodes peuvent passer » du message de refus —
+ * ce n'est PAS la décision du garde (qui passe par acquireDiskClaim).
+ */
+export function availableForNewClaims(): number | null {
+  const freeBytes = readFreeBytes();
+  if (freeBytes === null) return null;
+  return Math.max(0, freeBytes - minFreeBytes());
+}
+
 /** Libère la réclamation d'un job (sans erreur si elle n'existe pas). */
 export function releaseDiskClaim(jobId: string): boolean {
   try {

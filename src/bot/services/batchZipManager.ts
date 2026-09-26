@@ -238,7 +238,9 @@ export class BatchZipManager {
       season = "S01",
       resolution = "720p",
       language = "VF",
-      ttlMinutes = 60,
+      // 8.83 : plus de défaut codé dur — undefined laisse le TTL glissant
+      // de tempDownloadManager s'appliquer (NEBULA_LINK_TTL_MIN, 30 min).
+      ttlMinutes = undefined,
       cleanupSourceFiles = false,
       includeManifest = true,
       namingStyle = "simple",

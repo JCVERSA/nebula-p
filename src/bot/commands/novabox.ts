@@ -6,7 +6,7 @@ import path from "path";
 import os from "os";
 import { spawn } from "child_process";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
-import { registerTempDownload } from "../tempDownloadManager.js";
+import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
 import { formatFailedEpisodes } from "../services/batchRecap.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
@@ -35,7 +35,7 @@ import {
 import { bestAnimeMatch, formatAnimeCard } from "../services/jikanClient.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus } from "../batchDownloadManager.js";
-import { acquireDiskClaim } from "../diskClaims.js";
+import { acquireDiskClaim, availableForNewClaims } from "../diskClaims.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
 import { probeVideoInfo, whatsappFitVideoOptions } from "../services/mediaToolkit.js";
@@ -94,6 +94,9 @@ export interface AnimeSession {
   availableVariants?: HlsVariant[];
   selectedVariantUrl?: string;
   selectedVariantHeaders?: Record<string, string>;
+  /** 8.81 (retour terrain) : taille estimée (Mo) de la variante choisie —
+   *  alimente la réservation disque RÉELLE du batch (plus le plafond entier). */
+  selectedVariantEstimatedMB?: number;
   languageForcedByUser?: boolean; // true after an explicit .a vf / .a vostfr
   userSearchQuery?: string; // 8.55: raw user query — voir-anime indexes romaji,
   // nakanime returns French titles; the VF probe needs BOTH as candidates.
@@ -120,6 +123,20 @@ const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutes (8.70: 5 cut users mid-flo
 // Resource ceilings for batch work triggered by untrusted WhatsApp users.
 const MAX_BATCH_EPISODES = Math.max(1, Number(process.env.NEBULA_NOVABOX_MAX_EPISODES || 12));
 const MAX_BATCH_TOTAL_MB = Math.max(1, Number(process.env.NEBULA_NOVABOX_MAX_BATCH_MB || 2048));
+
+/**
+ * 8.81 (retour terrain Cyberpunk) : besoin disque ESTIMÉ d'un batch —
+ * taille estimée d'un épisode × nombre d'épisodes × 1,5 (marge pour le TS
+ * transitoire, le mp4 compressé et le staging zip), plafonné au ceiling
+ * historique, plancher 50 Mo. La réservation disque inter-bots porte ce
+ * besoin RÉEL, plus le plafond entier de 2048 Mo : un batch de 3 épisodes
+ * ne bloque plus un disque petit alors qu'il ne nécessite que ~500 Mo.
+ */
+export function estimateBatchNeedMB(perEpisodeMB: number, episodes: number): number {
+  const per = Math.max(1, Number(perEpisodeMB) || 75);
+  const count = Math.max(1, Number(episodes) || 1);
+  return Math.min(MAX_BATCH_TOTAL_MB, Math.max(50, Math.ceil(per * count * 1.5)));
+}
 
 function clearUserSession(sender: string) {
   const session = sessions.get(sender);
@@ -1372,6 +1389,7 @@ const animeCommand: BotCommand = {
           session.forceCompress = true;
           if (session.singleStreamDetected?.streamUrl) {
             session.selectedVariantUrl = session.singleStreamDetected.streamUrl;
+            session.selectedVariantEstimatedMB = session.singleStreamDetected.estimatedSizeMB;
           }
           await context.react("🚀");
           return await sendFinalEpisode(sock, msg, context, session, "480P [Compressed]");
@@ -1431,6 +1449,7 @@ const animeCommand: BotCommand = {
             const selectedVariant = variants[resIndex - 1];
             session.selectedVariantUrl = selectedVariant.url;
             session.selectedVariantHeaders = selectedVariant.headers;
+            session.selectedVariantEstimatedMB = selectedVariant.estimatedSizeMB;
             resChoice = selectedVariant.label;
             console.log(`[NOVABOX] Selected variant label: ${resChoice}, URL: ${selectedVariant.url}, estimatedSizeMB: ${selectedVariant.estimatedSizeMB}`);
             if (selectedVariant.estimatedSizeMB > 100 && (resChoice === "480P" || resChoice === "360P")) {
@@ -2118,19 +2137,36 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     });
     updateJobStatus(batchJob.id, "downloading", `Processing ${indices.length} episodes in parallel`);
 
-    // 8.78 — garde-fou disque GLOBAL inter-bots : ce batch réclame son pire
-    // cas (plafond NEBULA_NOVABOX_MAX_BATCH_MB) dans un dossier partagé.
-    // Les autres moteurs du même hôte voient la réservation et refusent de
-    // démarrer si l'espace libre passait sous la réserve. Libérée dans
-    // batchDownloadManager aux états terminaux (completed/failed/cancelled).
-    const diskClaim = acquireDiskClaim(batchJob.id, MAX_BATCH_TOTAL_MB * 1024 * 1024);
+    // Garde-fou disque GLOBAL inter-bots (8.78) — depuis 8.81, ce batch
+    // réclame son besoin RÉEL estimé (taille/épisode × épisodes × 1,5,
+    // plafonnée par NEBULA_NOVABOX_MAX_BATCH_MB) dans un dossier partagé :
+    // les autres moteurs du même hôte voient la réservation et un nouveau
+    // batch est refusé si l'espace libre passait sous la réserve
+    // (NEBULA_MIN_FREE_DISK_MB). Libérée dans batchDownloadManager aux
+    // états terminaux (completed/failed/cancelled).
+    const perEpisodeMB =
+      session.selectedVariantEstimatedMB ||
+      session.singleStreamDetected?.estimatedSizeMB ||
+      session.availableVariants?.find(
+        (v) => v.url === session.selectedVariantUrl || v.label === resolution || v.resolution === resolution
+      )?.estimatedSizeMB ||
+      75;
+    const batchNeedMB = estimateBatchNeedMB(perEpisodeMB, indices.length);
+    const diskClaim = acquireDiskClaim(batchJob.id, batchNeedMB * 1024 * 1024);
     if (!diskClaim.ok) {
       updateJobStatus(batchJob.id, "failed", "Disk guard refused this batch", diskClaim.error);
       await context.react("⚠️");
+      // Conseil actionnable : combien d'épisodes passent avec l'espace actuel ?
+      const availableBytes = availableForNewClaims();
+      const perEpisodeNeedMB = estimateBatchNeedMB(perEpisodeMB, 1);
+      const maxFits = availableBytes === null ? 0 : Math.floor(availableBytes / (perEpisodeNeedMB * 1024 * 1024));
       return context.reply(
         `⚠️ *Espace disque insuffisant pour lancer ce batch.*\n\n` +
         `${diskClaim.error}\n\n` +
-        `🛡️ _Les téléchargements en cours (tous bots confondus) ne sont pas affectés — réessaie une fois terminés._`
+        (maxFits >= 1
+          ? `💡 _Avec l'espace libre actuel, essaie plutôt ${maxFits} épisode(s) maximum d'un coup, ou réessaie plus tard._\n\n`
+          : `💡 _Réessaie plus tard, quand de l'espace sera libéré._\n\n`) +
+        `🛡️ _Les téléchargements en cours ne sont pas affectés._`
       );
     }
 
@@ -2219,9 +2255,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           }
           totalMBDownloaded += thisMB;
 
-          // Move file into managed temporary store so the download link remains valid for full TTL
+          // Move file into managed temporary store — TTL glissant 8.83 :
+          // 30 min par défaut (NEBULA_LINK_TTL_MIN), remises à zéro à chaque
+          // téléchargement, vie totale plafonnée à 2 h.
           const tempDownload = registerTempDownload(localPath, filename, {
-            ttlMinutes: 120, // 2 hours for individual episodes
             moveFile: true
           });
 
@@ -2321,7 +2358,6 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           season: formattedSeason,
           resolution,
           language: lang,
-          ttlMinutes: 180,
           namingStyle: "simple",
           batchJobId: batchJob.id,
           cleanupSourceFiles: false // Retain individual files for the individual episode links
@@ -2403,7 +2439,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         (memoryDeferredCount > 0
           ? `🛡️ *Garde mémoire:* ${memoryDeferredCount} épisode(s) non lancé(s) pour protéger le bot (pression RAM critique). Les épisodes livrés ci-dessus sont intacts — redemande les épisodes manquants dans quelques minutes.\n`
           : "") +
-        `⏳ *Links Validity:* 2 Hours\n\n` +
+        `⏳ *Links Validity:* ${getLinkTtlMinutes()} min (reset at each download, max 2 h)\n\n` +
         (pageDelivered
           ? `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un seul bouton *« Tout télécharger »* lance tous les épisodes d'un coup (ou bouton par épisode).\n\n`
           : `📥 *Direct Episode Links:*\n\n` +
@@ -2719,11 +2755,11 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         console.log(`[NOVABOX] Pipeline total so far (players+scan+download${shouldCompress ? "+compress" : ""}): ${((Date.now() - session.pipelineStartedAt) / 1000).toFixed(1)}s`);
       }
 
-      // Move file into managed temporary store so the download link remains valid for 2 hours
+      // Move file into managed temporary store — TTL glissant 8.83 (défaut
+      // 30 min, reset à chaque téléchargement, 2 h de vie totale max).
       let tempDownload: any = null;
       try {
         tempDownload = registerTempDownload(activeSendPath, deliveredFilename, {
-          ttlMinutes: 120,
           moveFile: true
         });
         if (tempDownload && tempDownload.filePath) {
@@ -2748,7 +2784,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       const captionTail = (highSpeedLink: string) =>
         `📺 *Player Source:* ${activePlayerName}\n` +
         `📄 *Filename:* \`${deliveredFilename}\`\n\n` +
-        (highSpeedLink ? `🚀 *Direct High-Speed Download (Browser/PC):*\n🔗 ${highSpeedLink}\n⏳ _Valid for 2 Hours_\n\n` : "") +
+        (highSpeedLink ? `🚀 *Direct High-Speed Download (Browser/PC):*\n🔗 ${highSpeedLink}\n⏳ _Valid ${getLinkTtlMinutes()} min after each download (max 2 h)_\n\n` : "") +
         (vidmolyUrl ? `• 📺 *Play Ad-Free (${playerSourceLabel(vidmolyUrl)}):* ${vidmolyUrl}\n` : "") +
         `\n🌌 _Nebula Bot - Your ultimate media center_`;
 
@@ -2784,7 +2820,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           await context.reply(
             `🚀 *TEMPORARY HIGH-SPEED DOWNLOAD LINK* 🚀\n\n` +
             `⚠️ *File Size:* ${fileSizeMB.toFixed(1)} MB (Exceeds WhatsApp 100MB limit)\n` +
-            `⏳ *Link Validity:* 2 Hours (Auto-expires)\n` +
+            `⏳ *Link Validity:* ${getLinkTtlMinutes()} min after each download (max 2 h)\n` +
             `🎬 *Anime:* ${session.animeTitle}\n` +
             `🗣️ *Language:* ${lang} | ${session.selectedSeason?.name} - Ep ${epNum}\n` +
             `⚙️ *Quality:* ${resolution}\n` +

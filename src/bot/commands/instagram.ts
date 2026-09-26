@@ -63,7 +63,12 @@ const instagramCommand: BotCommand = {
       await context.reply("📥 *Téléchargement...* ⏳ Patiente quelques secondes.");
 
       const mod = (await import("ruhend-scraper")) as unknown as { igdl: Igdl };
-      const downloadData = await mod.igdl(text);
+      // 8.84 (audit commandes C5) : le scraper n'a aucun timeout intégré —
+      // sans cette borne, un appel qui pend bloquait la commande indéfiniment.
+      const downloadData = await Promise.race([
+        mod.igdl(text),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("igdl timeout")), 30000)),
+      ]);
 
       if (!downloadData?.data?.length) {
         return void (await context.reply("❌ Aucun média trouvé — le post est peut-être privé ou le lien invalide."));

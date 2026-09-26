@@ -715,7 +715,11 @@ hr();
 let vaFirstEpisodeUrl = "";
 if (vaEntryUrl) {
   try {
-    const vaEpisodes = await withTimeout(voiranimeEpisodes(vaEntryUrl), 20000, "voir-anime episodes");
+    const vaEpisodes = await withTimeout(
+      voiranimeEpisodes(vaEntryUrl),
+      20000,
+      "voir-anime episodes",
+    );
     if (vaEpisodes.length > 0) {
       row(
         "V2",
@@ -747,7 +751,11 @@ hr();
 let vaPlayerUrl = "";
 if (vaFirstEpisodeUrl) {
   try {
-    const player = await withTimeout(voiranimeEpisodePlayer(vaFirstEpisodeUrl), 20000, "voir-anime player");
+    const player = await withTimeout(
+      voiranimeEpisodePlayer(vaFirstEpisodeUrl),
+      20000,
+      "voir-anime player",
+    );
     if (player) {
       let host: string;
       try {
@@ -783,7 +791,11 @@ if (FULL) {
       row("V4", "voir-anime stream", "FAIL", `${vaPlayerUrl} - blocked by urlSafety (SSRF guard)`);
     } else {
       try {
-        const extracted = await withTimeout(extractMultiHostStream(vaPlayerUrl), 25000, "voir-anime extract");
+        const extracted = await withTimeout(
+          extractMultiHostStream(vaPlayerUrl),
+          25000,
+          "voir-anime extract",
+        );
         if (extracted && extracted.url) {
           try {
             const tracks = await withTimeout(
@@ -799,7 +811,12 @@ if (FULL) {
               `${extracted.hostName} ${extracted.type} - ${tracks.length} tracks [${tracks.map((t) => t.resolution).join(", ")}]; would pick ${pick.resolution}`,
             );
           } catch (e: any) {
-            row("V4", "voir-anime HLS", "FAIL", `stream found (${extracted.hostName}) but manifest failed: ${e.message}`);
+            row(
+              "V4",
+              "voir-anime HLS",
+              "FAIL",
+              `stream found (${extracted.hostName}) but manifest failed: ${e.message}`,
+            );
           }
         } else {
           row(

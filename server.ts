@@ -9,6 +9,7 @@ import { initRegistry } from "./src/bot/commandRegistry.js";
 import { resolvedFfmpegPath } from "./src/bot/ffmpeg.js";
 import { createPanelApp } from "./src/panel/panelApp.js";
 import { BotSupervisor, ensurePanelToken } from "./src/bot/botSupervisor.js";
+import { startLogGuard } from "./src/bot/logGuard.js";
 import { loadBotsConfig } from "./src/bot/botsConfig.js";
 
 /**
@@ -71,6 +72,10 @@ async function startProductionPanel(PORT: number): Promise<void> {
   // Jeton partagé panneau/enfants : sans PANEL_TOKEN stable, le proxy serait
   // rejeté par les moteurs (chaque process générerait le sien).
   ensurePanelToken();
+
+  // 8.82 : garde taille du log — ce process est la racine de l'arbre (les
+  // moteurs enfants y écrivent via son stdout), un seul garde couvre tout.
+  startLogGuard();
 
   const botsConfig = loadBotsConfig();
   const supervisor = new BotSupervisor(botsConfig);
