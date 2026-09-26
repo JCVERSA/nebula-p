@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import { BotCommand } from "../types.js";
 import { runFfmpegKit } from "../services/mediaToolkit.js";
+import { ytmViaYtDlp } from "../services/ytDlp.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 
 /**
@@ -148,7 +149,27 @@ const songCommand: BotCommand = {
       } catch {}
 
       let audioBuffer: Buffer | null = null;
+      // 8.86 : yt-dlp LOCAL en premier recours — les 5 API tierces sont
+      // mortes en prod (2026-09-27 : cobalt 400, y2mate/yupra DNS disparus,
+      // EliteProTech 404, Okatsu 402 payant). L'URL est canonisée en interne
+      // (ID → watch?v=) : jamais de texte utilisateur brut dans les args.
+      try {
+        console.log("[SONG] Trying yt-dlp (local)...");
+        const local = await ytmViaYtDlp(videoUrl, MAX_AUDIO_BYTES);
+        if (local.ok) {
+          audioBuffer = local.buffer;
+          if (local.title) videoTitle = local.title;
+          console.log(`[SONG] OK via yt-dlp (${(audioBuffer.length / 1048576).toFixed(2)} MB)`);
+        } else if (local.reason === "too_large") {
+          return void (await context.reply("⚠️ *Fichier audio trop lourd* (max 60 Mo) — choisis une vidéo plus courte."));
+        } else {
+          console.log(`[SONG] yt-dlp failed: ${local.reason}`);
+        }
+      } catch (err: any) {
+        console.log(`[SONG] yt-dlp failed: ${err?.message || err}`);
+      }
       for (const api of AUDIO_APIS) {
+        if (audioBuffer) break; // déjà obtenu via yt-dlp (8.86)
         try {
           console.log(`[SONG] Trying ${api.name}...`);
           const { downloadUrl, title } = await api.fetch(videoUrl);

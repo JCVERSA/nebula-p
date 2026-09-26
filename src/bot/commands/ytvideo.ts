@@ -1,6 +1,9 @@
 import axios from "axios";
+import fs from "fs";
+import path from "path";
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
+import { ytvViaYtDlp } from "../services/ytDlp.js";
 
 /**
  * `.ytvideo` / `.ytv` — portage natif de l'original neb (media/video.js,
@@ -11,6 +14,10 @@ import { getConfig } from "../config.js";
  */
 
 interface VideoApiResult { downloadUrl: string; title: string | null }
+
+// 8.86 : plafond vidéo via yt-dlp local (le flux anime reste à 2 Go via
+// tempDownloadManager ; ici ce sont des vidéos YouTube courtes).
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 
 const VIDEO_APIS: Array<{ name: string; fetch: (url: string, quality: string) => Promise<VideoApiResult> }> = [
   {
@@ -72,6 +79,7 @@ const ytvideoCommand: BotCommand = {
   description: "Télécharger une vidéo YouTube avec option de résolution.",
   usage: ".ytv <nom ou lien> [360|480|720|1080]",
   execute: async (sock, msg, context) => {
+    let videoPath: string | null = null; // fichier local yt-dlp (8.86) — purgé en finally
     try {
       const chatId = msg.key.remoteJid;
       const args = context.args || [];
@@ -118,7 +126,25 @@ const ytvideoCommand: BotCommand = {
 
       let downloadUrl: string | null = null;
       let finalTitle = videoTitle;
+      // 8.86 : yt-dlp LOCAL en premier recours (API tierces mortes en prod,
+      // cf. src/bot/services/ytDlp.ts). URL canonisée en interne.
+      try {
+        console.log(`[YTV] Trying yt-dlp (local, ${quality}p)...`);
+        const local = await ytvViaYtDlp(videoUrl, quality, MAX_VIDEO_BYTES);
+        if (local.ok) {
+          videoPath = local.filePath;
+          if (local.title) finalTitle = local.title;
+          console.log("[YTV] OK via yt-dlp");
+        } else if (local.reason === "too_large") {
+          return void (await context.reply("⚠️ *Vidéo trop lourde* (max 100 Mo à cette qualité) — essaie une qualité inférieure ou une vidéo plus courte."));
+        } else {
+          console.log(`[YTV] yt-dlp failed: ${local.reason}`);
+        }
+      } catch (err: any) {
+        console.log(`[YTV] yt-dlp failed: ${err?.message || err}`);
+      }
       for (const api of VIDEO_APIS) {
+        if (videoPath) break; // déjà obtenu via yt-dlp (8.86)
         try {
           console.log(`[YTV] Trying ${api.name} (${quality}p)...`);
           const result = await api.fetch(videoUrl, quality);
@@ -131,13 +157,14 @@ const ytvideoCommand: BotCommand = {
         }
       }
 
-      if (!downloadUrl) {
+      const mediaUrl = videoPath || downloadUrl;
+      if (!mediaUrl) {
         return void (await context.reply("❌ Impossible de télécharger cette vidéo — toutes les sources ont échoué.\n🔄 Réessaie dans un instant."));
       }
 
       const safeName = (finalTitle || "video").replace(/[^\w\s-]/g, "").trim().slice(0, 60);
       await sock.sendMessage(chatId, {
-        video: { url: downloadUrl },
+        video: { url: mediaUrl },
         mimetype: "video/mp4",
         fileName: `${safeName}.mp4`,
         caption: `*${finalTitle || searchQuery}*\n📺 Qualité : ${quality}p\n\n> *_Downloaded by ${getConfig().botName}_*`
@@ -145,6 +172,11 @@ const ytvideoCommand: BotCommand = {
     } catch (error: any) {
       console.error("[YTV] Fatal:", error?.message || error);
       await context.reply("❌ Le téléchargement a échoué.\n🔄 Réessaie dans un instant.");
+    } finally {
+      // 8.86 : purge du fichier local yt-dlp (répertoire temporaire dédié).
+      if (videoPath) {
+        try { fs.rmSync(path.dirname(videoPath), { recursive: true, force: true }); } catch {}
+      }
     }
   }
 };
