@@ -138,7 +138,7 @@ const ytvideoCommand: BotCommand = {
         } else if (local.reason === "too_large") {
           return void (await context.reply("⚠️ *Vidéo trop lourde* (max 100 Mo à cette qualité) — essaie une qualité inférieure ou une vidéo plus courte."));
         } else {
-          console.log(`[YTV] yt-dlp failed: ${local.reason}`);
+          console.log(`[YTV] yt-dlp failed: ${local.reason}${local.detail ? ` — ${local.detail}` : ""}`);
         }
       } catch (err: any) {
         console.log(`[YTV] yt-dlp failed: ${err?.message || err}`);

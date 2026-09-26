@@ -158,7 +158,7 @@ describe("8.86 — ytmViaYtDlp : audio avec plafond et purge", () => {
   it("texte sans ID → no_id SANS exécuter le binaire", async () => {
     const callsBefore = readLoggedArgs().length;
     const r = await ytmViaYtDlp("recherche sans lien", 60 * 1024 * 1024);
-    expect(r).toEqual({ ok: false, reason: "no_id" });
+    expect(r).toMatchObject({ ok: false, reason: "no_id" });
     expect(readLoggedArgs().length).toBe(callsBefore);
   });
 
@@ -166,7 +166,8 @@ describe("8.86 — ytmViaYtDlp : audio avec plafond et purge", () => {
     process.env.FAKE_SIZE = "5000";
     const before = nebulaTmpDirs();
     const r = await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 4096);
-    expect(r).toEqual({ ok: false, reason: "too_large" });
+    expect(r).toMatchObject({ ok: false, reason: "too_large" });
+    expect((r as { detail?: string }).detail).toContain("post-contr");
     expect(nebulaTmpDirs()).toEqual(before);
   });
 
@@ -174,22 +175,23 @@ describe("8.86 — ytmViaYtDlp : audio avec plafond et purge", () => {
     process.env.FAKE_MODE = "toobig";
     const before = nebulaTmpDirs();
     const r = await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
-    expect(r).toEqual({ ok: false, reason: "too_large" });
+    expect(r).toMatchObject({ ok: false, reason: "too_large" });
     expect(nebulaTmpDirs()).toEqual(before);
   });
 
-  it("échec du binaire → failed + purge (aucun fichier qui traîne)", async () => {
+  it("échec du binaire → failed avec DETAIL stderr (8.86b : plus d'échec muet) + purge", async () => {
     process.env.FAKE_MODE = "fail";
     const before = nebulaTmpDirs();
     const r = await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
-    expect(r).toEqual({ ok: false, reason: "failed" });
+    expect(r).toMatchObject({ ok: false, reason: "failed" });
+    expect((r as { detail?: string }).detail).toContain("boom");
     expect(nebulaTmpDirs()).toEqual(before);
   });
 
   it("binaire absent → missing (dégradation propre vers la cascade API)", async () => {
     __setYtDlpBinForTests(null);
     const r = await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
-    expect(r).toEqual({ ok: false, reason: "missing" });
+    expect(r).toMatchObject({ ok: false, reason: "missing" });
   });
 });
 
@@ -219,11 +221,32 @@ describe("8.86 — ytvViaYtDlp : vidéo plafonnée à la qualité demandée", ()
     expect(args).toContain("bv*[height<=720]+ba/b[height<=720]");
   });
 
+  it("NON-RÉGRESSION 8.86b : les args contiennent --no-simulate (sinon --print bascule yt-dlp en simulation et ne télécharge RIEN)", async () => {
+    await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
+    expect((readLoggedArgs().at(-1) as string[])).toContain("--no-simulate");
+  });
+
+  it("NON-RÉGRESSION 8.86b (vidéo) : args avec --no-simulate également", async () => {
+    process.env.FAKE_EXT = "mp4";
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "720", 100 * 1024 * 1024);
+    expect((readLoggedArgs().at(-1) as string[])).toContain("--no-simulate");
+    if (r.ok) fs.rmSync(path.dirname(r.filePath), { recursive: true, force: true });
+  });
+
+  it("yt-dlp refuse la taille avec code 0 (skip) → too_large aussi en vidéo", async () => {
+    process.env.FAKE_MODE = "toobig";
+    const before = nebulaTmpDirs();
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "720", 100 * 1024 * 1024);
+    expect(r).toMatchObject({ ok: false, reason: "too_large" });
+    expect(nebulaTmpDirs()).toEqual(before);
+  });
+
   it("échec → failed et le fichier temporaire est purgé par le service", async () => {
     process.env.FAKE_MODE = "fail";
     const before = nebulaTmpDirs();
     const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "480", 100 * 1024 * 1024);
-    expect(r).toEqual({ ok: false, reason: "failed" });
+    expect(r).toMatchObject({ ok: false, reason: "failed" });
+    expect((r as { detail?: string }).detail).toContain("boom");
     expect(nebulaTmpDirs()).toEqual(before);
   });
 });

@@ -163,7 +163,7 @@ const songCommand: BotCommand = {
         } else if (local.reason === "too_large") {
           return void (await context.reply("⚠️ *Fichier audio trop lourd* (max 60 Mo) — choisis une vidéo plus courte."));
         } else {
-          console.log(`[SONG] yt-dlp failed: ${local.reason}`);
+          console.log(`[SONG] yt-dlp failed: ${local.reason}${local.detail ? ` — ${local.detail}` : ""}`);
         }
       } catch (err: any) {
         console.log(`[SONG] yt-dlp failed: ${err?.message || err}`);

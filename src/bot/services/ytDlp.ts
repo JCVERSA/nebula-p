@@ -25,11 +25,11 @@ import path from "path";
 
 export type YtDlpOutcome =
   | { ok: true; buffer: Buffer; title: string | null }
-  | { ok: false; reason: "no_id" | "missing" | "too_large" | "failed" };
+  | { ok: false; reason: "no_id" | "missing" | "too_large" | "failed"; detail?: string };
 
 export type YtDlpVideoOutcome =
   | { ok: true; filePath: string; title: string | null }
-  | { ok: false; reason: "no_id" | "missing" | "too_large" | "failed" };
+  | { ok: false; reason: "no_id" | "missing" | "too_large" | "failed"; detail?: string };
 
 const YT_ID_RE = /(?:youtu\.be\/|v=|shorts\/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/;
 
@@ -123,6 +123,11 @@ function findOutputFile(dir: string): string | null {
   return null;
 }
 
+/** Dernières lignes de stderr, compactées pour le log (8.86b : plus d'échec muet). */
+function stderrTail(stderr: string): string {
+  return stderr.split("\n").map(l => l.trim()).filter(Boolean).slice(-3).join(" | ").slice(0, 300);
+}
+
 /** True si yt-dlp a refusé pour cause de taille (message officiel du binaire). */
 function refusedForSize(stderr: string): boolean {
   return /larger than max-filesize|File is larger than/i.test(stderr);
@@ -142,6 +147,11 @@ export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<Y
     const r = await runYtDlp([
       "-f", "ba/bestaudio/best",
       "--no-playlist", "--no-warnings", "--no-progress",
+      // 8.86b : --print IMPLIQUE --simulate (aide officielle yt-dlp) — sans
+      // ce drapeau, yt-dlp ne télécharge RIEN (exit 0, aucun fichier). Prouvé
+      // sur la version exacte du VPS (2026.08.19) via serveur local : avec
+      // --print seul → 0 fichier ; avec --no-simulate → fichier + titre.
+      "--no-simulate",
       "--max-filesize", String(maxBytes),
       "--print", "%(title)s",
       "-o", `${outBase}.%(ext)s`,
@@ -149,14 +159,16 @@ export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<Y
     ], 120000);
     // Refus de taille : yt-dlp peut sortir en erreur OU en code 0 (skip) —
     // on examine le message AVANT le code de sortie.
-    if (refusedForSize(r.stderr)) return { ok: false, reason: "too_large" };
+    if (refusedForSize(r.stderr)) return { ok: false, reason: "too_large", detail: stderrTail(r.stderr) };
     if (!r.ok) {
-      if (/introuvable/.test(r.stderr)) return { ok: false, reason: "missing" };
-      return { ok: false, reason: "failed" };
+      if (/introuvable/.test(r.stderr)) return { ok: false, reason: "missing", detail: stderrTail(r.stderr) };
+      return { ok: false, reason: "failed", detail: stderrTail(r.stderr) };
     }
     const file = findOutputFile(dir);
-    if (!file) return { ok: false, reason: "failed" };
-    if (fs.statSync(file).size > maxBytes) return { ok: false, reason: "too_large" };
+    if (!file) return { ok: false, reason: "failed", detail: "aucun fichier produit (mode simulate ?)" };
+    if (fs.statSync(file).size > maxBytes) {
+      return { ok: false, reason: "too_large", detail: `post-contrôle : ${fs.statSync(file).size} > ${maxBytes} octets` };
+    }
     return { ok: true, buffer: fs.readFileSync(file), title: firstStdoutLine(r.stdout) };
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
@@ -188,25 +200,32 @@ export async function ytvViaYtDlp(rawInput: string, quality: string, maxBytes: n
       "-f", `bv*[height<=${q}]+ba/b[height<=${q}]`,
       "--merge-output-format", "mp4",
       "--no-playlist", "--no-warnings", "--no-progress",
+      // 8.86b : --print implique --simulate — voir ytmViaYtDlp ci-dessus.
+      "--no-simulate",
       "--max-filesize", String(maxBytes),
       "--print", "%(title)s",
       "-o", `${outBase}.%(ext)s`,
       url
     ], 180000);
+    // Refus de taille : yt-dlp peut sortir en erreur OU en code 0 (skip) —
+    // on examine le message AVANT le code de sortie.
+    if (refusedForSize(r.stderr)) {
+      release();
+      return { ok: false, reason: "too_large", detail: stderrTail(r.stderr) };
+    }
     if (!r.ok) {
       release();
-      if (refusedForSize(r.stderr)) return { ok: false, reason: "too_large" };
-      if (/introuvable/.test(r.stderr)) return { ok: false, reason: "missing" };
-      return { ok: false, reason: "failed" };
+      if (/introuvable/.test(r.stderr)) return { ok: false, reason: "missing", detail: stderrTail(r.stderr) };
+      return { ok: false, reason: "failed", detail: stderrTail(r.stderr) };
     }
     const file = findOutputFile(dir);
     if (!file) {
       release();
-      return { ok: false, reason: "failed" };
+      return { ok: false, reason: "failed", detail: "aucun fichier produit (mode simulate ?)" };
     }
     if (fs.statSync(file).size > maxBytes) {
       release();
-      return { ok: false, reason: "too_large" };
+      return { ok: false, reason: "too_large", detail: `post-contrôle : ${fs.statSync(file).size} > ${maxBytes} octets` };
     }
     return { ok: true, filePath: file, title: firstStdoutLine(r.stdout) };
   } catch {
