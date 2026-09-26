@@ -534,6 +534,13 @@ cmd_update() {
   ok "Code: ${old_rev} → ${new_rev}"
   ( cd "${APP_DIR}" && git log --oneline "${old_rev}..${new_rev}" 2>/dev/null | sed 's/^/    /' )
 
+  # 8.85 : chemin ABSOLU du script À JOUR sur disque. BASH_SOURCE peut être
+  # relatif (ex. ./manage.sh) : un exec direct échouerait selon le cwd d'où
+  # l'owner a lancé la commande. Calculé APRÈS le pull — si un futur update
+  # déplace manage.sh, le repli cmd_restart prend le relais.
+  local self_path
+  self_path="$(cd "$(dirname "${NEBULA_SRC}")" && pwd)/$(basename "${NEBULA_SRC}")"
+
   # Sur un conteneur ~1 Go, npm/vite en parallèle du bot vivant saturent la
   # mémoire du cgroup → throttling → updates de 20-30 min (audit 8.29).
   # On arrête le bot le temps d'installer/construire (~1 min) puis on le
@@ -541,7 +548,11 @@ cmd_update() {
   update_fail() {
     if [ "${was_running}" = "yes" ] && [ -f "${APP_DIR}/dist/server.cjs" ]; then
       warn "Échec de l'étape — relance de l'ancien build…"
-      cmd_start >/dev/null 2>&1 || true
+      # 8.85 : relance via le manage.sh À JOUR sur disque (ce processus
+      # exécute encore l'ancien). L'env-prefix n'exporte UPDATE_IN_PROGRESS
+      # que pour ce fils : son cmd_start reste autorisé malgré le verrou
+      # que ce processus tient encore.
+      UPDATE_IN_PROGRESS=1 bash "${self_path}" start >/dev/null 2>&1 || true
     fi
     die "$1"
   }
@@ -566,7 +577,19 @@ cmd_update() {
 
   hdr "Redémarrage"
   if [ "${was_running}" = "yes" ]; then
-    cmd_restart
+    # 8.85 : ce bash exécute encore l'ANCIEN manage.sh — le git pull ci-dessus
+    # a remplacé le fichier sur disque, mais le processus en cours continue
+    # sur l'ancien contenu (constaté en 8.84b : redémarrage par l'ancienne
+    # ligne de start → LogGuard non armé). On délègue au script À JOUR via
+    # exec : le nouveau bash ROUVRE le fichier présent sur disque. Un exec
+    # ne tire PAS le trap EXIT → verrou libéré explicitement ici ; les
+    # variables non exportées (UPDATE_IN_PROGRESS) ne traversent pas l'exec.
+    update_lock_release
+    if [ -f "${self_path}" ]; then
+      info "Redémarrage via le manage.sh à jour (exec)…"
+      exec bash "${self_path}" restart
+    fi
+    cmd_restart   # repli : script introuvable au chemin résolu (renommé ?)
   else
     info "Le bot était arrêté — relance avec: ./manage.sh start"
   fi
