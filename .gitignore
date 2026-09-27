@@ -21,3 +21,6 @@ __pycache__/
 bots.json
 bots/*/auth/
 bots/*/data/
+
+# Cookies YouTube pour yt-dlp (8.87) — jamais dans le dépôt
+.yt-cookies.txt

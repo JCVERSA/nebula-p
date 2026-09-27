@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
-import { ytvViaYtDlp } from "../services/ytDlp.js";
+import { activeCookiesFile, ytvViaYtDlp } from "../services/ytDlp.js";
 
 /**
  * `.ytvideo` / `.ytv` — portage natif de l'original neb (media/video.js,
@@ -137,6 +137,11 @@ const ytvideoCommand: BotCommand = {
           console.log("[YTV] OK via yt-dlp");
         } else if (local.reason === "too_large") {
           return void (await context.reply("⚠️ *Vidéo trop lourde* (max 100 Mo à cette qualité) — essaie une qualité inférieure ou une vidéo plus courte."));
+        } else if (local.reason === "signin") {
+          console.log(`[YTV] yt-dlp: session YouTube requise${local.detail ? ` — ${local.detail}` : ""}`);
+          return void (await context.reply(activeCookiesFile()
+            ? "🔐 *Session YouTube expirée* — l'owner doit renouveler le fichier cookies (README §YouTube / NEBULA_YTDLP_COOKIES)."
+            : "🔐 *YouTube exige une session pour cette vidéo* — cookies non configurés (owner : README §YouTube / NEBULA_YTDLP_COOKIES)."));
         } else {
           console.log(`[YTV] yt-dlp failed: ${local.reason}${local.detail ? ` — ${local.detail}` : ""}`);
         }

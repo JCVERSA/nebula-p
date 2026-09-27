@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { BotCommand } from "../types.js";
 import { runFfmpegKit } from "../services/mediaToolkit.js";
-import { ytmViaYtDlp } from "../services/ytDlp.js";
+import { activeCookiesFile, ytmViaYtDlp } from "../services/ytDlp.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 
 /**
@@ -162,6 +162,13 @@ const songCommand: BotCommand = {
           console.log(`[SONG] OK via yt-dlp (${(audioBuffer.length / 1048576).toFixed(2)} MB)`);
         } else if (local.reason === "too_large") {
           return void (await context.reply("⚠️ *Fichier audio trop lourd* (max 60 Mo) — choisis une vidéo plus courte."));
+        } else if (local.reason === "signin") {
+          console.log(`[SONG] yt-dlp: session YouTube requise${local.detail ? ` — ${local.detail}` : ""}`);
+          // 8.87 : message actionnable au lieu d'un échec générique — les
+          // APIs tierces étant mortes, la cascade ne rattraperait rien.
+          return void (await context.reply(activeCookiesFile()
+            ? "🔐 *Session YouTube expirée* — l'owner doit renouveler le fichier cookies (README §YouTube / NEBULA_YTDLP_COOKIES)."
+            : "🔐 *YouTube exige une session pour cette vidéo* — cookies non configurés (owner : README §YouTube / NEBULA_YTDLP_COOKIES)."));
         } else {
           console.log(`[SONG] yt-dlp failed: ${local.reason}${local.detail ? ` — ${local.detail}` : ""}`);
         }

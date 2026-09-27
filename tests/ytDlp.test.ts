@@ -38,6 +38,7 @@ function installFakeBin(): void {
     "fs.appendFileSync(" + JSON.stringify(argsLog) + ", JSON.stringify(args) + '\\n');",
     "if (process.env.FAKE_MODE === 'fail') { console.error('boom'); process.exit(1); }",
     "if (process.env.FAKE_MODE === 'toobig') { console.error('File is larger than max-filesize'); process.exit(0); }",
+    "if (process.env.FAKE_MODE === 'signin') { console.error('ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you are not a bot. Use --cookies for the authentication.'); process.exit(1); }",
     "const oi = args.indexOf('-o');",
     "if (oi !== -1) {",
     "  const out = args[oi + 1].replace('%(ext)s', process.env.FAKE_EXT || 'webm');",
@@ -77,6 +78,7 @@ afterEach(() => {
   delete process.env.FAKE_MODE;
   delete process.env.FAKE_SIZE;
   delete process.env.FAKE_EXT;
+  delete process.env.NEBULA_YTDLP_COOKIES;
   try { fs.rmSync(fakeDir, { recursive: true, force: true }); } catch {}
 });
 
@@ -251,6 +253,56 @@ describe("8.86 — ytvViaYtDlp : vidéo plafonnée à la qualité demandée", ()
   });
 });
 
+// ── 8.87 : runtime JS node + cookies de session optionnels ─────────────────
+describe("8.87 — runtime JS node + cookies de session optionnels", () => {
+  it("--js-runtimes node toujours présent (audio)", async () => {
+    await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
+    const args = readLoggedArgs().at(-1) as string[];
+    const i = args.indexOf("--js-runtimes");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe("node");
+  });
+
+  it("--js-runtimes node toujours présent (vidéo)", async () => {
+    process.env.FAKE_EXT = "mp4";
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "720", 100 * 1024 * 1024);
+    const args = readLoggedArgs().at(-1) as string[];
+    const i = args.indexOf("--js-runtimes");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe("node");
+    if (r.ok) fs.rmSync(path.dirname(r.filePath), { recursive: true, force: true });
+  });
+
+  it("cookies actifs (env + fichier lisible) → paire --cookies <chemin>", async () => {
+    const ck = path.join(fakeDir, "cookies.txt");
+    fs.writeFileSync(ck, "# Netscape HTTP Cookie File\n");
+    process.env.NEBULA_YTDLP_COOKIES = ck;
+    await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
+    const args = readLoggedArgs().at(-1) as string[];
+    const i = args.indexOf("--cookies");
+    expect(i).toBeGreaterThan(-1);
+    expect(args[i + 1]).toBe(ck);
+  });
+
+  it("env défini mais fichier ABSENT → pas de --cookies (mode anonyme)", async () => {
+    process.env.NEBULA_YTDLP_COOKIES = path.join(fakeDir, "introuvable.txt");
+    await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
+    expect((readLoggedArgs().at(-1) as string[])).not.toContain("--cookies");
+  });
+
+  it("env non défini → pas de --cookies", async () => {
+    await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
+    expect((readLoggedArgs().at(-1) as string[])).not.toContain("--cookies");
+  });
+
+  it("mur d'authentification YouTube → reason signin avec détail (pas d'échec muet)", async () => {
+    process.env.FAKE_MODE = "signin";
+    const r = await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
+    expect(r).toMatchObject({ ok: false, reason: "signin" });
+    expect((r as { detail?: string }).detail).toContain("Sign in");
+  });
+});
+
 // ── Intégration structurelle dans les commandes (style audit 8.84) ────────
 describe("8.86 — branchement : yt-dlp en PREMIER, API tierces en secours", () => {
   const readSrc = (f: string): string =>
@@ -272,6 +324,15 @@ describe("8.86 — branchement : yt-dlp en PREMIER, API tierces en secours", () 
     expect(ytDlpPos).toBeGreaterThan(0);
     expect(cascadePos).toBeGreaterThan(0);
     expect(ytDlpPos).toBeLessThan(cascadePos);
+  });
+
+  it("song.ts et ytvideo.ts : importent activeCookiesFile et gèrent signin (message cookies)", () => {
+    const song = readSrc("song.ts");
+    const ytv = readSrc("ytvideo.ts");
+    expect(song).toContain("activeCookiesFile");
+    expect(song).toContain('local.reason === "signin"');
+    expect(ytv).toContain("activeCookiesFile");
+    expect(ytv).toContain('local.reason === "signin"');
   });
 
   it("ytvideo.ts : le fichier local est purgé en finally (envoi par chemin)", () => {

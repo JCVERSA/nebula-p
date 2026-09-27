@@ -8,6 +8,12 @@
  * est acceptée par YouTube (test terrain owner 2026-09-27 : téléchargement
  * OK). Les API tierces restent en secours.
  *
+ * 8.87 : --js-runtimes node (défi JS du player — testé terrain : nécessaire
+ * mais insuffisant seul) + cookies de session OPTIONNELS via
+ * NEBULA_YTDLP_COOKIES : certaines vidéos exigent une session authentifiée
+ * (« Sign in to confirm you're not a bot », gating PAR VIDÉO sur IP
+ * datacenter, constaté 2026-09-27 : la vidéo populaire passe, l'autre non).
+ *
  * Sécurité (leçons audit commandes 8.84) :
  * - spawn SANS shell, args en tableau — aucune interpolation ;
  * - l'URL est TOUJOURS reconstruite depuis l'ID vidéo (canonicalYoutubeUrl) :
@@ -25,11 +31,11 @@ import path from "path";
 
 export type YtDlpOutcome =
   | { ok: true; buffer: Buffer; title: string | null }
-  | { ok: false; reason: "no_id" | "missing" | "too_large" | "failed"; detail?: string };
+  | { ok: false; reason: "no_id" | "missing" | "too_large" | "signin" | "failed"; detail?: string };
 
 export type YtDlpVideoOutcome =
   | { ok: true; filePath: string; title: string | null }
-  | { ok: false; reason: "no_id" | "missing" | "too_large" | "failed"; detail?: string };
+  | { ok: false; reason: "no_id" | "missing" | "too_large" | "signin" | "failed"; detail?: string };
 
 const YT_ID_RE = /(?:youtu\.be\/|v=|shorts\/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/;
 
@@ -128,6 +134,25 @@ function stderrTail(stderr: string): string {
   return stderr.split("\n").map(l => l.trim()).filter(Boolean).slice(-3).join(" | ").slice(0, 300);
 }
 
+/** Mur d'authentification YouTube (gating par vidéo sur IP datacenter). */
+const SIGNIN_RE = /sign in to confirm/i;
+
+/**
+ * 8.87 : fichier de cookies YouTube actif (NEBULA_YTDLP_COOKIES pointant un
+ * fichier lisible) — null en mode anonyme. Vérifié À CHAQUE appel : le
+ * fichier peut apparaître ou expirer entre deux commandes.
+ */
+export function activeCookiesFile(): string | null {
+  const p = process.env.NEBULA_YTDLP_COOKIES;
+  if (!p) return null;
+  try {
+    fs.accessSync(p, fs.constants.R_OK);
+    return p;
+  } catch {
+    return null;
+  }
+}
+
 /** True si yt-dlp a refusé pour cause de taille (message officiel du binaire). */
 function refusedForSize(stderr: string): boolean {
   return /larger than max-filesize|File is larger than/i.test(stderr);
@@ -144,6 +169,7 @@ export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<Y
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nebula_ytdlp_"));
   try {
     const outBase = path.join(dir, "out");
+    const cookies = activeCookiesFile();
     const r = await runYtDlp([
       "-f", "ba/bestaudio/best",
       "--no-playlist", "--no-warnings", "--no-progress",
@@ -152,6 +178,11 @@ export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<Y
       // sur la version exacte du VPS (2026.08.19) via serveur local : avec
       // --print seul → 0 fichier ; avec --no-simulate → fichier + titre.
       "--no-simulate",
+      // 8.87 : runtime JS pour le défi du player (node déjà présent sur le
+      // VPS ; flag ADDITIF — deno resterait prioritaire s'il existait), et
+      // cookies de session si NEBULA_YTDLP_COOKIES pointe un fichier lisible.
+      "--js-runtimes", "node",
+      ...(cookies ? ["--cookies", cookies] : []),
       "--max-filesize", String(maxBytes),
       "--print", "%(title)s",
       "-o", `${outBase}.%(ext)s`,
@@ -161,6 +192,7 @@ export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<Y
     // on examine le message AVANT le code de sortie.
     if (refusedForSize(r.stderr)) return { ok: false, reason: "too_large", detail: stderrTail(r.stderr) };
     if (!r.ok) {
+      if (SIGNIN_RE.test(r.stderr)) return { ok: false, reason: "signin", detail: stderrTail(r.stderr) };
       if (/introuvable/.test(r.stderr)) return { ok: false, reason: "missing", detail: stderrTail(r.stderr) };
       return { ok: false, reason: "failed", detail: stderrTail(r.stderr) };
     }
@@ -196,12 +228,16 @@ export async function ytvViaYtDlp(rawInput: string, quality: string, maxBytes: n
   };
   try {
     const outBase = path.join(dir, "out");
+    const cookies = activeCookiesFile();
     const r = await runYtDlp([
       "-f", `bv*[height<=${q}]+ba/b[height<=${q}]`,
       "--merge-output-format", "mp4",
       "--no-playlist", "--no-warnings", "--no-progress",
       // 8.86b : --print implique --simulate — voir ytmViaYtDlp ci-dessus.
       "--no-simulate",
+      // 8.87 : runtime JS + cookies — voir ytmViaYtDlp ci-dessus.
+      "--js-runtimes", "node",
+      ...(cookies ? ["--cookies", cookies] : []),
       "--max-filesize", String(maxBytes),
       "--print", "%(title)s",
       "-o", `${outBase}.%(ext)s`,
@@ -215,6 +251,7 @@ export async function ytvViaYtDlp(rawInput: string, quality: string, maxBytes: n
     }
     if (!r.ok) {
       release();
+      if (SIGNIN_RE.test(r.stderr)) return { ok: false, reason: "signin", detail: stderrTail(r.stderr) };
       if (/introuvable/.test(r.stderr)) return { ok: false, reason: "missing", detail: stderrTail(r.stderr) };
       return { ok: false, reason: "failed", detail: stderrTail(r.stderr) };
     }
