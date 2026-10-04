@@ -2166,6 +2166,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         (maxFits >= 1
           ? `💡 _Avec l'espace libre actuel, essaie plutôt ${maxFits} épisode(s) maximum d'un coup, ou réessaie plus tard._\n\n`
           : `💡 _Réessaie plus tard, quand de l'espace sera libéré._\n\n`) +
+        // 8.88 : suggestion visible uniquement de l'owner (le chat peut être un groupe)
+        (context.isOwner
+          ? "🧹 _Anciens téléchargements qui encombrent ? Lance_ \`.purge\` _(alias_ \`.p\`_)_ _pour tout libérer immédiatement._\n\n"
+          : "") +
         `🛡️ _Les téléchargements en cours ne sont pas affectés._`
       );
     }
@@ -2259,7 +2263,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           // 30 min par défaut (NEBULA_LINK_TTL_MIN), remises à zéro à chaque
           // téléchargement, vie totale plafonnée à 2 h.
           const tempDownload = registerTempDownload(localPath, filename, {
-            moveFile: true
+            moveFile: true,
+            jobId: batchJob.id // 8.88 : la purge owner épargne ce batch tant que son claim est vivant
           });
 
           downloadedFilePaths.push(tempDownload.filePath);

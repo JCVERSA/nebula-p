@@ -14,6 +14,8 @@ export interface TempDownloadRecord {
   expiresAt: number;
   downloadCount: number;
   meta?: Record<string, any>;
+  /** 8.88 : job détenteur (batch novabox) — la purge owner épargne les jobs au claim disque vivant. */
+  jobId?: string;
 }
 
 const TEMP_DOWNLOAD_DIR = path.join(os.tmpdir(), "nebula_temp_downloads");
@@ -88,6 +90,42 @@ export function getServerBaseUrl(): string {
   return "";
 }
 
+// ── 8.88 : purge owner (.purge / .p) — cf. services/diskPurge.ts ────────────
+
+/** Dossier du store des fichiers livrés (chemin réel). */
+export function getTempDownloadDir(): string {
+  return TEMP_DOWNLOAD_DIR;
+}
+
+/** Records vivants de CE moteur (la purge décide ; les autres moteurs ne sont pas visibles). */
+export function listTempRecords(): TempDownloadRecord[] {
+  return Array.from(activeDownloads.values());
+}
+
+/** Suppression immédiate de records (fichier + index). Ne jette jamais. */
+export function purgeTempRecords(tokens: string[]): { deletedCount: number; deletedBytes: number; failedCount: number } {
+  let deletedCount = 0;
+  let deletedBytes = 0;
+  let failedCount = 0;
+  for (const token of tokens) {
+    const record = activeDownloads.get(token);
+    if (!record) continue;
+    try {
+      let size = 0;
+      try {
+        size = fs.statSync(record.filePath).size;
+        fs.rmSync(record.filePath, { force: true });
+      } catch {} // fichier déjà absent : le record doit quand même disparaître
+      activeDownloads.delete(token);
+      deletedCount++;
+      deletedBytes += size;
+    } catch {
+      failedCount++;
+    }
+  }
+  return { deletedCount, deletedBytes, failedCount };
+}
+
 /**
  * Register a large file for time-limited secure public download.
  *
@@ -103,6 +141,7 @@ export function registerTempDownload(
     ttlMinutes?: number;
     moveFile?: boolean;
     meta?: Record<string, any>;
+    jobId?: string;
   }
 ): {
   token: string;
@@ -175,7 +214,8 @@ export function registerTempDownload(
     createdAt: now,
     expiresAt,
     downloadCount: 0,
-    meta: options?.meta
+    meta: options?.meta,
+    jobId: options?.jobId
   };
 
   activeDownloads.set(token, record);

@@ -64,6 +64,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["base64", "Encode / décode (Base64, hex, binaire…)"],
       ["getpp", "Photo de profil"],
       ["whois", "Profil d'un membre du groupe"],
+      ["purge", "Purge de l'espace disque (owner)"],
     ],
   },
   {

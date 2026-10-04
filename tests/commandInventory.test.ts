@@ -32,6 +32,8 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "base64", aliases: ["b64"] },
   { name: "getpp", aliases: ["getpic"] },
   { name: "whois", aliases: ["profile", "profil", "wi", "userinfo", "ui"] },
+  // 8.88 : ajouté sur décision owner explicite (.purge / .p, owner-only)
+  { name: "purge", aliases: ["p"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {
