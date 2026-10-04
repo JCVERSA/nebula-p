@@ -15,6 +15,7 @@ import pino from "pino";
 import { Boom } from "@hapi/boom";
 import fs from "fs";
 import { getConfig } from "./config.js";
+import { resolveOwnerIdentity } from "./ownerIdentity.js";
 import { getCommand, initRegistry, isRegistryReady } from "./commandRegistry.js";
 import { BotCommandContext, GroupMember } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
@@ -742,8 +743,12 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         const actualSenderNumber = actualSenderJid.split("@")[0].replace(/[^0-9]/g, "");
         const envOwnerNumber = (process.env.OWNER_NUMBER || "").trim();
         const configuredOwner = envOwnerNumber || config.ownerNumber;
-        const cleanedOwner = configuredOwner.replace(/[^0-9]/g, "");
-        const isOwner = cleanedOwner ? (actualSenderNumber === cleanedOwner) : false;
+        // 8.89 : le message peut arriver d'un jid @lid (WhatsApp « masquer mon
+        // numéro ») — résolution LID→numéro via Baileys puis comparaison
+        // EXACTE (helper partagé avec whois ; comportement IDENTIQUE pour les
+        // jids téléphone). Fallback NEBULA_OWNER_LID si la table est inconnue.
+        const ownerCheck = await resolveOwnerIdentity(sock, actualSenderJid, configuredOwner);
+        const isOwner = ownerCheck.isOwner;
 
         // Add visual live logs to the dashboard so the user knows messages are being processed
         if (text.trim()) {

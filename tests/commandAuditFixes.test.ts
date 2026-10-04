@@ -68,10 +68,14 @@ describe("C6/C7 — whois en privé + badge owner exact", () => {
     expect(src).toContain("isGroup && !participant");
   });
 
-  it("badge owner : comparaison exacte, plus de sous-chaîne", () => {
+  it("badge owner : comparaison exacte, plus de sous-chaîne (8.89 : via le helper LID-aware)", () => {
     const src = read("src/bot/commands/whois.ts");
-    expect(src).toContain("ownerNumbers.includes(number)");
+    // 8.89 : la comparaison exacte vit dans ownerIdentity.ts (resolveOwnerIdentity)
+    // — whois y délègue ; le comportement exact (pas de sous-chaîne) est
+    // verrouillé comportementalement dans tests/ownerIdentity.test.ts.
+    expect(src).toContain("resolveOwnerIdentity(sock, finalTarget, ownerCfg)");
     expect(src).not.toContain("ownerCfg.includes(number)");
+    expect(read("src/bot/ownerIdentity.ts")).toContain("owners.includes(senderNumber)");
   });
 });
 

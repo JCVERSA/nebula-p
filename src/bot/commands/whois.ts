@@ -1,5 +1,6 @@
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
+import { resolveOwnerIdentity } from "../ownerIdentity.js";
 
 /**
  * `.whois` — portage natif de l'original neb (general/whois.js, owner request
@@ -49,9 +50,12 @@ const whoisCommand: BotCommand = {
       const isOwnerGroup = participant?.admin === "superadmin";
       // 8.84 (audit C7) : comparaison EXACTE — l'ancien includes() en
       // sous-chaîne affichait le badge 👑 à tout numéro contenant l'owner.
+      // 8.89 : la cible peut écrire sous un jid @lid (WhatsApp « masquer mon
+      // numéro ») — résolution LID→numéro via Baileys, helper partagé avec
+      // le gate owner de botEngine.
       const ownerCfg = getConfig().ownerNumber;
-      const ownerNumbers = ownerCfg.split(/[^0-9]+/).filter(Boolean);
-      const isBotOwner = ownerNumbers.includes(number);
+      const ownerCheck = await resolveOwnerIdentity(sock, finalTarget, ownerCfg);
+      const isBotOwner = ownerCheck.isOwner;
 
       // ── Profil WhatsApp (photo + statut) ──────────────────────────────────
       let ppUrl: string | null = null;
@@ -73,6 +77,11 @@ const whoisCommand: BotCommand = {
       // ── Carte de profil ──────────────────────────────────────────────────
       let text = `👤 *PROFIL*\n\n`;
       text += `📛 *Numéro :* @${number}\n`;
+      // 8.89 : cible sous LID → afficher AUSSI le numéro WhatsApp résolu
+      // (c'est ce diagnostic qui a manqué le 2026-10-03 ; cf. ownerIdentity.ts).
+      if (ownerCheck.resolvedNumber && ownerCheck.resolvedNumber !== number) {
+        text += `📱 *WhatsApp :* +${ownerCheck.resolvedNumber}\n`;
+      }
       text += `🎫 *Rôle :* ${
         !isGroup
           ? "👤 Contact (chat privé)"
