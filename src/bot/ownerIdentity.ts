@@ -13,10 +13,14 @@
  * réel derrière un jid @lid, puis la comparaison EXACTE (esprit C7, audit
  * 8.84 : jamais de correspondance partielle) se fait comme avant.
  *
- * Filet de sécurité : si la table Baileys ne connaît pas encore la paire
- * (renvoie null), NEBULA_OWNER_LID (env optionnel, digits du LID complet de
- * l'owner — lisible via `.whois` en privé) prend le relais. Comparaison
- * exacte là aussi : un LID est unique et infalsifiable.
+ * 8.89b : si la direction LID→numéro ignore la paire, on tente la
+ * direction INVERSE (numéro→LID pour chaque owner configuré) — celle-ci
+ * sait interroger le serveur WhatsApp (USync), donc elle réussit même à
+ * froid, avec OWNER_NUMBER seul.
+ *
+ * Filet de sécurité final : NEBULA_OWNER_LID (env optionnel, digits du LID
+ * complet de l'owner — lisible via `.whois` en privé). Comparaison exacte
+ * là aussi : un LID est unique et infalsifiable.
  *
  * Zéro régression : pour un jid téléphone (le cas commun), le comportement
  * est IDENTIQUE à l'ancien calcul (comparaison directe, aucun appel Baileys).
@@ -25,6 +29,8 @@
 /** Minimal structural type : évite d'importer les types Baileys ici. */
 export interface LidMappingLike {
   getPNForLID?(lid: string): Promise<string | null>;
+  /** 8.89b : direction inverse — sait interroger le serveur WhatsApp (USync). */
+  getLIDForPN?(pn: string): Promise<string | null>;
 }
 export interface OwnerSockLike {
   signalRepository?: { lidMapping?: LidMappingLike } | null;
@@ -89,7 +95,21 @@ export async function resolveOwnerIdentity(
     return { senderNumber, resolvedNumber, isOwner: true };
   }
 
-  // Table inconnue : fallback NEBULA_OWNER_LID (comparaison exacte du LID).
+  // 8.89b : résolution INVERSE — demander à Baileys le LID de chaque numéro
+  // owner configuré. Cette direction sait interroger le serveur WhatsApp
+  // (USync) quand la paire n'est ni en cache ni dans le store, donc elle
+  // réussit même à froid — avec OWNER_NUMBER seul, zéro configuration.
+  // Suffixe de device éliminé par jidDigits avant comparaison exacte.
+  for (const pn of owners) {
+    try {
+      const lidJid = await sock?.signalRepository?.lidMapping?.getLIDForPN?.(`${pn}@s.whatsapp.net`);
+      if (typeof lidJid === "string" && lidJid && jidDigits(lidJid) === senderNumber) {
+        return { senderNumber, resolvedNumber: pn, isOwner: true };
+      }
+    } catch {}
+  }
+
+  // Dernier recours : NEBULA_OWNER_LID (comparaison exacte du LID).
   const lidOwners = numberCandidates(process.env.NEBULA_OWNER_LID);
   return { senderNumber, resolvedNumber, isOwner: lidOwners.includes(senderNumber) };
 }

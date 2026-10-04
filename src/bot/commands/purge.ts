@@ -36,7 +36,7 @@ const purgeCommand: BotCommand = {
       const lines = [
         "🧹 *Purge terminée*",
         "",
-        `📁 Fichiers livrés supprimés : *${r.deletedFiles}* (${fmt(r.freedBytes)})`,
+        `📁 Fichiers supprimés : *${r.deletedFiles}* (${fmt(r.freedBytes)})`,
         r.deletedDirs > 0 ? `🧱 Débris de fabrication nettoyés : *${r.deletedDirs}* dossier(s)` : null,
         r.activeBatches > 0
           ? `🛡️ Batch en cours épargné : *${r.activeBatches}* (${r.sparedDelivered} fichier(s) gardés)`

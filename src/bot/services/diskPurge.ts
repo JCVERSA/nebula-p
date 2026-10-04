@@ -5,8 +5,15 @@
  * glissant 30 min, vie max 2 h, orphelins 3 h, seuils manage.sh clean).
  * Décision owner 2026-09-27 : une commande owner-only qui libère TOUT
  * l'espace nettoyable immédiatement — fichiers livrés (liens morts
- * acceptés par décision owner), débris de fabrication (cat_catch_*,
- * batch_zip_*), fichiers non suivis du store.
+ * acceptés par décision owner), débris de fabrication, fichiers non suivis
+ * du store.
+ *
+ * 8.90 (retour terrain « .p ne libère jamais ») : les vrais fichiers
+ * d'animes vivent aussi À LA RACINE du tmpdir (batch_*.mp4, nom d'anime
+ * brut pour l'épisode single, comp_*.mp4, zips finaux, nebula_ytdlp_*) —
+ * interrompus, ils restaient à jamais. Les patterns et la planification
+ * des débris racine vivent dans services/tmpDebris.ts (source de vérité
+ * partagée avec le nettoyage périodique et la purge au boot).
  *
  * Règle de protection (décision owner : « épargner le batch en cours ») :
  * un batch actif = un claim disque VIVANT (listDiskClaims, auto-nettoyé :
@@ -20,8 +27,8 @@
  *      moteurs, mais le dossier l'est).
  *
  * Sécurité : le planificateur est une FONCTION PURE (testable sans disque
- * réel) ; l'exécuteur ne touche QUE des chemins en liste blanche
- * (dossier du store livré + préfixes cat_catch_/batch_zip_ du tmpdir).
+ * réel) ; l'exécuteur ne touche QUE des chemins en liste blanche (dossier
+ * du store livré + débris reconnus de la racine tmpdir, cf. tmpDebris.ts).
  * Jamais bot.log (LogGuard), jamais le dépôt applicatif, jamais les claims.
  */
 
@@ -30,6 +37,12 @@ import os from "os";
 import path from "path";
 import { listDiskClaims } from "../diskClaims.js";
 import { getTempDownloadDir, listTempRecords, purgeTempRecords, type TempDownloadRecord } from "../tempDownloadManager.js";
+import {
+  planTmpRootDebris,
+  scanTmpRoot,
+  type LiveClaimRef,
+  type TmpRootEntry
+} from "./tmpDebris.js";
 
 /** Grâce : fichiers sans claim vivant créés il y a moins de 5 minutes. */
 export const PURGE_GRACE_MS = 5 * 60 * 1000;
@@ -46,23 +59,16 @@ export interface PlanDeliveredEntry {
   jobId?: string;
 }
 
-export interface PlanStagingEntry {
-  /** Chemin complet du dossier de fabrication. */
-  name: string;
-  mtimeMs: number;
-}
-
-export interface PlanClaim {
-  jobId: string;
-  createdAt: number;
-}
+/** Référence à un claim vivant (shape partagée avec tmpDebris). */
+export type PlanClaim = LiveClaimRef;
 
 export interface PurgePlan {
   tokensToDelete: string[];
   untrackedFilesToDelete: string[];
-  stagingDirsToDelete: string[];
+  /** Débris racine à supprimer (préfixes connus + fichiers média) — 8.90. */
+  rootDebrisToDelete: TmpRootEntry[];
   sparedDelivered: number;
-  sparedStaging: number;
+  sparedRootDebris: number;
   activeBatches: number;
 }
 
@@ -72,18 +78,18 @@ export interface PurgePlan {
  */
 export function planDiskPurge(input: {
   delivered: PlanDeliveredEntry[];
-  staging: PlanStagingEntry[];
+  rootDebris: TmpRootEntry[];
   liveClaims: PlanClaim[];
   now?: number;
 }): PurgePlan {
   const now = input.now ?? Date.now();
   const claims = input.liveClaims;
   const liveJobIds = new Set(claims.map(c => c.jobId));
-  const oldestClaimStart = claims.length ? Math.min(...claims.map(c => c.createdAt)) : null;
 
   const tokensToDelete: string[] = [];
   const untrackedFilesToDelete: string[] = [];
   let sparedDelivered = 0;
+  const oldestClaimStart = claims.length ? Math.min(...claims.map(c => c.createdAt)) : null;
 
   for (const entry of input.delivered) {
     const protectedByClaim = !!entry.jobId && liveJobIds.has(entry.jobId);
@@ -97,24 +103,20 @@ export function planDiskPurge(input: {
     else untrackedFilesToDelete.push(entry.name);
   }
 
-  const stagingDirsToDelete: string[] = [];
-  let sparedStaging = 0;
-  for (const s of input.staging) {
-    const protectedByWindow = oldestClaimStart !== null && s.mtimeMs > oldestClaimStart;
-    const protectedByGrace = now - s.mtimeMs < PURGE_GRACE_MS;
-    if (protectedByWindow || protectedByGrace) {
-      sparedStaging++;
-      continue;
-    }
-    stagingDirsToDelete.push(s.name);
-  }
+  // 8.90 : débris racine — mêmes patterns que les autres nettoyeurs,
+  // politique d'âge = grâce 5 min (propriétaire à la manœuvre).
+  const debrisPlan = planTmpRootDebris(input.rootDebris, {
+    liveClaims: claims,
+    now,
+    minAgeMs: PURGE_GRACE_MS
+  });
 
   return {
     tokensToDelete,
     untrackedFilesToDelete,
-    stagingDirsToDelete,
+    rootDebrisToDelete: debrisPlan.toDelete,
     sparedDelivered,
-    sparedStaging,
+    sparedRootDebris: debrisPlan.spared,
     activeBatches: claims.length
   };
 }
@@ -124,7 +126,7 @@ export interface PurgeReport {
   deletedDirs: number;
   freedBytes: number;
   sparedDelivered: number;
-  sparedStaging: number;
+  sparedRootDebris: number;
   activeBatches: number;
   freeBytesBefore: number | null;
   freeBytesAfter: number | null;
@@ -164,21 +166,6 @@ function scanDelivered(tempDir: string, records: TempDownloadRecord[]): PlanDeli
   return entries;
 }
 
-/** Dossiers de fabrication cat_catch_* / batch_zip_* à la racine du tmpdir. */
-function scanStaging(root: string): PlanStagingEntry[] {
-  const out: PlanStagingEntry[] = [];
-  try {
-    for (const file of fs.readdirSync(root)) {
-      if (!file.startsWith("cat_catch_") && !file.startsWith("batch_zip_")) continue;
-      const full = path.join(root, file);
-      try {
-        out.push({ name: full, mtimeMs: fs.statSync(full).mtimeMs });
-      } catch {}
-    }
-  } catch {}
-  return out;
-}
-
 /**
  * Exécute la purge et retourne le bilan. Les chemins sont injectables pour
  * les tests (défauts = durs réels du moteur) ; les claims vivants aussi
@@ -195,7 +182,7 @@ export async function executeDiskPurge(
   const freeBytesBefore = freeBytesOf(stagingRoot);
   const plan = planDiskPurge({
     delivered: scanDelivered(tempDir, listTempRecords()),
-    staging: scanStaging(stagingRoot),
+    rootDebris: scanTmpRoot(stagingRoot),
     liveClaims
   });
 
@@ -222,11 +209,15 @@ export async function executeDiskPurge(
     }
   }
 
-  // 3. Débris de fabrication
-  for (const d of plan.stagingDirsToDelete) {
+  // 3. Débris racine (fichiers ET dossiers — 8.90)
+  for (const e of plan.rootDebrisToDelete) {
     try {
-      fs.rmSync(d, { recursive: true, force: true });
-      deletedDirs++;
+      fs.rmSync(e.fullPath, { recursive: true, force: true });
+      if (e.isDir) deletedDirs++;
+      else {
+        deletedFiles++;
+        freedBytes += e.sizeBytes;
+      }
     } catch {
       errors++;
     }
@@ -238,7 +229,7 @@ export async function executeDiskPurge(
     deletedDirs,
     freedBytes,
     sparedDelivered: plan.sparedDelivered,
-    sparedStaging: plan.sparedStaging,
+    sparedRootDebris: plan.sparedRootDebris,
     activeBatches: plan.activeBatches,
     freeBytesBefore,
     freeBytesAfter,

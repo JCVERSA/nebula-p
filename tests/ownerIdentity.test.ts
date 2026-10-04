@@ -17,12 +17,17 @@ import { resolveOwnerIdentity } from "../src/bot/ownerIdentity.js";
 const OWNER = "237640143760";
 const OWNER_LID = "98765432105378";
 
-const mkSock = (pn: string | null | Error) => ({
+const mkSock = (pn: string | null | Error, lidByPn?: string | null | Error) => ({
   signalRepository: {
     lidMapping: {
       getPNForLID: vi.fn(async () => {
         if (pn instanceof Error) throw pn;
         return pn;
+      }),
+      getLIDForPN: vi.fn(async () => {
+        if (lidByPn === undefined) return null;
+        if (lidByPn instanceof Error) throw lidByPn;
+        return lidByPn;
       })
     }
   }
@@ -117,6 +122,33 @@ describe("8.89 — jid @lid : résolution via la table Baileys", () => {
   it("sock sans signalRepository (absent/null) → pas de crash, non-owner sans fallback", async () => {
     expect((await resolveOwnerIdentity(undefined, `${OWNER_LID}@lid`, OWNER)).isOwner).toBe(false);
     expect((await resolveOwnerIdentity({} as any, `${OWNER_LID}@lid`, OWNER)).isOwner).toBe(false);
+  });
+});
+
+describe("8.89b — résolution inverse : OWNER_NUMBER → LID (USync)", () => {
+  it("LID→PN inconnu MAIS inverse owner→LID matche l'expéditeur → owner, zéro config", async () => {
+    const sock = mkSock(null, `${OWNER_LID}:0@lid`);
+    const r = await resolveOwnerIdentity(sock as any, `${OWNER_LID}@lid`, OWNER);
+    expect(r.isOwner).toBe(true);
+    expect(r.resolvedNumber).toBe(OWNER);
+    expect(sock.signalRepository.lidMapping.getLIDForPN).toHaveBeenCalledWith(`${OWNER}@s.whatsapp.net`);
+  });
+
+  it("inverse renvoie le LID d'un AUTRE numéro → non-owner", async () => {
+    const r = await resolveOwnerIdentity(mkSock(null, "111122223333:0@lid") as any, `${OWNER_LID}@lid`, OWNER);
+    expect(r.isOwner).toBe(false);
+  });
+
+  it("inverse qui JETTE (usync en erreur) → pas de crash, fallback env s'applique", async () => {
+    process.env.NEBULA_OWNER_LID = OWNER_LID;
+    const r = await resolveOwnerIdentity(mkSock(null, new Error("usync boom")) as any, `${OWNER_LID}@lid`, OWNER);
+    expect(r.isOwner).toBe(true);
+  });
+
+  it("multi-candidats : le second numéro owner résout le LID", async () => {
+    const sock = mkSock(null, `${OWNER_LID}:0@lid`);
+    const r = await resolveOwnerIdentity(sock as any, `${OWNER_LID}@lid`, `237111111111, ${OWNER}`);
+    expect(r.isOwner).toBe(true);
   });
 });
 

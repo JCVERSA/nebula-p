@@ -36,13 +36,13 @@ describe("8.88 — planificateur pur : règles de protection", () => {
         { token: "t1", name: "/a", mtimeMs: OLD, sizeBytes: 1 },
         { token: null, name: "/b", mtimeMs: OLD, sizeBytes: 1 }
       ],
-      staging: [{ name: "/tmp/cat_catch_x", mtimeMs: OLD }]
+      rootDebris: [{ name: "cat_catch_x", fullPath: "/tmp/cat_catch_x", mtimeMs: OLD, isDir: true, sizeBytes: 0 }]
     });
     expect(plan.tokensToDelete).toEqual(["t1"]);
     expect(plan.untrackedFilesToDelete).toEqual(["/b"]);
-    expect(plan.stagingDirsToDelete).toEqual(["/tmp/cat_catch_x"]);
+    expect(plan.rootDebrisToDelete.map(e => e.fullPath)).toEqual(["/tmp/cat_catch_x"]);
     expect(plan.sparedDelivered).toBe(0);
-    expect(plan.sparedStaging).toBe(0);
+    expect(plan.sparedRootDebris).toBe(0);
     expect(plan.activeBatches).toBe(0);
   });
 
@@ -55,7 +55,7 @@ describe("8.88 — planificateur pur : règles de protection", () => {
         { token: "t-live", name: "/live", mtimeMs: now - 5 * 60 * 1000, sizeBytes: 1, jobId: "job-live" },
         { token: "t-old", name: "/old", mtimeMs: claim.createdAt - 60 * 60 * 1000, sizeBytes: 1, jobId: "job-fini" }
       ],
-      staging: []
+      rootDebris: []
     });
     expect(plan.tokensToDelete).toEqual(["t-old"]);
     expect(plan.sparedDelivered).toBe(1);
@@ -71,15 +71,15 @@ describe("8.88 — planificateur pur : règles de protection", () => {
         { token: null, name: "/pendant", mtimeMs: now - 20 * 60 * 1000, sizeBytes: 1 },
         { token: null, name: "/avant", mtimeMs: now - 45 * 60 * 1000, sizeBytes: 1 }
       ],
-      staging: [
-        { name: "/tmp/cat_catch_pendant", mtimeMs: now - 20 * 60 * 1000 },
-        { name: "/tmp/batch_zip_avant", mtimeMs: now - 45 * 60 * 1000 }
+      rootDebris: [
+        { name: "cat_catch_pendant", fullPath: "/tmp/cat_catch_pendant", mtimeMs: now - 20 * 60 * 1000, isDir: true, sizeBytes: 0 },
+        { name: "batch_zip_avant", fullPath: "/tmp/batch_zip_avant", mtimeMs: now - 45 * 60 * 1000, isDir: true, sizeBytes: 0 }
       ]
     });
     expect(plan.untrackedFilesToDelete).toEqual(["/avant"]);
-    expect(plan.stagingDirsToDelete).toEqual(["/tmp/batch_zip_avant"]);
+    expect(plan.rootDebrisToDelete.map(e => e.fullPath)).toEqual(["/tmp/batch_zip_avant"]);
     expect(plan.sparedDelivered).toBe(1);
-    expect(plan.sparedStaging).toBe(1);
+    expect(plan.sparedRootDebris).toBe(1);
   });
 
   it("grâce 5 min : un fichier récent sans claim est épargné (envoi single en cours, autre moteur)", () => {
@@ -87,13 +87,13 @@ describe("8.88 — planificateur pur : règles de protection", () => {
       now,
       liveClaims: [],
       delivered: [{ token: null, name: "/frais", mtimeMs: now - (PURGE_GRACE_MS - 1000), sizeBytes: 1 }],
-      staging: [{ name: "/tmp/cat_catch_frais", mtimeMs: now - 60 * 1000 }]
+      rootDebris: [{ name: "cat_catch_frais", fullPath: "/tmp/cat_catch_frais", mtimeMs: now - 60 * 1000, isDir: true, sizeBytes: 0 }]
     });
     expect(plan.tokensToDelete).toEqual([]);
     expect(plan.untrackedFilesToDelete).toEqual([]);
-    expect(plan.stagingDirsToDelete).toEqual([]);
+    expect(plan.rootDebrisToDelete).toEqual([]);
     expect(plan.sparedDelivered).toBe(1);
-    expect(plan.sparedStaging).toBe(1);
+    expect(plan.sparedRootDebris).toBe(1);
   });
 });
 
@@ -116,7 +116,7 @@ describe("8.88 — commande .purge : gate owner + bilan", () => {
       deletedDirs: 2,
       freedBytes: 1.62 * 1024 ** 3,
       sparedDelivered: 3,
-      sparedStaging: 1,
+      sparedRootDebris: 1,
       activeBatches: 1,
       freeBytesBefore: 1.1 * 1024 ** 3,
       freeBytesAfter: 2.7 * 1024 ** 3,
@@ -140,7 +140,7 @@ describe("8.88 — commande .purge : gate owner + bilan", () => {
       deletedDirs: 0,
       freedBytes: 0,
       sparedDelivered: 0,
-      sparedStaging: 0,
+      sparedRootDebris: 0,
       activeBatches: 0,
       freeBytesBefore: 123 * 1024 * 1024,
       freeBytesAfter: 123 * 1024 * 1024,

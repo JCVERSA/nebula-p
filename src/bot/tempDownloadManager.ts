@@ -2,6 +2,8 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
+import { listDiskClaims } from "./diskClaims.js";
+import { planTmpRootDebris, scanTmpRoot } from "./services/tmpDebris.js";
 
 export interface TempDownloadRecord {
   token: string;
@@ -19,7 +21,6 @@ export interface TempDownloadRecord {
 }
 
 const TEMP_DOWNLOAD_DIR = path.join(os.tmpdir(), "nebula_temp_downloads");
-const ZIP_MAX_AGE_MS = 60 * 60 * 1000; // 60 minutes maximum retention for generated ZIP files
 
 // Storage safety ceilings — an untrusted WhatsApp user must not be able to
 // fill the host disk via temp downloads.
@@ -346,23 +347,25 @@ export function cleanupExpiredZipFiles(): { cleanedFiles: number; freedBytes: nu
     console.warn("[TempDownload] Error scanning TEMP_DOWNLOAD_DIR:", err.message);
   }
 
-  // 3. Scan os.tmpdir() for any temporary batch_*.zip or Novabox zip leftovers older than 60 minutes
+  // 3. 8.90 : débris animés À LA RACINE du tmpdir (préfixes batch_/comp_/
+  // nebula_ytdlp_/… + fichiers média — cf. services/tmpDebris.ts). L'ancien
+  // scan ne voyait que certains .zip : les épisodes .mp4 interrompus
+  // (update en plein batch, crash) restaient à jamais. Politique d'âge
+  // conservatrice (3 h, alignée sur le seuil orphelin) + fenêtre des claims
+  // vivants : un batch en cours n'est jamais saboté.
   try {
-    const tmpFiles = fs.readdirSync(os.tmpdir());
-    for (const file of tmpFiles) {
-      if (file.toLowerCase().endsWith(".zip") && (file.includes("batch") || file.includes("Complete") || file.includes("nebula") || file.includes("Novabox"))) {
-        const fullPath = path.join(os.tmpdir(), file);
-        try {
-          const stats = fs.statSync(fullPath);
-          const ageMs = now - stats.mtimeMs;
-          if (ageMs >= ZIP_MAX_AGE_MS) {
-            freedBytes += stats.size;
-            fs.unlinkSync(fullPath);
-            cleanedFiles++;
-            console.log(`[TempDownload] 🧹 Purged batch ZIP from system tmpdir: ${file} (Age: ${Math.round(ageMs / 60000)}m)`);
-          }
-        } catch {}
-      }
+    const debrisPlan = planTmpRootDebris(scanTmpRoot(os.tmpdir()), {
+      liveClaims: listDiskClaims().map(c => ({ jobId: c.jobId, createdAt: c.createdAt })),
+      now,
+      minAgeMs: ORPHAN_MAX_AGE_MS
+    });
+    for (const e of debrisPlan.toDelete) {
+      try {
+        fs.rmSync(e.fullPath, { recursive: true, force: true });
+        freedBytes += e.sizeBytes;
+        cleanedFiles++;
+        console.log(`[TempDownload] 🧹 Purged tmp root debris: ${e.name} (Age: ${Math.round((now - e.mtimeMs) / 60000)}m)`);
+      } catch {}
     }
   } catch {}
 
@@ -451,16 +454,22 @@ export function purgeStartupOrphans(): { cleanedItems: number; freedBytes: numbe
     }
   } catch {}
 
+  // 8.90 : mêmes patterns que .purge et le nettoyage périodique (source de
+  // vérité partagée : services/tmpDebris.ts) — âge 0 au boot (les débris du
+  // process mort sont inatteignables), mais fenêtre des claims vivants
+  // respectée : un AUTRE moteur peut être en plein batch (multi-bots).
   try {
-    for (const entry of fs.readdirSync(os.tmpdir())) {
-      if (entry.startsWith("cat_catch_") || entry.startsWith("batch_zip_")) {
-        const fullPath = path.join(os.tmpdir(), entry);
-        try {
-          freedBytes += fs.statSync(fullPath).size;
-          fs.rmSync(fullPath, { recursive: true, force: true });
-          cleanedItems++;
-        } catch {}
-      }
+    const debrisPlan = planTmpRootDebris(scanTmpRoot(os.tmpdir()), {
+      liveClaims: listDiskClaims().map(c => ({ jobId: c.jobId, createdAt: c.createdAt })),
+      now: Date.now(),
+      minAgeMs: 0
+    });
+    for (const e of debrisPlan.toDelete) {
+      try {
+        freedBytes += e.sizeBytes;
+        fs.rmSync(e.fullPath, { recursive: true, force: true });
+        cleanedItems++;
+      } catch {}
     }
   } catch {}
 
@@ -478,5 +487,11 @@ const cleanupTimer = setInterval(sweepExpiredDownloads, 5 * 60 * 1000);
 cleanupTimer.unref();
 
 // Startup: purge unreachable debris first (audit 8.16), then the regular sweep
-purgeStartupOrphans();
-sweepExpiredDownloads();
+// 8.90 : sous vitest, les workers parallèles créent des fichiers racine
+// frais (ex. novaboxBatchFlow) qu'une purge à âge 0 détruirait en plein
+// test — le comportement reste couvert par l'appel explicite de
+// tests/tempDownloadPurge.test.ts.
+if (!process.env.VITEST) {
+  purgeStartupOrphans();
+  sweepExpiredDownloads();
+}

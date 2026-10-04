@@ -40,6 +40,20 @@ describe("8.88 — executeDiskPurge (intégration réelle, périmètres injecté
     const freshStaging = mkStaging("batch_zip", 60 * 1000); // grâce 5 min → épargné
     const duringStaging = mkStaging("cat_catch", 20 * 60 * 1000); // pendant le batch → épargné
 
+    // 8.90 : épisodes .mp4 À LA RACINE du tmpdir (le trou du retour terrain)
+    const mkRootFile = (name: string, ageMs: number | null): string => {
+      const f = path.join(sandbox, name);
+      fs.writeFileSync(f, Buffer.alloc(2048));
+      if (ageMs !== null) {
+        const ts = new Date(t - ageMs);
+        fs.utimesSync(f, ts, ts);
+      }
+      return f;
+    };
+    const oldRootMp4 = mkRootFile(`batch_${t}_0_Solo_Leveling_S01E01.mp4`, 45 * 60 * 1000); // avant claim + > grâce → purgé
+    const bareRootMp4 = mkRootFile(`Mushoku_Tensei_S03E13_480P.mp4`, 45 * 60 * 1000); // épisode single SANS préfixe → filet média
+    const freshRootMp4 = mkRootFile(`Neuve_Serie_E01.mp4`, null); // frais → grâce 5 min
+
     // Claim vivant : job démarré il y a 30 min (claim fictif injecté)
     const claim = { jobId: `purge-test-${t}`, createdAt: t - 30 * 60 * 1000 };
 
@@ -65,6 +79,9 @@ describe("8.88 — executeDiskPurge (intégration réelle, périmètres injecté
       expect(fs.existsSync(rec.filePath)).toBe(true); // épargné physiquement
       expect(fs.existsSync(orphan)).toBe(false); // orphelin ancien purgé
       expect(fs.existsSync(oldStaging)).toBe(false); // débris ancien purgé
+      expect(fs.existsSync(oldRootMp4)).toBe(false); // 8.90 : épisode batch racine purgé
+      expect(fs.existsSync(bareRootMp4)).toBe(false); // 8.90 : épisode SANS préfixe purgé (filet média)
+      expect(fs.existsSync(freshRootMp4)).toBe(true); // 8.90 : frais → grâce
       expect(fs.existsSync(freshStaging)).toBe(true); // grâce 5 min
       expect(fs.existsSync(duringStaging)).toBe(true); // fenêtre du claim vivant
       expect(r.deletedDirs).toBeGreaterThanOrEqual(1);
