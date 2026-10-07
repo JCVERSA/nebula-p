@@ -34,6 +34,8 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "whois", aliases: ["profile", "profil", "wi", "userinfo", "ui"] },
   // 8.88 : ajouté sur décision owner explicite (.purge / .p, owner-only)
   { name: "purge", aliases: ["p"] },
+  // 8.91 : annales GCE Cameroun (décision owner : .gce/.g/.ge/.papier, tous users)
+  { name: "gce", aliases: ["g", "ge", "papier"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

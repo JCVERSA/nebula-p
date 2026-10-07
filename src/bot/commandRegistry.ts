@@ -13,6 +13,7 @@ import base64Command from "./commands/base64.js";
 import getppCommand from "./commands/getpp.js";
 import whoisCommand from "./commands/whois.js";
 import purgeCommand from "./commands/purge.js";
+import gceCommand from "./commands/gce.js";
 import traceCommand from "./commands/trace.js";
 import menuCommand from "./commands/menu.js";
 import aiCommand from "./commands/ai.js";
@@ -96,6 +97,7 @@ function getBuiltinCommands(): BotCommand[] {
     whoisCommand,
     traceCommand,
     purgeCommand,
+    gceCommand,
   ];
 }
 

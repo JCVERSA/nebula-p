@@ -40,6 +40,7 @@ export const PROTECTED_ROOT_NAMES = new Set(["nebula_temp_downloads", "nebula-di
  * - batch_sim_ : zips du simulateur (batchDownloadManager)
  * - nebula_ytdlp_ : répertoires de travail yt-dlp (.ytm/.ytv, 8.86)
  * - nebula_in_ / nebula_out_ : conversion AAC de .ytm
+ * - gce_ : PDF d'annales GCE téléchargés avant envoi WhatsApp (8.91)
  */
 export const TMP_DEBRIS_PREFIXES = [
   "cat_catch_",
@@ -49,7 +50,8 @@ export const TMP_DEBRIS_PREFIXES = [
   "batch_sim_",
   "nebula_ytdlp_",
   "nebula_in_",
-  "nebula_out_"
+  "nebula_out_",
+  "gce_"
 ] as const;
 
 /**
