@@ -102,7 +102,7 @@ export const MinecraftTorch: FC<MinecraftTorchProps> = ({
           </span>
         )}
         {subLabel && (
-          <span className="text-[10px] text-zinc-500 mt-0.5">{subLabel}</span>
+          <span className="text-[11px] text-zinc-500 mt-0.5">{subLabel}</span>
         )}
       </label>
     </div>

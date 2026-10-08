@@ -102,7 +102,7 @@ export const BrowserIdentitySelector: React.FC<BrowserIdentitySelectorProps> = (
               <h4 className="text-xs font-bold text-white uppercase tracking-wider">
                 WhatsApp Linked Device Signature
               </h4>
-              <span className="text-[10px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
+              <span className="text-[11px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
                 24 Presets Available
               </span>
             </div>
@@ -120,7 +120,7 @@ export const BrowserIdentitySelector: React.FC<BrowserIdentitySelectorProps> = (
               <span>{browserName || "Chrome"}</span>
               <span className="text-zinc-500 font-sans">({platform || "Ubuntu"})</span>
             </div>
-            <div className="text-[9px] text-zinc-400 font-mono flex items-center gap-1">
+            <div className="text-[11px] text-zinc-400 font-mono flex items-center gap-1">
               <span>Build v{version || "22.04.4"}</span>
               {currentPreset && (
                 <span className="text-amber-400 font-sans font-semibold">· {currentPreset.name.split("·")[0].trim()}</span>
@@ -147,7 +147,7 @@ export const BrowserIdentitySelector: React.FC<BrowserIdentitySelectorProps> = (
               {cat === "All" ? <Sparkles className="w-3 h-3" /> : getCategoryIcon(cat)}
               <span>{cat}</span>
               {cat === "All" && (
-                <span className="text-[9px] bg-black/40 text-amber-200 px-1.5 py-0.2 rounded-full">
+                <span className="text-[11px] bg-black/40 text-amber-200 px-1.5 py-0.2 rounded-full">
                   {BROWSER_PRESETS.length}
                 </span>
               )}
@@ -216,22 +216,22 @@ export const BrowserIdentitySelector: React.FC<BrowserIdentitySelectorProps> = (
                       <Check className="w-2.5 h-2.5 stroke-[3]" />
                     </span>
                   ) : preset.badge ? (
-                    <span className="text-[9px] font-semibold bg-white/5 border border-white/10 text-amber-300/90 px-1.5 py-0.5 rounded-full shrink-0">
+                    <span className="text-[11px] font-semibold bg-white/5 border border-white/10 text-amber-300/90 px-1.5 py-0.5 rounded-full shrink-0">
                       {preset.badge}
                     </span>
                   ) : null}
                 </div>
 
-                <p className="text-[10px] text-zinc-400 line-clamp-2 leading-relaxed mb-2.5">
+                <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed mb-2.5">
                   {preset.description}
                 </p>
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-white/5 text-[10px] font-mono text-zinc-400">
+              <div className="flex items-center justify-between pt-2 border-t border-white/5 text-[11px] font-mono text-zinc-400">
                 <span className="truncate max-w-[130px] text-zinc-300">
                   {preset.platform} · {preset.browser}
                 </span>
-                <span className="text-amber-400/80 bg-black px-1.5 py-0.5 rounded border border-white/10 text-[9px]">
+                <span className="text-amber-400/80 bg-black px-1.5 py-0.5 rounded border border-white/10 text-[11px]">
                   v{preset.version}
                 </span>
               </div>
@@ -335,7 +335,7 @@ export const BrowserIdentitySelector: React.FC<BrowserIdentitySelectorProps> = (
             </div>
           </div>
 
-          <div className="flex items-start gap-2 pt-1 text-[10px] text-zinc-400">
+          <div className="flex items-start gap-2 pt-1 text-[11px] text-zinc-400">
             <Info className="w-3.5 h-3.5 text-amber-400/80 shrink-0 mt-0.5" />
             <span>
               Values are packaged into a standard Baileys 3-tuple signature{" "}

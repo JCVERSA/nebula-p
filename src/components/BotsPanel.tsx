@@ -236,12 +236,12 @@ export default function BotsPanel({ activeBotId, onSelectBot }: BotsPanelProps) 
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-[15px] font-bold text-zinc-100 truncate">{bot.name || bot.id}</h3>
                     {bot.isDefault && (
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-cyan-300 border border-cyan-500/40 bg-cyan-500/10 rounded-full px-2 py-0.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-cyan-300 border border-cyan-500/40 bg-cyan-500/10 rounded-full px-2 py-0.5">
                         default
                       </span>
                     )}
                     {!bot.enabled && (
-                      <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500 border border-white/10 bg-white/5 rounded-full px-2 py-0.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-zinc-500 border border-white/10 bg-white/5 rounded-full px-2 py-0.5">
                         disabled
                       </span>
                     )}
@@ -304,11 +304,11 @@ export default function BotsPanel({ activeBotId, onSelectBot }: BotsPanelProps) 
               {/* pairing code */}
               {whatsapp.code && (
                 <div className="mt-3 rounded-xl border border-violet-500/40 bg-violet-950/30 px-4 py-3 text-center">
-                  <p className="text-[10px] uppercase tracking-widest text-violet-300/80 font-bold">
+                  <p className="text-[11px] uppercase tracking-widest text-violet-300/80 font-bold">
                     Pairing code — {bot.name || bot.id}
                   </p>
                   <p className="text-xl font-mono font-bold tracking-[0.2em] text-violet-100 mt-1">{whatsapp.code}</p>
-                  <p className="text-[10px] text-zinc-400 mt-1">
+                  <p className="text-[11px] text-zinc-400 mt-1">
                     WhatsApp → Settings → Linked devices → Link with phone number instead
                   </p>
                 </div>

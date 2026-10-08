@@ -110,21 +110,21 @@ export default function SecurityExtras() {
           </div>
           <div>
             <h3 className="text-sm font-bold text-white">Backup &amp; Restore</h3>
-            <p className="text-[10px] text-zinc-400">Exports config, group settings, warnings, stats, access policies and panel commands. Secrets and session material are never included.</p>
+            <p className="text-[11px] text-zinc-400">Exports config, group settings, warnings, stats, access policies and panel commands. Secrets and session material are never included.</p>
           </div>
         </div>
         {aiUsage && (
           <div className="grid grid-cols-3 gap-2 max-w-md">
             <div className="p-2.5 bg-white/5 border border-white/10 rounded-lg text-center">
-              <div className="text-[10px] text-zinc-400">AI used today</div>
+              <div className="text-[11px] text-zinc-400">AI used today</div>
               <div className="text-sm font-bold text-amber-400">{aiUsage.todayCount}/{aiUsage.dailyLimit}</div>
             </div>
             <div className="p-2.5 bg-white/5 border border-white/10 rounded-lg text-center">
-              <div className="text-[10px] text-zinc-400">AI concurrency cap</div>
+              <div className="text-[11px] text-zinc-400">AI concurrency cap</div>
               <div className="text-sm font-bold text-zinc-200">{aiUsage.maxConcurrent}</div>
             </div>
             <div className="p-2.5 bg-white/5 border border-white/10 rounded-lg text-center">
-              <div className="text-[10px] text-zinc-400">Audit events</div>
+              <div className="text-[11px] text-zinc-400">Audit events</div>
               <div className="text-sm font-bold text-zinc-200">{events.length}</div>
             </div>
           </div>
@@ -160,7 +160,7 @@ export default function SecurityExtras() {
             </div>
             <div>
               <h3 className="text-sm font-bold text-white">Security Audit Trail</h3>
-              <p className="text-[10px] text-zinc-400">Login/logout, RoleGuard policy changes, ACL denials, panel command saves, restores.</p>
+              <p className="text-[11px] text-zinc-400">Login/logout, RoleGuard policy changes, ACL denials, panel command saves, restores.</p>
             </div>
           </div>
           <div className="flex gap-2">
@@ -180,12 +180,12 @@ export default function SecurityExtras() {
             <div key={e.id} className="p-2.5 bg-black/40 border border-white/5 rounded-lg flex flex-col gap-0.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-mono text-amber-300">{e.action}</span>
-                <span className="text-[10px] text-zinc-500 font-mono">{e.at.slice(0, 19).replace("T", " ")}</span>
+                <span className="text-[11px] text-zinc-500 font-mono">{e.at.slice(0, 19).replace("T", " ")}</span>
               </div>
-              <div className="text-[10px] text-zinc-400">
+              <div className="text-[11px] text-zinc-400">
                 <span className="text-zinc-500">actor:</span> {e.actor} · <span className="text-zinc-500">target:</span> {e.target || "—"}
               </div>
-              {e.detail && <div className="text-[10px] text-zinc-500 truncate">{e.detail}</div>}
+              {e.detail && <div className="text-[11px] text-zinc-500 truncate">{e.detail}</div>}
             </div>
           ))}
         </div>

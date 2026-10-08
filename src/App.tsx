@@ -3,7 +3,6 @@ import { useState, useEffect, useRef, FormEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Bot,
-  MessageSquare,
   Terminal,
   BarChart3,
   ScrollText,
@@ -14,7 +13,6 @@ import {
   Save,
   Trash2,
   CheckCircle,
-  XCircle,
   AlertCircle,
   Globe,
   Check,
@@ -39,10 +37,7 @@ import {
   ExternalLink,
   RotateCcw,
   Shield,
-  ShieldAlert,
-  Users,
   Package,
-  Volume2,
   Radio,
 } from "lucide-react";
 
@@ -67,7 +62,6 @@ import MobileDrawer from "./components/MobileDrawer";
 import SpeedLoader from "./components/SpeedLoader";
 import MinecraftTorch from "./components/MinecraftTorch";
 import AnimatedFace from "./components/AnimatedFace";
-import Tooltip from "./components/Tooltip";
 import Loader from "./components/Loader";
 import Switch from "./components/Switch";
 import { BrowserIdentitySelector } from "./components/BrowserIdentitySelector";
@@ -185,7 +179,7 @@ export default function App() {
   const [logs, setLogs] = useState<string[]>([]);
   const [activeLogFilters, setActiveLogFilters] = useState<string[]>(["Errors", "System", "Cognitive", "Sandbox"]);
   const [qrReceivedAt, setQrReceivedAt] = useState<number | null>(null);
-  const [qrTimeLeft, setQrTimeLeft] = useState<number>(50);
+  const [, setQrTimeLeft] = useState<number>(50);
   const [commands, setCommands] = useState<BotCommand[]>([]);
   const [cmdCategoryFilter, setCmdCategoryFilter] = useState<string>("All");
   const [cmdSearchQuery, setCmdSearchQuery] = useState<string>("");
@@ -213,7 +207,7 @@ export default function App() {
   // Liquid glass visual state controls
   const [adaptiveMorphing, setAdaptiveMorphing] = useState(() => {
     const saved = localStorage.getItem("adaptive-morphing");
-    return saved !== "false";
+    return saved === "true";
   });
   const [blurIntensity, setBlurIntensity] = useState(() => {
     const saved = localStorage.getItem("backdrop-blur-intensity");
@@ -225,7 +219,7 @@ export default function App() {
   });
   const [motionSensitivity, setMotionSensitivity] = useState(() => {
     const saved = localStorage.getItem("motion-sensitivity");
-    return saved !== "false";
+    return saved === "true";
   });
 
   const [blobStyles, setBlobStyles] = useState([
@@ -413,15 +407,14 @@ export default function App() {
   const [pairingTimeLeft, setPairingTimeLeft] = useState<number>(120);
   const [isGeneratingPairCode, setIsGeneratingPairCode] = useState(false);
   const [pairingError, setPairingError] = useState<string | null>(null);
-  const [pairingCopied, setPairingCopied] = useState(false);
 
   // Settings
   const [formConfig, setFormConfig] = useState<BotConfig>({ ...config });
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [configMessage, setConfigMessage] = useState("");
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [, setIsRetrying] = useState(false);
   const [isClearingAuth, setIsClearingAuth] = useState(false);
-  const [resetStage, setResetStage] = useState<"idle" | "stopping" | "purging" | "starting" | "done" | "error">("idle");
+  const [, setResetStage] = useState<"idle" | "stopping" | "purging" | "starting" | "done" | "error">("idle");
   const [resetFeedback, setResetFeedback] = useState<{
     type: "success" | "error" | "info";
     title: string;
@@ -472,48 +465,16 @@ export default function App() {
   const [docSelectedCategory, setDocSelectedCategory] = useState("All");
   const [copiedCommandName, setCopiedCommandName] = useState<string | null>(null);
 
-  // Gemini AI Playground & Models
-  const [geminiModel, setGeminiModel] = useState<string>("gemini-3.7-flash");
-  const [geminiTemperature, setGeminiTemperature] = useState<number>(0.7);
-  const [geminiSystemPrompt, setGeminiSystemPrompt] = useState<string>(
-    "You are Nebula Bot, an ultra-fast, witty, and helpful AI assistant for WhatsApp. Keep answers concise, formatting nicely with markdown."
-  );
   const [geminiPlaygroundPrompt, setGeminiPlaygroundPrompt] = useState<string>("Write a quick WhatsApp status update about coding late at night.");
   const [geminiPlaygroundOutput, setGeminiPlaygroundOutput] = useState<string>("");
   const [isTestingGemini, setIsTestingGemini] = useState<boolean>(false);
 
-  // Plugins Matrix
-  const [pluginFilter, setPluginFilter] = useState<string>("All");
-  const [pluginStates, setPluginStates] = useState<Record<string, boolean>>({
-    "baileys-core": true,
-    "gemini-ai": true,
-    "media-downloader": true,
-    "sticker-maker": true,
-    "group-guard": true,
-    "voice-synthesis": true,
-    "anti-spam": true,
-    "crypto-ticker": true,
-  });
 
   // Group Tools
-  const [welcomeEnabled, setWelcomeEnabled] = useState<boolean>(true);
-  const [welcomeMessage, setWelcomeMessage] = useState<string>("👋 Welcome @user to our community! Make sure to read group guidelines.");
-  const [farewellEnabled, setFarewellEnabled] = useState<boolean>(true);
-  const [farewellMessage, setFarewellMessage] = useState<string>("👋 Goodbye @user, thanks for being part of the group!");
   const [broadcastText, setBroadcastText] = useState<string>("");
   const [isBroadcasting, setIsBroadcasting] = useState<boolean>(false);
   const [broadcastStatus, setBroadcastStatus] = useState<string | null>(null);
-  const [adminOnlyCmds, setAdminOnlyCmds] = useState<boolean>(false);
 
-  // Security & Antilink
-  const [rateLimitMax, setRateLimitMax] = useState<number>(12);
-  const [blockLinkInvites, setBlockLinkInvites] = useState<boolean>(true);
-  const [autoKickSpammers, setAutoKickSpammers] = useState<boolean>(false);
-  const [blacklistInput, setBlacklistInput] = useState<string>("");
-  const [blacklistedNumbers, setBlacklistedNumbers] = useState<string[]>([
-    "+15550192834",
-    "+2348012345678",
-  ]);
 
   // Project ZIP as text (for environments where file downloads are blocked)
   const [zipB64, setZipB64] = useState<string>("");
@@ -926,18 +887,6 @@ export default function App() {
     }
   };
 
-  const copyPairingCode = () => {
-    if (!pairingCode) return;
-    const cleanCode = pairingCode.replace(/[^a-zA-Z0-9]/g, "");
-    navigator.clipboard.writeText(cleanCode).then(() => {
-      setPairingCopied(true);
-      setTimeout(() => setPairingCopied(false), 2200);
-    }).catch(() => {
-      setPairingCopied(true);
-      setTimeout(() => setPairingCopied(false), 2200);
-    });
-  };
-
   const clearBotLogs = async () => {
     try {
       await fetch(botUrl("/api/bot/clear-logs"), { method: "POST" });
@@ -1039,7 +988,7 @@ export default function App() {
     if (!geminiPlaygroundPrompt.trim()) return;
     setIsTestingGemini(true);
     setGeminiPlaygroundOutput("");
-    addSystemLog(`🤖 Asking Gemini (${geminiModel}): "${geminiPlaygroundPrompt.slice(0, 40)}..."`);
+    addSystemLog(`🤖 Asking AI: "${geminiPlaygroundPrompt.slice(0, 40)}..."`);
     try {
       const res = await fetch(botUrl("/api/bot/chat"), {
         method: "POST",
@@ -1083,21 +1032,6 @@ export default function App() {
     } finally {
       setIsBroadcasting(false);
     }
-  };
-
-  const addBlacklistNumber = () => {
-    const trimmed = blacklistInput.trim();
-    if (!trimmed) return;
-    if (!blacklistedNumbers.includes(trimmed)) {
-      setBlacklistedNumbers([...blacklistedNumbers, trimmed]);
-      addSystemLog(`🛡️ Added ${trimmed} to the security blacklist.`);
-    }
-    setBlacklistInput("");
-  };
-
-  const removeBlacklistNumber = (num: string) => {
-    setBlacklistedNumbers(blacklistedNumbers.filter((n) => n !== num));
-    addSystemLog(`🛡️ Removed ${num} from the security blacklist.`);
   };
 
   // ------------------------------------------------------------- settings
@@ -1836,7 +1770,7 @@ export default function App() {
             </button>
           </form>
 
-          <p className="text-[10px] text-zinc-600 text-center mt-6">
+          <p className="text-[11px] text-zinc-600 text-center mt-6">
             Session cookie is HttpOnly and expires automatically after 12 hours of activity.
           </p>
         </motion.div>
@@ -1883,7 +1817,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Reference Template Sidebar */}
+      {/* Sidebar */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -1898,7 +1832,7 @@ export default function App() {
         className="flex min-w-0 flex-1 flex-col bg-black/45 relative z-10 border-l border-white/5"
         style={{ backdropFilter: "blur(calc(var(--backdrop-blur-intensity, 1) * 24px))" }}
       >
-        {/* Reference Template Topbar */}
+        {/* Topbar */}
         <Topbar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -1915,7 +1849,7 @@ export default function App() {
         {apiLocked && (
           <div className="px-4 py-2.5 bg-rose-950/80 border-b border-rose-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <p className="text-xs font-semibold text-rose-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 animate-bounce" />
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
               <span>Panel API access is locked (401). Cookies may have timed out in the iFrame container.</span>
             </p>
             <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end">
@@ -1957,32 +1891,7 @@ export default function App() {
                 {/* ============================================================ OVERVIEW */}
                 {activeTab === "overview" && (
                   <div className="space-y-6 animate-fade-in">
-                    {/* Confused / Documentation Guide Banner */}
-                    <div className="w-full text-sm leading-relaxed flex flex-col gap-4">
-                      <div className="bg-blue-950/20 border-l-4 border-blue-500 rounded-r-xl p-4 backdrop-blur-sm shadow-sm">
-                        <div className="flex">
-                          <div className="flex-shrink-0">
-                            <svg className="h-5 w-5 opacity-90 text-blue-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                            </svg>
-                          </div>
-                          <div className="ml-3 text-blue-300 font-medium">
-                            <p>
-                              Confused? So are we, yet you can{" "}
-                              <a 
-                                className="font-semibold text-blue-400 underline hover:text-blue-300 transition-colors" 
-                                href="#docs" 
-                                onClick={(e) => { e.preventDefault(); setActiveTab("docs"); }}
-                              >
-                                click here to pretend you know what you're doing →
-                              </a>
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Get Started Section from reference template */}
+                    {/* Get Started Section */}
                     <GetStartedSection
                       onGoToConnect={() => setActiveTab("connect")}
                       onGoToSimulator={() => setActiveTab("simulator")}
@@ -1991,7 +1900,7 @@ export default function App() {
                       botName={config.botName}
                     />
 
-                    {/* Stat cards in high contrast dark grid */}
+                    {/* Stat cards */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                       <StatCard
                         icon={status === "connected" ? Wifi : WifiOff}
@@ -2030,7 +1939,7 @@ export default function App() {
                             <span className="font-bold text-sm text-white">Full System & Commands Checkup</span>
                             {checkupReport ? (
                               <span
-                                className={`rounded-full px-2 py-0.2 text-[10px] font-bold border ${
+                                className={`rounded-full px-2 py-0.2 text-[11px] font-bold border ${
                                   checkupReport.overallStatus === "healthy"
                                     ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
                                     : "bg-amber-500/20 text-amber-400 border-amber-500/30"
@@ -2039,7 +1948,7 @@ export default function App() {
                                 Score: {checkupReport.healthScore}% ({checkupReport.overallStatus})
                               </span>
                             ) : (
-                              <span className="rounded-full bg-white/10 px-2 py-0.2 text-[10px] font-medium text-zinc-300">
+                              <span className="rounded-full bg-white/10 px-2 py-0.2 text-[11px] font-medium text-zinc-300">
                                 Ready for Diagnostics
                               </span>
                             )}
@@ -2059,515 +1968,8 @@ export default function App() {
                       </button>
                     </div>
 
-                  <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
-                    {/* Connection panel with QR Code & Pair Code dual methods */}
-                    {/* Connection panel with QR Code & Pair Code dual methods */}
-                    <Card
-                      title="WhatsApp Connection"
-                      icon={Activity}
-                      action={
-                        <div className="flex items-center gap-1 bg-white/5 border border-white/10 p-1 rounded-xl">
-                          <button
-                            onClick={() => setConnMethod("pair_code")}
-                            className={`px-3 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                              connMethod === "pair_code"
-                                ? "bg-amber-500 text-black font-bold shadow-sm"
-                                : "text-zinc-400 hover:text-zinc-200"
-                            }`}
-                          >
-                            <Smartphone className="w-3.5 h-3.5" />
-                            Pairing Code
-                          </button>
-                          <button
-                            onClick={() => setConnMethod("qr")}
-                            className={`px-3 py-1 text-xs font-semibold rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
-                              connMethod === "qr"
-                                ? "bg-amber-500 text-black font-bold shadow-sm"
-                                : "text-zinc-400 hover:text-zinc-200"
-                            }`}
-                          >
-                            <QrCode className="w-3.5 h-3.5" />
-                            QR Scanner
-                          </button>
-                        </div>
-                      }
-                      className="xl:col-span-3"
-                    >
-                      {/* Reset Feedback Notification Banner */}
-                      <AnimatePresence>
-                        {(resetFeedback || isClearingAuth) && (
-                          <motion.div
-                            initial={{ opacity: 0, y: -8, scale: 0.98 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-                            className={`p-3.5 mb-4 rounded-xl border flex items-start justify-between gap-3 text-xs transition-all shadow-sm ${
-                              isClearingAuth
-                                ? "bg-amber-950/30 border-amber-500/30 text-amber-200"
-                                : resetFeedback?.type === "success"
-                                ? "bg-emerald-950/40 border-emerald-800/80 text-emerald-200"
-                                : resetFeedback?.type === "error"
-                                ? "bg-rose-950/40 border-rose-800/80 text-rose-200"
-                                : "bg-white/5 border-white/10 text-zinc-200"
-                            }`}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5 shrink-0">
-                                {isClearingAuth ? (
-                                  <RotateCcw className="w-4 h-4 animate-spin text-amber-400" />
-                                ) : resetFeedback?.type === "success" ? (
-                                  <CheckCircle className="w-4 h-4 text-emerald-400" />
-                                ) : (
-                                  <AlertCircle className="w-4 h-4 text-rose-400" />
-                                )}
-                              </div>
-                              <div className="space-y-0.5">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-bold text-xs">
-                                    {isClearingAuth
-                                      ? resetStage === "stopping"
-                                        ? "Stopping active WhatsApp socket..."
-                                        : resetStage === "purging"
-                                        ? "Purging session cache directory ('nebula_auth_info')..."
-                                        : "Initializing clean handshake..."
-                                      : resetFeedback?.title}
-                                  </span>
-                                  {resetFeedback?.filesRemoved !== undefined && resetFeedback.filesRemoved > 0 && (
-                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-900/80 text-emerald-300">
-                                      {resetFeedback.filesRemoved} files purged
-                                    </span>
-                                  )}
-                                  {resetFeedback?.timestamp && (
-                                    <span className="text-[10px] text-zinc-500 font-mono">
-                                      {resetFeedback.timestamp}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-[11px] opacity-90 leading-relaxed text-zinc-300">
-                                  {isClearingAuth
-                                    ? "Releasing file locks and clearing previous credentials so WhatsApp can issue fresh tokens without conflict."
-                                    : resetFeedback?.message}
-                                </p>
-                              </div>
-                            </div>
-                            {!isClearingAuth && (
-                              <button
-                                onClick={() => setResetFeedback(null)}
-                                className="p-1 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-zinc-200 transition cursor-pointer shrink-0"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-
-                      {/* CONNECTED STATE (shared between modes) */}
-                      {status === "connected" ? (
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between flex-wrap gap-4 p-4 bg-emerald-950/30 border border-emerald-800/60 rounded-xl">
-                            <div className="flex items-center gap-4">
-                              <div className="p-3 bg-emerald-500 text-black font-bold rounded-xl shadow-sm">
-                                <CheckCircle className="w-6 h-6 text-black" />
-                              </div>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-bold text-white text-sm">Nebula Bot is Online & Linked</h4>
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-900/80 text-emerald-300 border border-emerald-700/50">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Active
-                                  </span>
-                                </div>
-                                <p className="text-xs text-zinc-300 mt-1">
-                                  Your WhatsApp session is active and listening for incoming messages and commands (Prefix: <code className="font-mono font-bold bg-black/60 text-amber-400 px-1.5 py-0.5 rounded border border-white/10">{config.prefix}</code>).
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={stopBot}
-                                className="px-3.5 py-2 bg-rose-500/20 border border-rose-500/40 text-rose-300 hover:bg-rose-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
-                              >
-                                <XCircle className="w-3.5 h-3.5" /> Disconnect
-                              </button>
-                              <button
-                                onClick={clearAuthAndRetryConnection}
-                                disabled={isClearingAuth}
-                                title="Purges nebula_auth_info directory and reconnects with clean credentials"
-                                className="px-3.5 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-                              >
-                                <RotateCcw className={`w-3.5 h-3.5 ${isClearingAuth ? "animate-spin text-amber-400" : ""}`} />
-                                {isClearingAuth ? "Resetting Session..." : "Reset Session"}
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                            <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                              <span className="text-zinc-500 font-semibold block text-[10px] uppercase">Bot Identity</span>
-                              <span className="font-bold text-white mt-0.5 block truncate">{config.botName}</span>
-                            </div>
-                            <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                              <span className="text-zinc-500 font-semibold block text-[10px] uppercase">Direct AI Chat</span>
-                              <span className="font-bold text-amber-400 mt-0.5 block">Enabled in 1-on-1</span>
-                            </div>
-                            <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                              <span className="text-zinc-500 font-semibold block text-[10px] uppercase">Owner Number</span>
-                              <span className="font-bold text-white mt-0.5 block truncate">{config.ownerNumber || "Not configured"}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ) : connMethod === "pair_code" ? (
-                        /* ================== PAIRING CODE METHOD ================== */
-                        <div className="space-y-5">
-                          {pairingCode ? (
-                            /* Pairing Code Ready View */
-                            <div className="space-y-5">
-                              <div className="p-5 bg-white/5 rounded-xl border border-white/10 shadow-sm">
-                                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
-                                      <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                                      WhatsApp 8-Digit Pairing Code
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <div className="text-[11px] font-semibold text-zinc-400 flex items-center gap-1.5 bg-black/50 border border-white/10 rounded-lg px-2.5 py-1">
-                                      <span className={`w-2 h-2 rounded-full ${pairingTimeLeft > 20 ? "bg-emerald-500 animate-pulse" : "bg-rose-500 animate-ping"}`} />
-                                      <span>Expires in <strong className="text-white font-mono">{pairingTimeLeft}s</strong></span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Hero Monospace Display */}
-                                <div className="my-4 flex flex-col sm:flex-row items-center justify-center gap-3">
-                                  <div
-                                    onClick={copyPairingCode}
-                                    title="Click to copy pairing code"
-                                    className="px-6 py-4 bg-black text-amber-400 rounded-xl shadow-inner border border-white/10 flex items-center justify-center gap-4 cursor-pointer hover:border-amber-400/50 transition group select-all"
-                                  >
-                                    <span className="font-mono text-3xl sm:text-4xl font-extrabold tracking-widest text-amber-400 group-hover:text-amber-300 transition">
-                                      {pairingCode}
-                                    </span>
-                                  </div>
-                                  <button
-                                    onClick={copyPairingCode}
-                                    className={`px-5 py-4 rounded-xl font-bold text-xs flex items-center gap-2 transition cursor-pointer shadow-sm shrink-0 ${
-                                      pairingCopied
-                                        ? "bg-emerald-600 text-white"
-                                        : "bg-amber-500 hover:bg-amber-400 text-black"
-                                    }`}
-                                  >
-                                    {pairingCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                                    {pairingCopied ? "Copied!" : "Copy Code"}
-                                  </button>
-                                </div>
-
-                                <div className="flex items-center justify-center gap-3 mt-4 pt-4 border-t border-white/10">
-                                  <button
-                                    onClick={generatePairCode}
-                                    disabled={isGeneratingPairCode}
-                                    className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-                                  >
-                                    <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingPairCode ? "animate-spin text-amber-400" : ""}`} />
-                                    {isGeneratingPairCode ? "Regenerating..." : "Regenerate Code"}
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setPairingCode("");
-                                      setPairingExpiresAt(null);
-                                    }}
-                                    className="px-3.5 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-400 hover:text-zinc-200 border border-white/10 rounded-xl text-xs font-medium transition cursor-pointer"
-                                  >
-                                    Change Number
-                                  </button>
-                                </div>
-                              </div>
-
-                              {/* Step-by-Step Instructions */}
-                              <div className="p-4 bg-black/40 rounded-xl border border-white/10">
-                                <h5 className="font-bold text-zinc-300 text-xs uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                                  <Smartphone className="w-3.5 h-3.5 text-amber-400" />
-                                  How to link on your phone (Quick Steps)
-                                </h5>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                                  <div className="flex items-start gap-2.5 p-2.5 bg-white/5 rounded-lg border border-white/5">
-                                    <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center shrink-0 text-[11px]">1</span>
-                                    <span className="text-zinc-300 leading-snug">Open <b>WhatsApp</b> on your phone.</span>
-                                  </div>
-                                  <div className="flex items-start gap-2.5 p-2.5 bg-white/5 rounded-lg border border-white/5">
-                                    <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center shrink-0 text-[11px]">2</span>
-                                    <span className="text-zinc-300 leading-snug">Go to <b>Settings</b> or <b>Linked Devices</b>.</span>
-                                  </div>
-                                  <div className="flex items-start gap-2.5 p-2.5 bg-white/5 rounded-lg border border-white/5">
-                                    <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center shrink-0 text-[11px]">3</span>
-                                    <span className="text-zinc-300 leading-snug">Tap <b>Link a Device</b>.</span>
-                                  </div>
-                                  <div className="flex items-start gap-2.5 p-2.5 bg-white/5 rounded-lg border border-white/5">
-                                    <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center shrink-0 text-[11px]">4</span>
-                                    <span className="text-zinc-300 leading-snug">Tap <b>"Link with phone number instead"</b>.</span>
-                                  </div>
-                                  <div className="flex items-start gap-2.5 p-2.5 bg-white/5 rounded-lg border border-white/5 sm:col-span-2">
-                                    <span className="w-5 h-5 rounded-full bg-amber-500 text-black font-bold flex items-center justify-center shrink-0 text-[11px]">5</span>
-                                    <span className="text-zinc-300 leading-snug">
-                                      Enter code: <strong className="font-mono text-amber-400 text-sm bg-black/60 px-2 py-0.5 rounded ml-1 border border-white/10">{pairingCode}</strong>
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="mt-3 pt-3 border-t border-white/10 flex items-center gap-2 text-[11px] text-zinc-400">
-                                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-                                  <span>Waiting for confirmation from your phone. Connection will activate automatically!</span>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            /* Pairing Code Input Form */
-                            <div className="space-y-4">
-                              <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-                                <div className="flex items-start gap-3">
-                                  <div className="p-2.5 bg-amber-500 text-black rounded-lg shadow-sm shrink-0">
-                                    <Smartphone className="w-5 h-5" />
-                                  </div>
-                                  <div>
-                                    <h4 className="font-bold text-white text-sm">Connect with WhatsApp Pairing Code</h4>
-                                    <p className="text-xs text-zinc-400 mt-1">
-                                      No camera needed! Enter your WhatsApp phone number to receive an 8-character pairing code you can enter directly in your WhatsApp app.
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <form
-                                onSubmit={(e) => {
-                                  e.preventDefault();
-                                  generatePairCode();
-                                }}
-                                className="space-y-4"
-                              >
-                                <div>
-                                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
-                                    WhatsApp Phone Number
-                                  </label>
-                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                    <div className="sm:col-span-1">
-                                      <select
-                                        value={pairingCountryPrefix}
-                                        onChange={(e) => setPairingCountryPrefix(e.target.value)}
-                                        className="w-full px-3 py-2.5 bg-black border border-white/10 rounded-xl text-xs font-medium text-white focus:outline-none focus:border-amber-500"
-                                      >
-                                        {COUNTRY_PRESETS.map((country) => (
-                                          <option key={country.label} value={country.code} className="bg-zinc-900 text-white">
-                                            {country.label}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div className="sm:col-span-2 relative">
-                                      <input
-                                        type="tel"
-                                        value={pairingPhone}
-                                        onChange={(e) => setPairingPhone(e.target.value)}
-                                        placeholder="e.g. 555 123 4567 or 812 3456 7890"
-                                        className="w-full px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500 font-medium"
-                                        required
-                                      />
-                                    </div>
-                                  </div>
-                                  {pairingPhone.trim() && (
-                                    <div className="mt-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg flex items-center justify-between text-[11px] text-amber-300 font-mono">
-                                      <span>Target WhatsApp Number:</span>
-                                      <span className="font-bold">+{normalizePhoneNumber(pairingPhone, pairingCountryPrefix)}</span>
-                                    </div>
-                                  )}
-                                  <p className="text-[11px] text-zinc-500 mt-1">
-                                    Tip: Country code &amp; leading zeros (e.g. 08... or 07...) are automatically formatted.
-                                  </p>
-                                </div>
-
-                                {pairingError && (
-                                  <div className="p-3 bg-rose-950/40 border border-rose-800/80 rounded-xl flex items-start gap-2 text-xs text-rose-300">
-                                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
-                                    <span>{pairingError}</span>
-                                  </div>
-                                )}
-
-                                {isGeneratingPairCode && (
-                                  <div className="p-4 bg-black/60 border border-amber-500/20 rounded-xl flex flex-col items-center justify-center">
-                                    <SpeedLoader color="#f59e0b" size="sm" text="Connecting to WhatsApp Baileys Handshake..." />
-                                  </div>
-                                )}
-
-                                <div className="flex items-center gap-3">
-                                  <button
-                                    type="submit"
-                                    disabled={isGeneratingPairCode}
-                                    className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 text-black font-bold text-xs rounded-xl flex items-center gap-2 transition cursor-pointer shadow-sm"
-                                  >
-                                    {isGeneratingPairCode ? (
-                                      <>
-                                        <RefreshCw className="w-4 h-4 animate-spin" />
-                                        Requesting Code...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <KeyRound className="w-4 h-4" />
-                                        Generate 8-Digit Pairing Code
-                                      </>
-                                    )}
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={clearAuthAndRetryConnection}
-                                    disabled={isClearingAuth}
-                                    className="px-3.5 py-2.5 bg-white/5 hover:bg-white/10 text-zinc-300 font-medium text-xs rounded-xl border border-white/10 flex items-center gap-1.5 transition cursor-pointer"
-                                  >
-                                    <RotateCcw className={`w-3.5 h-3.5 ${isClearingAuth ? "animate-spin text-amber-400" : ""}`} />
-                                    Reset Auth
-                                  </button>
-                                </div>
-                              </form>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        /* ================== QR SCANNER METHOD ================== */
-                        <div>
-                          {status === "qr_ready" && qrUrl ? (
-                            <div className="flex flex-col md:flex-row items-center gap-6 relative">
-                              <div className="relative p-4 bg-white rounded-xl border border-white/20 shadow-lg overflow-hidden shrink-0">
-                                 <img src={qrUrl} alt="WhatsApp QR Code" className={`w-48 h-48 transition-all duration-300 ${qrTimeLeft <= 0 || isRetrying ? "filter blur-sm opacity-20 scale-95" : ""}`} />
-                                {qrTimeLeft <= 0 && !isRetrying && (
-                                  <div className="absolute inset-0 bg-black/85 backdrop-blur-[2px] flex flex-col items-center justify-center text-center p-3">
-                                    <Loader scale={0.42} text="QR EXPIRED · REFRESHING" />
-                                  </div>
-                                )}
-                                {isRetrying && (
-                                  <div className="absolute inset-0 bg-black/85 backdrop-blur-[2px] flex flex-col items-center justify-center text-center p-3">
-                                    <Loader scale={0.42} text="REGENERATING QR..." />
-                                  </div>
-                                )}
-                              </div>
-                              <div className="space-y-2 text-center md:text-left flex-1">
-                                <h4 className="font-bold text-white">Scan QR with your Phone Camera</h4>
-                                <p className="text-xs text-zinc-400 max-w-sm">
-                                  Open WhatsApp on your phone → <b>Linked Devices</b> → <b>Link a Device</b>, then point camera at this QR code.
-                                </p>
-                                <div className="mt-2.5 flex flex-col sm:flex-row items-center gap-3">
-                                  <button
-                                    onClick={retryConnection}
-                                    disabled={isRetrying}
-                                    className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-700 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer w-full sm:w-auto justify-center"
-                                  >
-                                    <RefreshCw className={`w-3.5 h-3.5 ${isRetrying ? "animate-spin" : ""}`} />
-                                    {isRetrying ? "Regenerating..." : "Regenerate QR"}
-                                  </button>
-                                  <button
-                                    id="btn_connection_retry_auth"
-                                    onClick={clearAuthAndRetryConnection}
-                                    disabled={isClearingAuth}
-                                    title="Clears the session auth cache before attempting to restart the bot"
-                                    className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 font-semibold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer w-full sm:w-auto justify-center"
-                                  >
-                                    <RotateCcw className={`w-3.5 h-3.5 ${isClearingAuth ? "animate-spin text-amber-400" : ""}`} />
-                                    {isClearingAuth ? "Clearing Auth..." : "Retry Connection"}
-                                  </button>
-                                  {qrTimeLeft > 0 && (
-                                    <div className="text-[10px] font-semibold text-zinc-400 flex items-center gap-1.5 bg-black/60 border border-white/10 rounded-lg px-2.5 py-1.5 w-full sm:w-auto justify-center">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                      <span>Expires in <strong className="text-white">{qrTimeLeft}s</strong></span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ) : status === "connecting" ? (
-                            <div className="flex items-center justify-between flex-wrap gap-4 p-2">
-                              <div className="flex items-center gap-4">
-                                <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl">
-                                  <Loader scale={0.38} />
-                                </div>
-                                <div>
-                                  <h4 className="font-bold text-white text-sm">Establishing connection...</h4>
-                                  <p className="text-xs text-zinc-400 mt-1">Handshaking with WhatsApp Web. A QR code will appear shortly.</p>
-                                </div>
-                              </div>
-                              <button
-                                onClick={clearAuthAndRetryConnection}
-                                disabled={isClearingAuth}
-                                className="px-3.5 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-                              >
-                                <RotateCcw className={`w-3.5 h-3.5 ${isClearingAuth ? "animate-spin text-amber-400" : ""}`} />
-                                Retry Connection
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-between flex-wrap gap-4">
-                              <div className="flex items-center gap-4">
-                                <div className="p-3 bg-white/5 border border-white/10 text-zinc-400 rounded-xl">
-                                  <QrCode className="w-8 h-8" />
-                                </div>
-                                <div>
-                                  <h4 className="font-bold text-white text-sm">Bot is offline (QR Mode)</h4>
-                                  <p className="text-xs text-zinc-400 mt-1">
-                                    Click Start Live Bot to generate a QR code, or switch to the <b>Pairing Code</b> tab to connect with your phone number.
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={startBot}
-                                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-                                >
-                                  <Zap className="w-3.5 h-3.5 fill-black" /> Start Live Bot (QR)
-                                </button>
-                                <button
-                                  id="btn_retry_connection_offline"
-                                  onClick={clearAuthAndRetryConnection}
-                                  disabled={isClearingAuth}
-                                  title="Clears session auth cache before attempting to restart the bot"
-                                  className="px-3.5 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-                                >
-                                  <RotateCcw className={`w-3.5 h-3.5 ${isClearingAuth ? "animate-spin text-amber-400" : ""}`} />
-                                  Retry Connection
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Quick actions */}
-                      <div className="mt-6 pt-5 border-t border-white/10">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 mb-3">Quick Actions</p>
-                        <div className="flex flex-wrap gap-2">
-                          {status === "disconnected" || status === "error" ? (
-                            <button onClick={startBot} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-xs flex items-center gap-1.5 transition shadow-sm cursor-pointer">
-                              <Zap className="w-3.5 h-3.5 fill-black" /> Start Live Bot
-                            </button>
-                          ) : (
-                            <button onClick={stopBot} className="px-4 py-2 bg-rose-500/20 border border-rose-500/40 text-rose-300 hover:bg-rose-500/30 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-sm cursor-pointer">
-                              <XCircle className="w-3.5 h-3.5" /> Disconnect Bot
-                            </button>
-                          )}
-                          <button
-                            onClick={clearAuthAndRetryConnection}
-                            disabled={isClearingAuth}
-                            className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer"
-                          >
-                            <RotateCcw className={`w-3.5 h-3.5 ${isClearingAuth ? "animate-spin text-amber-400" : ""}`} /> Retry Connection
-                          </button>
-                          <button onClick={() => setActiveTab("simulator")} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer">
-                            <MessageSquare className="w-3.5 h-3.5" /> Open Simulator
-                          </button>
-                          <a href={botUrl("/api/bot/download-zip")} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-zinc-200 border border-white/10 rounded-xl text-xs font-medium flex items-center gap-1.5 transition cursor-pointer">
-                            <FileDown className="w-3.5 h-3.5" /> Project ZIP
-                          </a>
-                        </div>
-                      </div>
-                    </Card>
-
-
-                    {/* Recent activity */}
-                    <Card title="Recent Activity" icon={ScrollText} className="xl:col-span-2">
+                                      {/* Recent activity (8.92 : la carte connexion en doublon vit dans l'onglet WhatsApp Connect) */}
+                    <Card title="Recent Activity" icon={ScrollText}>
                       <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
                         {logs.length === 0 && <p className="text-xs text-zinc-500 italic">No activity yet.</p>}
                         {logs.slice(-8).reverse().map((log, i) => (
@@ -2585,15 +1987,14 @@ export default function App() {
                         Open full console <ArrowRight className="w-3 h-3" />
                       </button>
                     </Card>
-                  </div>
 
-                    {/* System summary */}
+{/* System summary */}
                     <div className="flex flex-col md:flex-row gap-4 md:h-52 select-none" id="system_summary_container">
                       {/* 3D Minecraft Engine Ignition Torch */}
                       <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 shadow-xl flex flex-col items-center justify-between text-center relative overflow-hidden group hover:border-amber-500/30 hover:scale-[1.015] transition-all duration-300 w-full md:flex-1 h-48 md:h-full">
                         <div className="flex items-center justify-between w-full">
-                          <span className="text-[10px] font-bold font-mono uppercase tracking-wider text-amber-400/80">Engine Power</span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status === "connected" ? "bg-emerald-950 text-emerald-300 border border-emerald-800" : "bg-zinc-900 text-zinc-400 border border-zinc-700"}`}>
+                          <span className="text-[11px] font-bold font-mono uppercase tracking-wider text-amber-400/80">Engine Power</span>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${status === "connected" ? "bg-emerald-950 text-emerald-300 border border-emerald-800" : "bg-zinc-900 text-zinc-400 border border-zinc-700"}`}>
                             {status === "connected" ? "LIT & ONLINE" : "OFFLINE"}
                           </span>
                         </div>
@@ -2613,193 +2014,41 @@ export default function App() {
                             size="sm"
                           />
                         </div>
-                        <p className="text-[10px] text-zinc-500 leading-tight">
+                        <p className="text-[11px] text-zinc-500 leading-tight">
                           Interactive 3D Minecraft Torch directly governs live Baileys process
                         </p>
                       </div>
 
-                      {/* Engine status card - accordion */}
-                      <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 shadow-xl flex flex-col justify-between hover:border-amber-500/30 hover:scale-[1.015] transition-all duration-300 ease-in-out w-full md:w-14 md:flex-none md:hover:w-80 md:hover:flex-1 cursor-pointer overflow-hidden group min-h-[140px] md:h-full">
-                        {/* Collapsed State (Vertical layout on desktop) */}
-                        <div className="hidden md:flex group-hover:md:hidden flex-col items-center justify-between h-full py-2">
-                          <Cpu className="w-5 h-5 text-amber-400 animate-pulse" />
-                          <span className="font-extrabold text-[10px] text-zinc-400 uppercase tracking-widest rotate-180 [writing-mode:vertical-lr] transition-all duration-500">
-                            ENGINE
-                          </span>
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      {/* 8.92 : statiques et toujours visibles — l'info ne dépend plus du survol */}
+                      <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 shadow-xl flex flex-col justify-between w-full md:flex-1 h-48 md:h-full">
+                        <div className="flex items-center gap-2 text-amber-400 text-[11px] font-semibold uppercase tracking-wider">
+                          <Cpu className="w-4 h-4" /> Engine
                         </div>
-
-                        {/* Expanded State (Full horizontal details) */}
-                        <div className="flex flex-col justify-between h-full w-full md:hidden group-hover:md:flex transition-all duration-500">
-                          <div>
-                            <div className="flex items-center gap-2 text-amber-400 text-[11px] font-semibold uppercase tracking-wider">
-                              <Cpu className="w-4 h-4" /> Engine
-                            </div>
-                            <p className="text-xl font-bold text-white mt-2 tracking-tight">Baileys Multi-Device</p>
-                          </div>
-                          <p className="text-xs text-zinc-400 mt-2">Auto-reconnect · session recovery · moderation engine</p>
-                        </div>
+                        <p className="text-xl font-bold text-white mt-2 tracking-tight">Baileys Multi-Device</p>
+                        <p className="text-xs text-zinc-400 mt-2 flex items-center gap-1.5">
+                          <span className={`w-1.5 h-1.5 rounded-full ${status === "connected" ? "bg-emerald-400" : "bg-zinc-500"}`} />
+                          {status === "connected" ? "Socket active" : "Socket idle"}
+                        </p>
                       </div>
 
-                      {/* Intelligence status card - accordion */}
-                      <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 shadow-xl flex flex-col justify-between hover:border-amber-500/30 hover:scale-[1.015] transition-all duration-300 ease-in-out w-full md:w-14 md:flex-none md:hover:w-80 md:hover:flex-1 cursor-pointer overflow-hidden group min-h-[140px] md:h-full">
-                        {/* Collapsed State (Vertical layout on desktop) */}
-                        <div className="hidden md:flex group-hover:md:hidden flex-col items-center justify-between h-full py-2">
-                          <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
-                          <span className="font-extrabold text-[10px] text-zinc-400 uppercase tracking-widest rotate-180 [writing-mode:vertical-lr] transition-all duration-500">
-                            INTELLIGENCE
-                          </span>
-                          <span className={`w-1.5 h-1.5 rounded-full ${secretStatus?.configured ? "bg-emerald-400" : "bg-rose-400"}`} />
+                      <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 shadow-xl flex flex-col justify-between w-full md:flex-1 h-48 md:h-full">
+                        <div className="flex items-center gap-2 text-amber-400 text-[11px] font-semibold uppercase tracking-wider">
+                          <Sparkles className="w-4 h-4" /> Intelligence
                         </div>
-
-                        {/* Expanded State (Full horizontal details) */}
-                        <div className="flex flex-col justify-between h-full w-full md:hidden group-hover:md:flex transition-all duration-500">
-                          <div>
-                            <div className="flex items-center gap-2 text-amber-400 text-[11px] font-semibold uppercase tracking-wider">
-                              <Sparkles className="w-4 h-4" /> Intelligence
-                            </div>
-                            <p className="text-xl font-bold text-white mt-2 tracking-tight">
-                              {secretStatus?.configured ? "Gemini Active" : "Gemini Idle"}
-                            </p>
-                          </div>
-                          <p className="text-xs text-zinc-400 mt-2">Text, images, transcription & voice — with fallback chains</p>
-                        </div>
+                        <p className="text-xl font-bold text-white mt-2 tracking-tight">
+                          {secretStatus?.configured ? "AI Active" : nimSecretStatus?.configured ? "NIM Active" : "AI Idle"}
+                        </p>
+                        <p className="text-xs text-zinc-400 mt-2 truncate">Gemini {secretStatus?.configured ? "key set" : "no key"} · NIM {nimSecretStatus?.configured ? "key set" : "no key"}</p>
                       </div>
 
-                      {/* Prefix status card - accordion */}
-                      <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 shadow-xl flex flex-col justify-between hover:border-amber-500/30 hover:scale-[1.015] transition-all duration-300 ease-in-out w-full md:w-14 md:flex-none md:hover:w-80 md:hover:flex-1 cursor-pointer overflow-hidden group min-h-[140px] md:h-full">
-                        {/* Collapsed State (Vertical layout on desktop) */}
-                        <div className="hidden md:flex group-hover:md:hidden flex-col items-center justify-between h-full py-2">
-                          <Smartphone className="w-5 h-5 text-amber-400 animate-pulse" />
-                          <span className="font-extrabold text-[10px] text-zinc-400 uppercase tracking-widest rotate-180 [writing-mode:vertical-lr] transition-all duration-500">
-                            PREFIX
-                          </span>
-                          <span className="font-mono text-[10px] font-bold text-amber-400">{config.prefix}</span>
+                      <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 shadow-xl flex flex-col justify-between w-full md:flex-1 h-48 md:h-full">
+                        <div className="flex items-center gap-2 text-amber-400 text-[11px] font-semibold uppercase tracking-wider">
+                          <Smartphone className="w-4 h-4" /> Prefix
                         </div>
-
-                        {/* Expanded State (Full horizontal details) */}
-                        <div className="flex flex-col justify-between h-full w-full md:hidden group-hover:md:flex transition-all duration-500">
-                          <div>
-                            <div className="flex items-center gap-2 text-amber-400 text-[11px] font-semibold uppercase tracking-wider">
-                              <Smartphone className="w-4 h-4" /> Prefix
-                            </div>
-                            <p className="text-xl font-bold text-white mt-2 tracking-tight">
-                              <code className="bg-white/10 border border-white/10 px-2 py-0.5 rounded font-mono text-amber-400">{config.prefix}command</code>
-                            </p>
-                          </div>
-                          <p className="text-xs text-zinc-400 mt-2">{commands.length} commands · {config.botName}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Interactive Architecture Tooltip & Quick Diagnostics */}
-                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-                      <div className="flex items-center gap-3.5">
-                        <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl">
-                          <Zap className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-bold text-white">Production Engine Specifications</h4>
-                          <p className="text-xs text-zinc-400">Continuous multi-device socket polling with Gemini cognitive fallbacks</p>
-                        </div>
-                      </div>
-                      <Tooltip
-                        label="Engine Diagnostics"
-                        title="Nebula WhatsApp Core Architecture"
-                        description="Multi-Device WebSocket connection with automatic session failover, rate-limit protection, and sub-100ms command dispatch."
-                        badge="Production Ready"
-                      />
-                    </div>
-
-                    {/* Side-by-Side: Custom Node Clusters & Git Commits Timeline */}
-                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                      {/* Left: Box Accordion Column (Cyber Node Status) */}
-                      <div className="lg:col-span-2 flex flex-col gap-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Node Cluster Status</span>
-                        <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 h-64 flex flex-col justify-between shadow-xl hover:border-amber-500/10 hover:scale-[1.01] transition-all duration-300">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-zinc-300">Live Active Clusters</span>
-                            <span className="w-2 h-2 rounded-full bg-[#00ffeb] animate-pulse" />
-                          </div>
-                          
-                          <div className="flex flex-col gap-2 rounded-xl bg-gradient-to-br from-[#121214] to-black p-2 h-44 overflow-hidden shadow-inner border border-white/5">
-                            {/* Box 1 */}
-                            <div className="flex-1 overflow-hidden cursor-pointer rounded-lg bg-gradient-to-r from-zinc-800 to-black flex items-center justify-center transition-all duration-500 ease-in-out hover:flex-[4] group/box relative border border-white/5 hover:border-[#00ffeb]/30">
-                              <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/box:opacity-100 transition-opacity duration-500 pointer-events-none" />
-                              <span className="p-1 text-center font-bold text-[10px] uppercase tracking-widest text-[#00ffeb] transition-transform duration-500 relative z-10 font-mono">
-                                Box-1: SOCKET_CORE
-                              </span>
-                            </div>
-                            
-                            {/* Box 2 */}
-                            <div className="flex-1 overflow-hidden cursor-pointer rounded-lg bg-gradient-to-r from-zinc-800 to-black flex items-center justify-center transition-all duration-500 ease-in-out hover:flex-[4] group/box relative border border-white/5 hover:border-[#00ffeb]/30">
-                              <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/box:opacity-100 transition-opacity duration-500 pointer-events-none" />
-                              <span className="p-1 text-center font-bold text-[10px] uppercase tracking-widest text-[#00ffeb] transition-transform duration-500 relative z-10 font-mono">
-                                Box-2: GEMINI_BRAIN
-                              </span>
-                            </div>
-                            
-                            {/* Box 3 */}
-                            <div className="flex-1 overflow-hidden cursor-pointer rounded-lg bg-gradient-to-r from-zinc-800 to-black flex items-center justify-center transition-all duration-500 ease-in-out hover:flex-[4] group/box relative border border-white/5 hover:border-[#00ffeb]/30">
-                              <div className="absolute inset-0 bg-white/5 opacity-0 group-hover/box:opacity-100 transition-opacity duration-500 pointer-events-none" />
-                              <span className="p-1 text-center font-bold text-[10px] uppercase tracking-widest text-[#00ffeb] transition-transform duration-500 relative z-10 font-mono">
-                                Box-3: CODEC_DECODER
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Right: Git Commits / Engine Core Updates Timeline (3 Columns) */}
-                      <div className="lg:col-span-3 flex flex-col gap-3">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Engine Repository Commits</span>
-                        <div className="bg-[#0e0e11] border border-white/5 rounded-2xl p-5 h-64 overflow-y-auto scrollbar shadow-xl hover:border-amber-500/10 hover:scale-[1.01] transition-all duration-300">
-                          <div className="relative pl-6 before:absolute before:top-2 before:bottom-2 before:left-3 before:w-[2px] before:border-l-2 before:border-dashed before:border-zinc-800">
-                            
-                            {/* Commit 1 */}
-                            <div className="relative mb-6">
-                              <div className="absolute -left-[20px] top-1.5 w-[14px] h-[14px] rounded-full bg-black border-2 border-amber-500 flex items-center justify-center">
-                                <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                              </div>
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-xs text-sky-400 font-mono">Commits</span>
-                                  <span className="text-[10px] bg-sky-500/10 text-sky-400 border border-sky-500/20 px-1.5 py-0.2 rounded font-mono">origin/main</span>
-                                </div>
-                                <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-2">
-                                  <span>john doe</span>
-                                  <span>·</span>
-                                  <span>Aug 24, 2023</span>
-                                </div>
-                                <p className="text-xs text-zinc-300 font-mono leading-relaxed bg-white/5 p-2 rounded-lg border border-white/5">
-                                  remove docs as they get moved to primer/design.
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* Commit 2 */}
-                            <div className="relative">
-                              <div className="absolute -left-[20px] top-1.5 w-[14px] h-[14px] rounded-full bg-black border-2 border-zinc-700 flex items-center justify-center">
-                                <div className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
-                              </div>
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-xs text-zinc-400 font-mono">Branch</span>
-                                  <span className="text-[10px] bg-zinc-800 text-zinc-400 border border-zinc-700 px-1.5 py-0.2 rounded font-mono">feat/baileys</span>
-                                </div>
-                                <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-2">
-                                  <span>jane doe</span>
-                                  <span>·</span>
-                                  <span>Feb 4, 2023</span>
-                                </div>
-                                <p className="text-xs text-zinc-300 font-mono leading-relaxed bg-white/5 p-2 rounded-lg border border-white/5">
-                                  handcrafted with love &lt;3
-                                </p>
-                              </div>
-                            </div>
-
-                          </div>
-                        </div>
+                        <p className="text-xl font-bold text-white mt-2 tracking-tight">
+                          <code className="bg-white/10 border border-white/10 px-2 py-0.5 rounded font-mono text-amber-400">{config.prefix}command</code>
+                        </p>
+                        <p className="text-xs text-zinc-400 mt-2">{commands.length} commands · {config.botName}</p>
                       </div>
                     </div>
                   </div>
@@ -2822,7 +2071,7 @@ export default function App() {
                       </div>
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${
+                          <span className={`text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${
                             status === "connected"
                               ? "bg-emerald-950 text-emerald-300 border-emerald-800"
                               : status === "qr_ready"
@@ -2917,6 +2166,7 @@ export default function App() {
                               <div className="space-y-1.5">
                                 <label className="text-xs font-bold text-zinc-300">Country / Region</label>
                                 <select
+                                  aria-label="Country code"
                                   value={pairingCountryPrefix}
                                   onChange={(e) => setPairingCountryPrefix(e.target.value)}
                                   className="w-full px-3.5 py-2.5 border border-white/10 rounded-xl text-xs bg-black text-white focus:outline-none focus:border-amber-400 transition"
@@ -2964,7 +2214,7 @@ export default function App() {
                                   title="Change browser signature in Settings"
                                 >
                                   <span>{config.browserPlatform || "Ubuntu"} · {config.browserName || "Chrome"}</span>
-                                  <span className="text-zinc-500 font-sans text-[10px] font-normal">(Edit in Settings)</span>
+                                  <span className="text-zinc-500 font-sans text-[11px] font-normal">(Edit in Settings)</span>
                                 </button>
                               </div>
 
@@ -2987,7 +2237,7 @@ export default function App() {
 
                             {pairingCode && (
                               <div className="mt-4 p-5 bg-[#18181b]/90 border border-white/10 rounded-2xl space-y-3.5 text-center">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block select-none">Your Secure Pairing Code</span>
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 block select-none">Your Secure Pairing Code</span>
                                 <div className="flex justify-center">
                                   <HeroSnippet symbol="" size="lg" color="warning">
                                     {pairingCode}
@@ -3002,7 +2252,7 @@ export default function App() {
                                   <p>1. Open WhatsApp &gt; <b>Linked Devices</b> &gt; <b>Link a Device</b>.</p>
                                   <p>2. Tap <b>"Link with phone number instead"</b> at bottom.</p>
                                   <p>3. Enter the 8-character code: <strong className="font-mono text-white">{pairingCode}</strong></p>
-                                  <p className="text-[10px] text-zinc-400">⚠️ Must be done from your primary phone (not a companion device).</p>
+                                  <p className="text-[11px] text-zinc-400">⚠️ Must be done from your primary phone (not a companion device).</p>
                                 </div>
                               </div>
                             )}
@@ -3015,7 +2265,7 @@ export default function App() {
                               </div>
                             ) : (
                               <div className="w-64 h-64 bg-black border border-white/10 rounded-2xl flex flex-col items-center justify-center space-y-3 p-6">
-                                <QrCode className="w-12 h-12 text-zinc-600 animate-pulse" />
+                                <QrCode className="w-12 h-12 text-zinc-600" />
                                 <p className="text-xs text-zinc-400">Click Start Engine or Refresh to generate QR</p>
                                 <button
                                   onClick={startBot}
@@ -3063,7 +2313,7 @@ export default function App() {
                           </div>
                           <div className="flex items-center justify-between pt-2">
                             <span className="text-zinc-400">Keepalive Ping:</span>
-                            <span className="text-amber-400 font-mono">15,000ms</span>
+                            <span className="text-amber-400 font-mono">10,000ms</span>
                           </div>
                         </div>
                       </Card>
@@ -3145,7 +2395,7 @@ export default function App() {
                         )}
                       </div>
                       {chatSearchQuery && (
-                        <span className="text-[10px] text-zinc-300 bg-white/10 px-2 py-1 rounded-full font-medium shrink-0">
+                        <span className="text-[11px] text-zinc-300 bg-white/10 px-2 py-1 rounded-full font-medium shrink-0">
                           {filteredMessages.length} found
                         </span>
                       )}
@@ -3157,7 +2407,7 @@ export default function App() {
                         <div className="flex flex-col items-center justify-center py-12 text-center text-zinc-400 space-y-2 bg-[#1f2c34] p-6 rounded-2xl max-w-[280px] mx-auto shadow-md border border-white/10">
                           <Search className="w-8 h-8 text-zinc-500 stroke-[1.5]" />
                           <p className="font-semibold text-xs text-zinc-200">No matching messages</p>
-                          <button onClick={() => setChatSearchQuery("")} className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-[10px] font-bold transition cursor-pointer">
+                          <button onClick={() => setChatSearchQuery("")} className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-[11px] font-bold transition cursor-pointer">
                             Clear Search
                           </button>
                         </div>
@@ -3182,7 +2432,7 @@ export default function App() {
                               transition={{ duration: 0.22, ease: "easeOut" }}
                               className={`flex flex-col max-w-[85%] ${msg.sender === "user" ? "ml-auto items-end" : "mr-auto items-start"}`}
                             >
-                              <span className="text-[10px] text-zinc-400 mb-0.5 px-1">{msg.senderName}</span>
+                              <span className="text-[11px] text-zinc-400 mb-0.5 px-1">{msg.senderName}</span>
                               <div className={`p-3 rounded-2xl text-xs leading-relaxed shadow-md relative ${msg.sender === "user" ? "bg-[#005c4b] text-white rounded-tr-none border border-emerald-600/30" : "bg-[#202c33] text-zinc-100 rounded-tl-none border border-white/10"}`}>
                                 {msg.imageUrl && (
                                   <div className="mb-2 rounded-xl overflow-hidden max-w-[200px] border border-white/10">
@@ -3200,7 +2450,7 @@ export default function App() {
                                           <span key={i} className="w-0.5 bg-amber-400 rounded-full" style={{ height: `${h * 4}px` }} />
                                         ))}
                                       </div>
-                                      <div className="flex items-center justify-between text-[10px] text-zinc-400 leading-none">
+                                      <div className="flex items-center justify-between text-[11px] text-zinc-400 leading-none">
                                         <span>{msg.audioDuration || "0:07"}</span>
                                         <Mic className="w-3.5 h-3.5 text-amber-400" />
                                       </div>
@@ -3218,7 +2468,7 @@ export default function App() {
                                     {msg.emoji}
                                   </span>
                                 )}
-                                <div className="text-[9px] text-zinc-400 text-right mt-1.5 leading-none">{msg.timestamp}</div>
+                                <div className="text-[11px] text-zinc-400 text-right mt-1.5 leading-none">{msg.timestamp}</div>
                               </div>
                             </motion.div>
                           ))}
@@ -3232,7 +2482,7 @@ export default function App() {
                           transition={{ duration: 0.15 }}
                           className="mr-auto flex flex-col items-start max-w-[85%]"
                         >
-                          <span className="text-[10px] text-zinc-400 mb-1 px-1 font-medium">{config.botName}</span>
+                          <span className="text-[11px] text-zinc-400 mb-1 px-1 font-medium">{config.botName}</span>
                           <div className="bg-[#202c33] border border-white/10 p-3 rounded-2xl rounded-tl-none text-xs text-zinc-300 shadow-lg flex items-center gap-3">
                             <SpeedLoader size="sm" color="#f59e0b" text="Computing response..." className="!p-0" />
                           </div>
@@ -3374,7 +2624,7 @@ export default function App() {
                           title="Command Registry"
                           icon={Terminal}
                           action={
-                            <span className="text-[10px] bg-amber-500/10 text-amber-400 px-2.5 py-0.5 rounded-full font-bold border border-amber-500/20 font-mono">
+                            <span className="text-[11px] bg-amber-500/10 text-amber-400 px-2.5 py-0.5 rounded-full font-bold border border-amber-500/20 font-mono">
                               {commands.length} Total
                             </span>
                           }
@@ -3415,7 +2665,7 @@ export default function App() {
                                     }`}
                                   >
                                     <span>{cat}</span>
-                                    <span className={`text-[9px] px-1 py-0.2 rounded-full ${
+                                    <span className={`text-[11px] px-1 py-0.2 rounded-full ${
                                       cmdCategoryFilter === cat
                                         ? "bg-black/20 text-black font-mono font-bold"
                                         : "bg-black/40 text-zinc-400 font-mono"
@@ -3455,17 +2705,17 @@ export default function App() {
                                     <div className="min-w-0 flex-1">
                                       <div className="flex items-center gap-1.5 flex-wrap">
                                         <span className={`font-bold text-xs font-mono ${isSelected ? "text-amber-400" : "text-white"}`}>{config.prefix}{cmd.name}</span>
-                                        <span className={`text-[8px] uppercase tracking-wider px-1.5 py-0.2 rounded font-bold ${
+                                        <span className={`text-[11px] uppercase tracking-wider px-1.5 py-0.2 rounded font-bold ${
                                           isSelected ? "bg-amber-500/20 text-amber-300" : "bg-white/5 text-zinc-400"
                                         }`}>
                                           {parent}
                                         </span>
                                       </div>
-                                      <div className={`text-[10px] mt-0.5 truncate ${isSelected ? "text-zinc-300" : "text-zinc-400"}`}>
+                                      <div className={`text-[11px] mt-0.5 truncate ${isSelected ? "text-zinc-300" : "text-zinc-400"}`}>
                                         {cmd.description.slice(0, 48)}{cmd.description.length > 48 ? "..." : ""}
                                       </div>
                                     </div>
-                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold shrink-0 ml-2 border ${
+                                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold shrink-0 ml-2 border ${
                                       isSelected ? "bg-amber-500/20 text-amber-300 border-amber-500/30 font-bold" : "bg-white/5 text-zinc-400 border-white/5"
                                     }`}>
                                       {cmd.category}
@@ -3494,7 +2744,7 @@ export default function App() {
                               Describe your command in plain English. Gemini will write the code and hot-load it instantly.
                             </p>
                             <div className="space-y-1">
-                              <label className="text-[10px] font-bold text-zinc-300">Command Trigger</label>
+                              <label className="text-[11px] font-bold text-zinc-300">Command Trigger</label>
                               <input
                                 type="text"
                                 placeholder="e.g. salut"
@@ -3506,7 +2756,7 @@ export default function App() {
                             </div>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-zinc-300">Category</label>
+                                <label className="text-[11px] font-bold text-zinc-300">Category</label>
                                 <input
                                   type="text"
                                   value={aiCmdCategory}
@@ -3515,7 +2765,7 @@ export default function App() {
                                 />
                               </div>
                               <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-zinc-300">Description</label>
+                                <label className="text-[11px] font-bold text-zinc-300">Description</label>
                                 <input
                                   type="text"
                                   value={aiCmdDesc}
@@ -3526,7 +2776,7 @@ export default function App() {
                               </div>
                             </div>
                             <div className="space-y-1">
-                              <label className="text-[10px] font-bold text-zinc-300">AI Prompt Instruction</label>
+                              <label className="text-[11px] font-bold text-zinc-300">AI Prompt Instruction</label>
                               <textarea
                                 placeholder="e.g. Salue le groupe et répond dans WhatsApp"
                                 value={aiPrompt}
@@ -3545,7 +2795,7 @@ export default function App() {
                               Generate Code with Gemini
                             </button>
                             {aiGenMessage && (
-                              <div className="p-2.5 bg-black/60 border border-white/10 rounded-lg text-[10px] text-zinc-300 font-medium">{aiGenMessage}</div>
+                              <div className="p-2.5 bg-black/60 border border-white/10 rounded-lg text-[11px] text-zinc-300 font-medium">{aiGenMessage}</div>
                             )}
                           </form>
                         </Card>
@@ -3569,7 +2819,7 @@ export default function App() {
                             <div className="flex flex-col gap-3 h-full min-h-[500px]">
                               <div className="flex items-center justify-between flex-wrap gap-2">
                                 <p className="text-[11px] text-zinc-400">{selectedCommand.description}</p>
-                                <span className="text-[10px] bg-white/5 text-zinc-300 px-2 py-0.5 rounded font-mono border border-white/5">
+                                <span className="text-[11px] bg-white/5 text-zinc-300 px-2 py-0.5 rounded font-mono border border-white/5">
                                   Category: {selectedCommand.parentCategory || "Core"} / {selectedCommand.category}
                                 </span>
                               </div>
@@ -3583,7 +2833,7 @@ export default function App() {
                                 style={{ whiteSpace: "pre" }}
                               />
                               {validationError && (
-                                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-[10px] text-rose-300 font-medium flex items-start gap-2">
+                                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-[11px] text-rose-300 font-medium flex items-start gap-2">
                                   <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
                                   <div className="flex-1">
                                     <strong className="block font-bold text-rose-200">Pre-Save Code Validation Failed:</strong>
@@ -3592,7 +2842,7 @@ export default function App() {
                                 </div>
                               )}
                               {editorMessage && (
-                                <div className="p-2.5 bg-white/5 border border-white/10 rounded-lg text-[10px] text-zinc-300 font-medium">{editorMessage}</div>
+                                <div className="p-2.5 bg-white/5 border border-white/10 rounded-lg text-[11px] text-zinc-300 font-medium">{editorMessage}</div>
                               )}
                             </div>
                           ) : (
@@ -3644,7 +2894,7 @@ export default function App() {
                                 }`}
                               >
                                 <span>{cat}</span>
-                                <span className={`text-[9px] px-1 py-0.2 rounded-full ${
+                                <span className={`text-[11px] px-1 py-0.2 rounded-full ${
                                   docSelectedCategory === cat ? "bg-black/20 text-black font-bold font-mono" : "bg-black/40 text-zinc-400 font-mono"
                                 }`}>
                                   {count}
@@ -3657,7 +2907,7 @@ export default function App() {
                         <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/40">
                           <table className="w-full text-left border-collapse">
                             <thead>
-                              <tr className="bg-white/5 border-b border-white/10 text-zinc-400 text-[10px] uppercase font-bold tracking-wider select-none">
+                              <tr className="bg-white/5 border-b border-white/10 text-zinc-400 text-[11px] uppercase font-bold tracking-wider select-none">
                                 <th className="p-4 w-[25%]">Command & Category</th>
                                 <th className="p-4 w-[35%]">Syntax & Params</th>
                                 <th className="p-4 w-[25%]">Description</th>
@@ -3685,18 +2935,18 @@ export default function App() {
                                           <span className="font-mono font-bold text-amber-400 bg-white/5 px-2 py-0.5 rounded text-xs border border-white/10">
                                             {config.prefix}{cmd.name}
                                           </span>
-                                          <span className="text-[9px] bg-white/10 text-zinc-300 font-bold px-1.5 py-0.5 rounded uppercase border border-white/10">
+                                          <span className="text-[11px] bg-white/10 text-zinc-300 font-bold px-1.5 py-0.5 rounded uppercase border border-white/10">
                                             {parent}
                                           </span>
-                                          <span className="text-[9px] bg-white/5 text-zinc-400 font-medium px-1.5 py-0.5 rounded border border-white/5">
+                                          <span className="text-[11px] bg-white/5 text-zinc-400 font-medium px-1.5 py-0.5 rounded border border-white/5">
                                             {cmd.category}
                                           </span>
                                         </div>
                                         {cmd.aliases && cmd.aliases.length > 0 && (
                                           <div className="flex items-center gap-1 flex-wrap">
-                                            <span className="text-[9px] text-zinc-500 select-none">Alt:</span>
+                                            <span className="text-[11px] text-zinc-500 select-none">Alt:</span>
                                             {cmd.aliases.map((alias) => (
-                                              <span key={alias} className="text-[9px] bg-white/5 text-zinc-400 font-mono px-1 py-0.5 border border-white/5 rounded">
+                                              <span key={alias} className="text-[11px] bg-white/5 text-zinc-400 font-mono px-1 py-0.5 border border-white/5 rounded">
                                                 {config.prefix}{alias}
                                               </span>
                                             ))}
@@ -3710,7 +2960,7 @@ export default function App() {
                                         {parameters.length > 0 ? (
                                           <div className="flex flex-wrap gap-1.5">
                                             {parameters.map((param, idx) => (
-                                              <span key={idx} className={`text-[9px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                                              <span key={idx} className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
                                                 param.required ? "bg-rose-500/10 text-rose-300 border border-rose-500/20" : "bg-sky-500/10 text-sky-300 border border-sky-500/20"
                                               }`}>
                                                 <span className={`w-1 h-1 rounded-full ${param.required ? "bg-rose-400" : "bg-sky-400"}`} />
@@ -3719,7 +2969,7 @@ export default function App() {
                                             ))}
                                           </div>
                                         ) : (
-                                          <span className="text-[9px] text-zinc-500 italic block select-none">No arguments required.</span>
+                                          <span className="text-[11px] text-zinc-500 italic block select-none">No arguments required.</span>
                                         )}
                                       </td>
                                       <td className="p-4 align-top text-zinc-300 text-xs leading-relaxed">{cmd.description}</td>
@@ -3730,7 +2980,7 @@ export default function App() {
                                             setCopiedCommandName(cmd.name);
                                             setTimeout(() => setCopiedCommandName(null), 1800);
                                           }}
-                                          className="w-full px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-300 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer select-none border border-white/10"
+                                          className="w-full px-2.5 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-300 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer select-none border border-white/10"
                                         >
                                           {copiedCommandName === cmd.name ? (
                                             <><Check className="w-3.5 h-3.5 text-emerald-400" /><span className="text-emerald-400">Copied!</span></>
@@ -3741,7 +2991,7 @@ export default function App() {
                                         <button
                                           onClick={() => simulateCommandFromDoc(example)}
                                           disabled={isSimulating}
-                                          className="w-full px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 disabled:bg-zinc-900 text-amber-400 disabled:text-zinc-600 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer select-none border border-amber-500/30"
+                                          className="w-full px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 disabled:bg-zinc-900 text-amber-400 disabled:text-zinc-600 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer select-none border border-amber-500/30"
                                         >
                                           <Play className="w-3 h-3 fill-current" />
                                           <span>Run Live</span>
@@ -3764,7 +3014,7 @@ export default function App() {
                             <div className="text-center py-12 bg-black/40 space-y-2">
                               <HelpCircle className="w-8 h-8 text-zinc-600 mx-auto" />
                               <h4 className="font-bold text-zinc-300 text-xs">No Commands Found</h4>
-                              <p className="text-[10px] text-zinc-500">Try a different search or category.</p>
+                              <p className="text-[11px] text-zinc-500">Try a different search or category.</p>
                             </div>
                           )}
                         </div>
@@ -3779,8 +3029,8 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <Card title="Command Frequencies" icon={BarChart3} action={
-                      <span className="px-2.5 py-1 bg-emerald-950/40 border border-emerald-800/80 rounded-lg text-[10px] font-bold text-emerald-400 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" /> Live tracking
+                      <span className="px-2.5 py-1 bg-emerald-950/40 border border-emerald-800/80 rounded-lg text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" /> Live tracking
                       </span>
                     }>
                       <div className="h-[280px] flex items-center justify-center">
@@ -3811,7 +3061,7 @@ export default function App() {
                         {isTranscribing ? (
                           <div className="space-y-2">
                             <RefreshCw className="w-5 h-5 text-amber-400 animate-spin mx-auto" />
-                            <p className="text-[10px] text-amber-400 font-semibold">Gemini is transcribing...</p>
+                            <p className="text-[11px] text-amber-400 font-semibold">Gemini is transcribing...</p>
                           </div>
                         ) : transcriptionText ? (
                           <p className="text-xs text-white font-medium italic leading-relaxed">"{transcriptionText}"</p>
@@ -3821,10 +3071,10 @@ export default function App() {
                               <span className="w-2.5 h-2.5 bg-rose-500 rounded-full" />
                               <span className="text-xs font-bold text-rose-400">RECORDING</span>
                             </div>
-                            <p className="text-[10px] text-zinc-400">{recordingSeconds}s elapsed</p>
+                            <p className="text-[11px] text-zinc-400">{recordingSeconds}s elapsed</p>
                           </div>
                         ) : (
-                          <p className="text-[10px] text-zinc-500">Speak into your microphone — your transcription will appear here</p>
+                          <p className="text-[11px] text-zinc-500">Speak into your microphone — your transcription will appear here</p>
                         )}
                       </div>
                       <div className="mt-4">
@@ -3857,12 +3107,12 @@ export default function App() {
                               <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce [animation-delay:150ms]" />
                               <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-bounce [animation-delay:300ms]" />
                             </div>
-                            <p className="text-[10px] text-amber-400 font-semibold">Gemini is thinking...</p>
+                            <p className="text-[11px] text-amber-400 font-semibold">Gemini is thinking...</p>
                           </div>
                         ) : isVoiceRecording ? (
                           <div className="space-y-1 animate-pulse">
                             <span className="text-xs font-bold text-rose-400">LISTENING...</span>
-                            <p className="text-[10px] text-zinc-400">Say what you want to ask Gemini</p>
+                            <p className="text-[11px] text-zinc-400">Say what you want to ask Gemini</p>
                           </div>
                         ) : voiceReplyText ? (
                           <div className="space-y-2 max-w-full">
@@ -3871,13 +3121,13 @@ export default function App() {
                             {isPlayingVoice && (
                               <div className="flex items-center justify-center gap-0.5 pt-1.5">
                                 {[...Array(8)].map((_, i) => (
-                                  <div key={i} className="w-1 bg-amber-400 rounded-full animate-pulse" style={{ height: `${Math.random() * 16 + 6}px`, animationDuration: `${0.4 + Math.random() * 0.4}s` }} />
+                                  <div key={i} className="w-1 bg-amber-400 rounded-full" style={{ height: `${Math.random() * 16 + 6}px`, animationDuration: `${0.4 + Math.random() * 0.4}s` }} />
                                 ))}
                               </div>
                             )}
                           </div>
                         ) : (
-                          <p className="text-[10px] text-zinc-500">Start a conversation using mic or text</p>
+                          <p className="text-[11px] text-zinc-500">Start a conversation using mic or text</p>
                         )}
                       </div>
 
@@ -3933,91 +3183,34 @@ export default function App() {
                         <Sparkles className="w-7 h-7" />
                       </div>
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
-                            Gemini 2.5 Flash
-                          </span>
-                          <span className="text-xs text-zinc-500 font-mono">@google/genai SDK v0.1.x</span>
-                        </div>
-                        <h2 className="text-xl font-bold text-white tracking-tight">Gemini Cognitive Intelligence Engine</h2>
+                        <h2 className="text-xl font-bold text-white tracking-tight">Nebula AI Engine</h2>
                         <p className="text-xs text-zinc-400 max-w-xl">
-                          Autonomous natural language answering, voice conversations, live speech transcription, and vision analysis for WhatsApp.
+                          Autonomous natural language answering, voice conversations and live speech transcription for WhatsApp.
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
                       <span className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
                         secretStatus?.configured
                           ? "bg-emerald-950/60 border-emerald-800/80 text-emerald-400"
-                          : "bg-amber-950/60 border-amber-800/80 text-amber-400"
+                          : "bg-zinc-900/60 border-zinc-700/80 text-zinc-400"
                       }`}>
                         <KeyRound className="w-3.5 h-3.5" />
-                        {secretStatus?.configured ? "Key Configured" : "Default Key Active"}
+                        {secretStatus?.configured ? `Gemini ${secretStatus.masked || "configured"}` : "Gemini not set"}
+                      </span>
+                      <span className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                        nimSecretStatus?.configured
+                          ? "bg-emerald-950/60 border-emerald-800/80 text-emerald-400"
+                          : "bg-zinc-900/60 border-zinc-700/80 text-zinc-400"
+                      }`}>
+                        <KeyRound className="w-3.5 h-3.5" />
+                        {nimSecretStatus?.configured ? `NIM ${nimSecretStatus.masked || "configured"}` : "NIM not set"}
                       </span>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                    {/* Model Configuration */}
-                    <Card title="Model & Inference Parameters" icon={Cpu}>
-                      <div className="space-y-4">
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-zinc-300">Active Model</label>
-                          <select
-                            value={geminiModel}
-                            onChange={(e) => setGeminiModel(e.target.value)}
-                            className="w-full px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-amber-400 transition"
-                          >
-                            <option value="gemini-2.5-flash">gemini-2.5-flash (Fastest &amp; Multimodal)</option>
-                            <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Reasoning &amp; Complex Tasks)</option>
-                            <option value="gemini-2.0-flash">gemini-2.0-flash (General Purpose)</option>
-                          </select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="font-bold text-zinc-300">Temperature</span>
-                            <span className="font-mono text-amber-400">{geminiTemperature.toFixed(2)}</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={geminiTemperature}
-                            onChange={(e) => setGeminiTemperature(parseFloat(e.target.value))}
-                            className="w-full accent-amber-500 cursor-pointer bg-white/10 rounded-lg h-2"
-                          />
-                          <div className="flex justify-between text-[10px] text-zinc-500">
-                            <span>0.0 (Precise)</span>
-                            <span>1.0 (Creative)</span>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold text-zinc-300">System Persona Instructions</label>
-                          <textarea
-                            value={geminiSystemPrompt}
-                            onChange={(e) => setGeminiSystemPrompt(e.target.value)}
-                            rows={4}
-                            className="w-full px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-amber-400 placeholder-zinc-600 font-mono resize-none"
-                            placeholder="Set instructions for how the AI responds in WhatsApp chats..."
-                          />
-                        </div>
-
-                        <div className="p-3 bg-white/5 border border-white/10 rounded-xl space-y-1.5 text-xs">
-                          <div className="flex items-center gap-1.5 text-amber-400 font-bold">
-                            <Sparkles className="w-3.5 h-3.5" /> Multimodal Features Enabled
-                          </div>
-                          <p className="text-[11px] text-zinc-400 leading-relaxed">
-                            Supports <code>.ai</code> text prompt, <code>.transcribe</code> voice note audio recognition, and <code>.ask</code> vision questions on photos.
-                          </p>
-                        </div>
-                      </div>
-                    </Card>
-
                     {/* Interactive Prompt Playground */}
-                    <div className="xl:col-span-2 space-y-6">
+                    <div className="space-y-6">
                       <Card
                         title="Interactive AI Prompt Playground"
                         icon={Sparkles}
@@ -4053,7 +3246,7 @@ export default function App() {
                               {isTestingGemini ? (
                                 <div className="flex items-center gap-2 text-amber-400 py-6 justify-center">
                                   <RefreshCw className="w-4 h-4 animate-spin" />
-                                  <span>Generating response from {geminiModel}...</span>
+                                  <span>Generating AI response...</span>
                                 </div>
                               ) : geminiPlaygroundOutput ? (
                                 geminiPlaygroundOutput
@@ -4065,172 +3258,180 @@ export default function App() {
                         </div>
                       </Card>
 
-                      {/* Live Audio Transcription & Voice conversation mini-hub */}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <Card title="Speech Recognition" icon={Mic}>
-                          <div className="space-y-3">
-                            <div className="p-3 bg-black/40 border border-white/10 rounded-xl min-h-[70px] flex items-center justify-center text-center">
-                              {isTranscribing ? (
-                                <div className="flex items-center gap-1.5 text-amber-400 text-xs font-semibold">
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Transcribing...
-                                </div>
-                              ) : transcriptionText ? (
-                                <p className="text-xs text-white font-medium italic">"{transcriptionText}"</p>
-                              ) : (
-                                <p className="text-[11px] text-zinc-500">Record speech to transcribe with Gemini</p>
-                              )}
-                            </div>
-                            {isRecording ? (
-                              <button onClick={stopRecording} className="w-full py-2 bg-rose-600 text-white text-xs font-bold rounded-xl cursor-pointer">
-                                Stop &amp; Transcribe ({recordingSeconds}s)
-                              </button>
-                            ) : (
-                              <button onClick={startRecording} className="w-full py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer">
-                                <Mic className="w-3.5 h-3.5 text-amber-400" /> Record Microphone
-                              </button>
-                            )}
-                          </div>
-                        </Card>
-
-                        <Card title="Voice Conversation" icon={Volume2}>
-                          <div className="space-y-3">
-                            <div className="p-3 bg-black/40 border border-white/10 rounded-xl min-h-[70px] flex items-center justify-center text-center">
-                              {isVoiceResponding ? (
-                                <span className="text-amber-400 text-xs font-semibold animate-pulse">Thinking...</span>
-                              ) : voiceReplyText ? (
-                                <p className="text-xs text-white italic">"{voiceReplyText.slice(0, 70)}..."</p>
-                              ) : (
-                                <p className="text-[11px] text-zinc-500">Live Voice synthesis simulator</p>
-                              )}
-                            </div>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={voiceInput}
-                                onChange={(e) => setVoiceInput(e.target.value)}
-                                onKeyDown={(e) => e.key === "Enter" && handleVoiceCallConvo(voiceInput)}
-                                placeholder="Type to speak..."
-                                className="flex-1 px-3 py-1.5 bg-black border border-white/10 rounded-xl text-xs text-white outline-none focus:border-amber-400"
-                              />
-                              <button
-                                onClick={() => handleVoiceCallConvo(voiceInput)}
-                                disabled={isVoiceResponding || !voiceInput.trim()}
-                                className="px-3 bg-amber-500 text-black font-bold rounded-xl text-xs cursor-pointer"
-                              >
-                                Call
-                              </button>
-                            </div>
-                          </div>
-                        </Card>
-                      </div>
                     </div>
-                  </div>
                 </div>
               )}
 
               {/* ============================================================ PLUGINS MATRIX */}
               {activeTab === "plugins" && (
                 <div className="space-y-6">
-                  {/* Header */}
+                  {/* 8.92 : cette page affichait 8 « plugins » simulés (latences,
+                      auteurs et toggles fictifs). Elle montre désormais l'état
+                      RÉEL du moteur, lu depuis les APIs existantes. */}
                   <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-[#0b0b0c] border border-white/10 p-5 rounded-2xl">
                     <div className="space-y-1">
                       <h2 className="text-lg font-bold text-white flex items-center gap-2">
                         <Package className="w-5 h-5 text-amber-400" />
-                        Plugins &amp; Capabilities Matrix
+                        Engine Capabilities
                       </h2>
                       <p className="text-xs text-zinc-400">
-                        Manage modular functional extensions, media handlers, and AI middleware for your WhatsApp bot.
+                        Live state of the engine, read from the bot APIs — nothing simulated.
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {["All", "Core", "AI", "Utility", "Security"].map((category) => (
-                        <button
-                          key={category}
-                          onClick={() => setPluginFilter(category)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
-                            pluginFilter === category
-                              ? "bg-amber-500 text-black font-bold"
-                              : "bg-white/5 border border-white/10 text-zinc-400 hover:text-zinc-200"
-                          }`}
-                        >
-                          {category}
-                        </button>
-                      ))}
-                    </div>
+                    <span className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                      status === "connected"
+                        ? "bg-emerald-950/60 border-emerald-800/80 text-emerald-400"
+                        : "bg-amber-950/60 border-amber-800/80 text-amber-400"
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${status === "connected" ? "bg-emerald-400" : "bg-amber-400"}`} />
+                      {status === "connected" ? "Engine Online" : "Engine Offline"}
+                    </span>
                   </div>
 
-                  {/* Plugin Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    <AnimatePresence mode="popLayout">
-                      {[
-                        { id: "baileys-core", name: "Baileys Multi-Device Core", category: "Core", desc: "WebSocket transport layer with auto-reconnect and auth state persistence.", latency: "12ms", author: "Nebula" },
-                        { id: "gemini-ai", name: "Gemini 2.5 Cognitive AI", category: "AI", desc: "Natural language conversations, image reasoning, and speech transcription.", latency: "420ms", author: "Google DeepMind" },
-                        { id: "media-downloader", name: "Media & Sticker Converter", category: "Utility", desc: "Convert images, videos, and GIFs into WhatsApp WebP animated stickers.", latency: "180ms", author: "FFmpeg" },
-                        { id: "group-guard", name: "Group Guard & Admin Suite", category: "Security", desc: "Welcome cards, farewell notifications, anti-link invites, and group broadcast.", latency: "15ms", author: "Nebula" },
-                        { id: "sticker-maker", name: "Universal Media Scraper", category: "Utility", desc: "Download high quality videos from YouTube, TikTok, Instagram, and Twitter.", latency: "650ms", author: "MediaAPI" },
-                        { id: "anti-spam", name: "Anti-Spam & Rate Limiter", category: "Security", desc: "Per-user token bucket rate limiter and blacklist phone number enforcement.", latency: "2ms", author: "SentryGuard" },
-                        { id: "voice-synthesis", name: "ElevenLabs / Gemini TTS", category: "AI", desc: "Transform responses into realistic voice audio notes sent directly to chats.", latency: "520ms", author: "ElevenLabs" },
-                        { id: "crypto-ticker", name: "Live Market & Crypto Ticker", category: "Utility", desc: "Real-time BTC, ETH, SOL, and Forex exchange rates with price alerts.", latency: "95ms", author: "CoinGecko" },
-                      ]
-                        .filter((p) => pluginFilter === "All" || p.category === pluginFilter)
-                        .map((plugin) => {
-                          const isEnabled = pluginStates[plugin.id] !== false;
-                          return (
-                            <motion.div
-                              key={plugin.id}
-                              layout
-                              initial={{ opacity: 0, scale: 0.9 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.9 }}
-                              transition={{ duration: 0.25, ease: "easeInOut" }}
-                              className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 shadow-sm space-y-4 hover:border-white/20 transition flex flex-col justify-between"
-                            >
-                              <div className="space-y-3">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="flex items-center gap-2.5">
-                                    <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                                      <Package className="w-4 h-4" />
-                                    </div>
-                                    <div>
-                                      <h4 className="font-bold text-white text-sm tracking-tight">{plugin.name}</h4>
-                                      <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-[10px] font-bold px-2 py-0.2 rounded bg-white/5 border border-white/10 text-zinc-400">
-                                          {plugin.category}
-                                        </span>
-                                        <span className="text-[10px] text-zinc-500 font-mono">{plugin.latency}</span>
-                                      </div>
-                                    </div>
-                                  </div>
+                    {/* Socket WhatsApp */}
+                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                            <Bot className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-sm tracking-tight">WhatsApp Socket</h4>
+                            <span className="text-[11px] text-zinc-500 font-mono">@whiskeysockets/baileys</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          Multi-device WebSocket transport with auto-reconnect and session persistence.
+                        </p>
+                      </div>
+                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
+                        <span className="truncate">{config.botName}</span>
+                        <span className={`font-semibold ${status === "connected" ? "text-emerald-400" : "text-zinc-500"}`}>
+                          {status === "connected" ? "Connected" : status === "qr_ready" ? "QR ready" : status === "connecting" ? "Connecting" : "Offline"}
+                        </span>
+                      </div>
+                    </div>
 
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setPluginStates((prev: Record<string, boolean>) => ({
-                                        ...prev,
-                                        [plugin.id]: !isEnabled,
-                                      }))
-                                    }
-                                    className={`w-10 h-5 flex items-center rounded-full p-0.5 transition duration-200 cursor-pointer ${
-                                      isEnabled ? "bg-amber-500 justify-end" : "bg-zinc-800 justify-start"
-                                    }`}
-                                  >
-                                    <span className={`w-4 h-4 rounded-full shadow-md ${isEnabled ? "bg-black" : "bg-zinc-400"}`} />
-                                  </button>
-                                </div>
+                    {/* Registre de commandes */}
+                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                            <Terminal className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-sm tracking-tight">Command Registry</h4>
+                            <span className="text-[11px] text-zinc-500 font-mono">hot-reloadable</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          Registered commands, editable live from the Commands tab.
+                        </p>
+                      </div>
+                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
+                        <span className="truncate">
+                          {CATEGORY_LIST.filter(c => c !== "All").map(c => `${commands.filter(cmd => commandMatchesCategory(cmd, c)).length} ${c}`).slice(0, 2).join(" · ")}
+                        </span>
+                        <span className="font-semibold text-amber-400">{commands.length} total</span>
+                      </div>
+                    </div>
 
-                                <p className="text-xs text-zinc-400 leading-relaxed">{plugin.desc}</p>
-                              </div>
+                    {/* Clé Gemini */}
+                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                            <Sparkles className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-sm tracking-tight">Gemini AI</h4>
+                            <span className="text-[11px] text-zinc-500 font-mono">GEMINI_API_KEY</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          Conversational answers and voice features for WhatsApp.
+                        </p>
+                      </div>
+                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
+                        <span className="truncate">{secretStatus?.configured ? secretStatus.masked || "configured" : "not configured"}</span>
+                        <span className={`font-semibold ${secretStatus?.configured ? "text-emerald-400" : "text-zinc-500"}`}>
+                          {secretStatus?.configured ? "Active" : "Off"}
+                        </span>
+                      </div>
+                    </div>
 
-                              <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
-                                <span>Author: {plugin.author}</span>
-                                <span className={`font-semibold ${isEnabled ? "text-emerald-400" : "text-zinc-600"}`}>
-                                  {isEnabled ? "Active" : "Disabled"}
-                                </span>
-                              </div>
-                            </motion.div>
-                          );
-                        })}
-                    </AnimatePresence>
+                    {/* Clé NVIDIA NIM */}
+                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                            <Cpu className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-sm tracking-tight">NVIDIA NIM AI</h4>
+                            <span className="text-[11px] text-zinc-500 font-mono">NVIDIA_NIM_API_KEY</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          AI fallback when Gemini is unavailable.
+                        </p>
+                      </div>
+                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
+                        <span className="truncate">{nimSecretStatus?.configured ? nimSecretStatus.masked || "configured" : "not configured"}</span>
+                        <span className={`font-semibold ${nimSecretStatus?.configured ? "text-emerald-400" : "text-zinc-500"}`}>
+                          {nimSecretStatus?.configured ? "Active" : "Off"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Owner */}
+                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                            <Shield className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-sm tracking-tight">Owner Access</h4>
+                            <span className="text-[11px] text-zinc-500 font-mono">OWNER_NUMBER</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          The only number authorized to run administrative commands.
+                        </p>
+                      </div>
+                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
+                        <span className="truncate">{config.ownerNumber || "not configured"}</span>
+                        <span className={`font-semibold ${ownerSecretStatus?.configured ? "text-emerald-400" : "text-zinc-500"}`}>
+                          {ownerSecretStatus?.configured ? "Set" : "Off"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Voix & transcription */}
+                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                            <Mic className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-white text-sm tracking-tight">Voice & Transcription</h4>
+                            <span className="text-[11px] text-zinc-500 font-mono">/api/gemini/*</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          Microphone transcription and voice replies, powered by the configured AI key.
+                        </p>
+                      </div>
+                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
+                        <span>Requires an AI key</span>
+                        <span className={`font-semibold ${secretStatus?.configured || nimSecretStatus?.configured ? "text-emerald-400" : "text-zinc-500"}`}>
+                          {secretStatus?.configured || nimSecretStatus?.configured ? "Ready" : "Off"}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -4276,68 +3477,6 @@ export default function App() {
                     </div>
                   </Card>
 
-                  {/* Group Automation Greetings */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Card
-                      title="Welcome Greetings"
-                      icon={Users}
-                      action={
-                        <button
-                          type="button"
-                          onClick={() => setWelcomeEnabled(!welcomeEnabled)}
-                          className={`w-9 h-5 flex items-center rounded-full p-0.5 transition cursor-pointer ${
-                            welcomeEnabled ? "bg-amber-500 justify-end" : "bg-zinc-800 justify-start"
-                          }`}
-                        >
-                          <span className={`w-3.5 h-3.5 rounded-full ${welcomeEnabled ? "bg-black" : "bg-zinc-400"}`} />
-                        </button>
-                      }
-                    >
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-bold text-zinc-300">Auto Welcome Message</label>
-                          <span className="text-[10px] text-zinc-500 font-mono">Variables: @user, @group</span>
-                        </div>
-                        <textarea
-                          value={welcomeMessage}
-                          onChange={(e) => setWelcomeMessage(e.target.value)}
-                          rows={3}
-                          className="w-full px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-amber-400 font-sans resize-none"
-                        />
-                        <p className="text-[10px] text-zinc-500">Sent automatically when a new member joins any group.</p>
-                      </div>
-                    </Card>
-
-                    <Card
-                      title="Farewell Goodbyes"
-                      icon={Users}
-                      action={
-                        <button
-                          type="button"
-                          onClick={() => setFarewellEnabled(!farewellEnabled)}
-                          className={`w-9 h-5 flex items-center rounded-full p-0.5 transition cursor-pointer ${
-                            farewellEnabled ? "bg-amber-500 justify-end" : "bg-zinc-800 justify-start"
-                          }`}
-                        >
-                          <span className={`w-3.5 h-3.5 rounded-full ${farewellEnabled ? "bg-black" : "bg-zinc-400"}`} />
-                        </button>
-                      }
-                    >
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-bold text-zinc-300">Auto Farewell Message</label>
-                          <span className="text-[10px] text-zinc-500 font-mono">Variables: @user</span>
-                        </div>
-                        <textarea
-                          value={farewellMessage}
-                          onChange={(e) => setFarewellMessage(e.target.value)}
-                          rows={3}
-                          className="w-full px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-amber-400 font-sans resize-none"
-                        />
-                        <p className="text-[10px] text-zinc-500">Sent automatically when a member leaves or is removed.</p>
-                      </div>
-                    </Card>
-                  </div>
                 </div>
               )}
 
@@ -4350,282 +3489,10 @@ export default function App() {
                   {/* Audit trail + backup/restore + AI budget */}
                   <SecurityExtras />
 
-                  {/* Security Guardrails Header */}
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                    {/* Rate Limiting & Policies */}
-                    <Card title="Rate Limiter &amp; Abuse Prevention" icon={Shield}>
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="font-bold text-zinc-300">Max Commands Per Minute (Per User)</span>
-                            <span className="font-mono text-amber-400">{rateLimitMax} req/min</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="5"
-                            max="60"
-                            step="5"
-                            value={rateLimitMax}
-                            onChange={(e) => setRateLimitMax(parseInt(e.target.value))}
-                            className="w-full accent-amber-500 cursor-pointer bg-white/10 rounded-lg h-2"
-                          />
-                        </div>
-
-                        <div className="p-3.5 bg-black/40 border border-white/10 rounded-xl flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-bold text-white">Block Link Invites</p>
-                            <p className="text-[10px] text-zinc-400">Auto-delete unauthorized WhatsApp group links</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setBlockLinkInvites(!blockLinkInvites)}
-                            className={`w-10 h-5 flex items-center rounded-full p-0.5 transition duration-200 cursor-pointer ${
-                              blockLinkInvites ? "bg-amber-500 justify-end" : "bg-zinc-800 justify-start"
-                            }`}
-                          >
-                            <span className={`w-4 h-4 rounded-full shadow-md ${blockLinkInvites ? "bg-black" : "bg-zinc-400"}`} />
-                          </button>
-                        </div>
-
-                        <div className="p-3.5 bg-black/40 border border-white/10 rounded-xl flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-bold text-white">Auto-Kick Spammers</p>
-                            <p className="text-[10px] text-zinc-400">Remove members who exceed rate limits repeatedly</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setAutoKickSpammers(!autoKickSpammers)}
-                            className={`w-10 h-5 flex items-center rounded-full p-0.5 transition duration-200 cursor-pointer ${
-                              autoKickSpammers ? "bg-amber-500 justify-end" : "bg-zinc-800 justify-start"
-                            }`}
-                          >
-                            <span className={`w-4 h-4 rounded-full shadow-md ${autoKickSpammers ? "bg-black" : "bg-zinc-400"}`} />
-                          </button>
-                        </div>
-
-                        <div className="p-3.5 bg-black/40 border border-white/10 rounded-xl flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-bold text-white">Admin-Only Commands</p>
-                            <p className="text-[10px] text-zinc-400">Restrict moderation and broadcast tools to group admins</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setAdminOnlyCmds(!adminOnlyCmds)}
-                            className={`w-10 h-5 flex items-center rounded-full p-0.5 transition duration-200 cursor-pointer ${
-                              adminOnlyCmds ? "bg-amber-500 justify-end" : "bg-zinc-800 justify-start"
-                            }`}
-                          >
-                            <span className={`w-4 h-4 rounded-full shadow-md ${adminOnlyCmds ? "bg-black" : "bg-zinc-400"}`} />
-                          </button>
-                        </div>
-
-                        <div className="p-3.5 bg-black/40 border border-white/10 rounded-xl flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-xs font-bold text-white">Public Mode (All Users)</p>
-                            <p className="text-[10px] text-zinc-400">When disabled, only bot owners can execute commands</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setPublicMode(!publicMode)}
-                            className={`w-10 h-5 flex items-center rounded-full p-0.5 transition duration-200 cursor-pointer ${
-                              publicMode ? "bg-amber-500 justify-end" : "bg-zinc-800 justify-start"
-                            }`}
-                          >
-                            <span className={`w-4 h-4 rounded-full shadow-md ${publicMode ? "bg-black" : "bg-zinc-400"}`} />
-                          </button>
-                        </div>
-                      </div>
-                    </Card>
-
-                    {/* Blacklisted Numbers Manager */}
-                    <Card title="Blacklisted WhatsApp Numbers" icon={ShieldAlert}>
-                      <div className="space-y-4">
-                        <p className="text-xs text-zinc-400">
-                          Banned phone numbers are blocked immediately from running commands and interacting with the bot.
-                        </p>
-
-                        <div className="flex gap-2">
-                          <input
-                            type="tel"
-                            value={blacklistInput}
-                            onChange={(e) => setBlacklistInput(e.target.value)}
-                            placeholder="e.g. +18005550199"
-                            className="flex-1 px-3.5 py-2 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
-                          />
-                          <button
-                            onClick={addBlacklistNumber}
-                            className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition cursor-pointer"
-                          >
-                            Ban Number
-                          </button>
-                        </div>
-
-                        <div className="space-y-2 max-h-[160px] overflow-y-auto">
-                          {blacklistedNumbers.length > 0 ? (
-                            blacklistedNumbers.map((num) => (
-                              <div
-                                key={num}
-                                className="flex items-center justify-between p-2.5 bg-black/40 border border-white/10 rounded-xl text-xs font-mono text-zinc-300"
-                              >
-                                <span>{num}</span>
-                                <button
-                                  onClick={() => removeBlacklistNumber(num)}
-                                  className="text-rose-400 hover:text-rose-300 text-xs font-bold transition cursor-pointer"
-                                >
-                                  Unban
-                                </button>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-xs text-zinc-600 italic text-center py-4">No numbers blacklisted yet.</p>
-                          )}
-                        </div>
-                      </div>
-                    </Card>
-                  </div>
                 </div>
               )}
 
               {/* ============================================================ SECRETS VAULT */}
-              {activeTab === "secrets" && (
-                <div className="space-y-6">
-                  <Card title="API Secrets &amp; Environment Variables" icon={KeyRound}>
-                    <div className="space-y-6 max-w-2xl">
-                      <p className="text-xs text-zinc-300 leading-relaxed">
-                        Manage your bot's primary environment secrets. These are persisted securely on the backend server in the <code>.env</code> file.
-                      </p>
-
-                      {/* GEMINI_API_KEY */}
-                      <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <span className="text-xs font-bold text-white block">GEMINI_API_KEY</span>
-                            <span className="text-[10px] text-zinc-400">Required for AI commands, transcriptions, and reasoning</span>
-                          </div>
-                          {secretStatus?.configured ? (
-                            <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" /> Configured ({secretStatus.masked})
-                            </span>
-                          ) : (
-                            <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2.5 py-1 rounded-full">
-                              Not Configured
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex gap-2">
-                          <input
-                            type="password"
-                            value={secretValue}
-                            onChange={(e) => setSecretValue(e.target.value)}
-                            placeholder="AIzaSy..."
-                            className="flex-1 px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
-                          />
-                          <button
-                            onClick={saveSecret}
-                            disabled={isSavingSecret || !secretValue.trim()}
-                            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5"
-                          >
-                            {isSavingSecret ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            Save Secret
-                          </button>
-                        </div>
-                        {secretMessage && (
-                          <div className="p-2 bg-white/5 border border-white/5 rounded-lg text-xs text-amber-300 font-medium">
-                            {secretMessage}
-                          </div>
-                        )}
-                      </div>
-
-                                            {/* NVIDIA_NIM_API_KEY (AI fallback) */}
-                      <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <span className="text-xs font-bold text-white block">NVIDIA_NIM_API_KEY</span>
-                            <span className="text-[10px] text-zinc-400">Optional — AI fallback when Gemini is unavailable (free key: build.nvidia.com)</span>
-                          </div>
-                          {nimSecretStatus?.configured ? (
-                            <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" /> Configured ({nimSecretStatus.masked})
-                            </span>
-                          ) : (
-                            <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2.5 py-1 rounded-full">
-                              Not Configured
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex gap-2">
-                          <input
-                            type="password"
-                            value={nimSecretValue}
-                            onChange={(e) => setNimSecretValue(e.target.value)}
-                            placeholder="nvapi-..."
-                            className="flex-1 px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
-                          />
-                          <button
-                            onClick={saveNimSecret}
-                            disabled={isSavingNimSecret || !nimSecretValue.trim()}
-                            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5"
-                          >
-                            {isSavingNimSecret ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            Save Secret
-                          </button>
-                        </div>
-                        {nimSecretMessage && (
-                          <div className="p-2 bg-white/5 border border-white/5 rounded-lg text-xs text-amber-300 font-medium">
-                            {nimSecretMessage}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* OWNER_NUMBER */}
-                      <div className="p-4 bg-white/5 border border-white/10 rounded-xl space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <span className="text-xs font-bold text-white block">OWNER_NUMBER</span>
-                            <span className="text-[10px] text-zinc-400">The ONLY number authorized to execute administrative owner commands</span>
-                          </div>
-                          {ownerSecretStatus?.configured ? (
-                            <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" /> Configured ({ownerSecretStatus.masked})
-                            </span>
-                          ) : (
-                            <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2.5 py-1 rounded-full">
-                              Not Configured
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            value={ownerSecretValue}
-                            onChange={(e) => setOwnerSecretValue(e.target.value)}
-                            placeholder="country code + number, e.g. 2250700000000"
-                            className="flex-1 px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
-                          />
-                          <button
-                            onClick={saveOwnerSecret}
-                            disabled={isSavingOwnerSecret || !ownerSecretValue.trim()}
-                            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition cursor-pointer flex items-center gap-1.5"
-                          >
-                            {isSavingOwnerSecret ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            Save Owner Number
-                          </button>
-                        </div>
-                        {ownerSecretMessage && (
-                          <div className="p-2 bg-white/5 border border-white/5 rounded-lg text-xs text-amber-300 font-medium">
-                            {ownerSecretMessage}
-                          </div>
-                        )}
-                      </div>
-
-                    </div>
-                  </Card>
-                </div>
-              )}
-
               {/* ============================================================ DOCS */}
               {activeTab === "docs" && (
                 <div className="space-y-6">
@@ -4649,7 +3516,7 @@ export default function App() {
                       ].map((ep) => (
                         <div key={ep.path} className="p-4 bg-black/40 border border-white/10 rounded-xl space-y-1.5">
                           <div className="flex items-center gap-2 font-mono text-xs">
-                            <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                            <span className={`px-2 py-0.5 rounded font-bold text-[11px] ${
                               ep.method === "POST" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                             }`}>
                               {ep.method}
@@ -4707,7 +3574,7 @@ export default function App() {
                                   setActiveLogFilters([...activeLogFilters, category]);
                                 }
                               }}
-                              className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold tracking-wide transition cursor-pointer select-none flex items-center gap-1.5 border ${
+                              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold tracking-wide transition cursor-pointer select-none flex items-center gap-1.5 border ${
                                 isActive
                                   ? category === "Errors"
                                     ? "bg-rose-500/10 text-rose-400 border-rose-500/30 shadow-sm"
@@ -4723,16 +3590,16 @@ export default function App() {
                                 category === "Errors" ? "bg-rose-500" :
                                 category === "Cognitive" ? "bg-fuchsia-500" :
                                 category === "Sandbox" ? "bg-amber-400" : "bg-zinc-400"
-                              } ${isActive ? "animate-pulse" : "opacity-40"}`} />
+                              } ${isActive ? "" : "opacity-40"}`} />
                               <span>{category}</span>
-                              <span className="text-[9px] bg-black/50 px-1.5 py-0.2 rounded font-medium select-none text-zinc-400">{count}</span>
+                              <span className="text-[11px] bg-black/50 px-1.5 py-0.2 rounded font-medium select-none text-zinc-400">{count}</span>
                             </button>
                           );
                         })}
                         {activeLogFilters.length < 4 && (
                           <button
                             onClick={() => setActiveLogFilters(["Errors", "System", "Cognitive", "Sandbox"])}
-                            className="ml-auto text-[10px] font-extrabold text-amber-400 hover:text-amber-300 transition cursor-pointer select-none"
+                            className="ml-auto text-[11px] font-extrabold text-amber-400 hover:text-amber-300 transition cursor-pointer select-none"
                           >
                             Show All
                           </button>
@@ -4776,7 +3643,7 @@ export default function App() {
 
                             return (
                               <div key={index} className="flex items-center gap-3 py-1.5 border-b border-white/5 last:border-0 hover:bg-white/5 px-1 transition-colors">
-                                <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold tracking-wider uppercase select-none ${badgeColor} shrink-0`}>
+                                <span className={`px-1.5 py-0.5 rounded text-[11px] font-extrabold tracking-wider uppercase select-none ${badgeColor} shrink-0`}>
                                   {badgeText}
                                 </span>
                                 <span className={`${colorClass} break-words`}>{log}</span>
@@ -4796,7 +3663,7 @@ export default function App() {
                   <div className="bg-gradient-to-r from-zinc-900 via-[#141416] to-black border border-amber-500/30 rounded-2xl p-8 text-white shadow-xl shadow-amber-500/5 flex flex-col md:flex-row items-center justify-between gap-6">
                     <div className="space-y-2 text-center md:text-left max-w-lg">
                       <div className="flex items-center gap-2 justify-center md:justify-start">
-                        <span className="px-2.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-[10px] font-bold text-amber-400 uppercase tracking-wider">Production Standalone</span>
+                        <span className="px-2.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-[11px] font-bold text-amber-400 uppercase tracking-wider">Production Standalone</span>
                       </div>
                       <h3 className="font-extrabold text-xl text-white">Run Nebula Bot Locally</h3>
                       <p className="text-xs text-zinc-300 leading-relaxed">
@@ -4880,7 +3747,7 @@ export default function App() {
                           value={zipB64}
                           rows={7}
                           onFocus={(e) => e.currentTarget.select()}
-                          className="w-full p-3 font-mono text-[10px] bg-black text-zinc-200 rounded-xl border border-white/10 leading-relaxed resize-y focus:outline-none focus:border-amber-400"
+                          className="w-full p-3 font-mono text-[11px] bg-black text-zinc-200 rounded-xl border border-white/10 leading-relaxed resize-y focus:outline-none focus:border-amber-400"
                         />
                       )}
                       {zipB64.startsWith("ERROR") && (
@@ -4892,7 +3759,7 @@ export default function App() {
                   <Card title="What's included" icon={CheckCircle}>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {[
-                        "All 21 built-in commands (transpiled to CommonJS)",
+                        `${commands.length} built-in commands (transpiled to CommonJS)`,
                         "Shared runtime modules (AI client, group database)",
                         "config.json with your current settings",
                         "Auto-reconnect & session management",
@@ -4989,7 +3856,7 @@ export default function App() {
                     icon={Globe}
                     action={
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold px-2.5 py-1 rounded-full font-mono">
+                        <span className="text-[11px] bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold px-2.5 py-1 rounded-full font-mono">
                           {formConfig.browserName || "Chrome"} ({formConfig.browserPlatform || "Ubuntu"})
                         </span>
                         <button
@@ -5018,7 +3885,7 @@ export default function App() {
                       <div className="p-4 bg-black/40 rounded-xl border border-white/10 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-bold text-white">Auto-Read Messages</p>
-                          <p className="text-[10px] text-zinc-400">Mark incoming chats as read automatically</p>
+                          <p className="text-[11px] text-zinc-400">Mark incoming chats as read automatically</p>
                         </div>
                         <Switch
                           checked={autoRead}
@@ -5031,7 +3898,7 @@ export default function App() {
                       <div className="p-4 bg-black/40 rounded-xl border border-white/10 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-bold text-white">Simulate Typing</p>
-                          <p className="text-[10px] text-zinc-400">Show typing presence before dispatching</p>
+                          <p className="text-[11px] text-zinc-400">Show typing presence before dispatching</p>
                         </div>
                         <Switch
                           checked={simulateTyping}
@@ -5044,7 +3911,7 @@ export default function App() {
                       <div className="p-4 bg-black/40 rounded-xl border border-white/10 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-bold text-white">Anti-Link Guardrail</p>
-                          <p className="text-[10px] text-zinc-400">Auto-delete unauthorized invite links</p>
+                          <p className="text-[11px] text-zinc-400">Auto-delete unauthorized invite links</p>
                         </div>
                         <Switch
                           checked={antiLink}
@@ -5057,7 +3924,7 @@ export default function App() {
                       <div className="p-4 bg-black/40 rounded-xl border border-white/10 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-bold text-white">Autonomous Gemini AI</p>
-                          <p className="text-[10px] text-zinc-400">Respond to conversational AI queries</p>
+                          <p className="text-[11px] text-zinc-400">Respond to conversational AI queries</p>
                         </div>
                         <Switch
                           checked={autonomousAi}
@@ -5070,7 +3937,7 @@ export default function App() {
                       <div className="p-4 bg-black/40 rounded-xl border border-white/10 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-xs font-bold text-white">Public Mode</p>
-                          <p className="text-[10px] text-zinc-400">Allow group members to execute commands</p>
+                          <p className="text-[11px] text-zinc-400">Allow group members to execute commands</p>
                         </div>
                         <Switch
                           checked={publicMode}
@@ -5088,7 +3955,7 @@ export default function App() {
                       <div className="p-5 bg-black/40 rounded-xl border border-white/10 flex items-center justify-between gap-4">
                         <div className="space-y-1">
                           <p className="text-xs font-bold text-white">Adaptive Morphing</p>
-                          <p className="text-[10px] text-zinc-400">
+                          <p className="text-[11px] text-zinc-400">
                             Uses JavaScript to randomize blob transition coordinates every 15s for organic liquidity
                           </p>
                         </div>
@@ -5103,7 +3970,7 @@ export default function App() {
                       <div className="p-5 bg-black/40 rounded-xl border border-white/10 flex items-center justify-between gap-4">
                         <div className="space-y-1">
                           <p className="text-xs font-bold text-white">Motion Sensitivity</p>
-                          <p className="text-[10px] text-zinc-400">
+                          <p className="text-[11px] text-zinc-400">
                             Orgasmic scale adjustments on background orbs based on mouse movement and scroll speed
                           </p>
                         </div>
@@ -5119,7 +3986,7 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <div className="space-y-1">
                             <p className="text-xs font-bold text-white">Backdrop Blur Strength</p>
-                            <p className="text-[10px] text-zinc-400">
+                            <p className="text-[11px] text-zinc-400">
                               Globally scale the depth-of-field glass blurring strength
                             </p>
                           </div>
@@ -5128,7 +3995,7 @@ export default function App() {
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-[10px] text-zinc-500 font-bold font-mono">0%</span>
+                          <span className="text-[11px] text-zinc-500 font-bold font-mono">0%</span>
                           <input
                             type="range"
                             min="0"
@@ -5138,7 +4005,7 @@ export default function App() {
                             onChange={(e) => setBlurIntensity(parseFloat(e.target.value))}
                             className="flex-1 accent-[var(--theme-primary,#f59e0b)] bg-zinc-800 rounded-lg appearance-none h-1.5 cursor-pointer"
                           />
-                          <span className="text-[10px] text-zinc-500 font-bold font-mono">200%</span>
+                          <span className="text-[11px] text-zinc-500 font-bold font-mono">200%</span>
                         </div>
                       </div>
 
@@ -5146,7 +4013,7 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <div className="space-y-1">
                             <p className="text-xs font-bold text-white">Blob Animation Speed</p>
-                            <p className="text-[10px] text-zinc-400">
+                            <p className="text-[11px] text-zinc-400">
                               Adjust morphing speed of background elements in real-time
                             </p>
                           </div>
@@ -5155,7 +4022,7 @@ export default function App() {
                           </span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-[10px] text-zinc-500 font-bold font-mono">4s (Fast)</span>
+                          <span className="text-[11px] text-zinc-500 font-bold font-mono">4s (Fast)</span>
                           <input
                             type="range"
                             min="4"
@@ -5165,7 +4032,7 @@ export default function App() {
                             onChange={(e) => setAnimationDuration(parseFloat(e.target.value))}
                             className="flex-1 accent-[var(--theme-primary,#f59e0b)] bg-zinc-800 rounded-lg appearance-none h-1.5 cursor-pointer"
                           />
-                          <span className="text-[10px] text-zinc-500 font-bold font-mono">40s (Chill)</span>
+                          <span className="text-[11px] text-zinc-500 font-bold font-mono">40s (Chill)</span>
                         </div>
                       </div>
                     </div>
@@ -5179,11 +4046,11 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <span className="font-mono font-bold text-xs text-white">GEMINI_API_KEY</span>
                           {secretStatus?.configured ? (
-                            <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                            <span className="text-[11px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2 py-1 rounded-full flex items-center gap-1">
                               <CheckCircle className="w-3 h-3" /> Configured ({secretStatus.masked})
                             </span>
                           ) : (
-                            <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2 py-1 rounded-full">Not configured</span>
+                            <span className="text-[11px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2 py-1 rounded-full">Not configured</span>
                           )}
                         </div>
                         <div className="flex gap-2 flex-wrap">
@@ -5225,11 +4092,11 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <span className="font-mono font-bold text-xs text-white">NVIDIA_NIM_API_KEY</span>
                           {nimSecretStatus?.configured ? (
-                            <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                            <span className="text-[11px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2 py-1 rounded-full flex items-center gap-1">
                               <CheckCircle className="w-3 h-3" /> Configured ({nimSecretStatus.masked})
                             </span>
                           ) : (
-                            <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2 py-1 rounded-full">Not configured</span>
+                            <span className="text-[11px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2 py-1 rounded-full">Not configured</span>
                           )}
                         </div>
                         <div className="flex gap-2 flex-wrap">
@@ -5271,11 +4138,11 @@ export default function App() {
                         <div className="flex items-center justify-between">
                           <span className="font-mono font-bold text-xs text-white">OWNER_NUMBER</span>
                           {ownerSecretStatus?.configured ? (
-                            <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                            <span className="text-[11px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 font-bold px-2 py-1 rounded-full flex items-center gap-1">
                               <CheckCircle className="w-3 h-3" /> Configured ({ownerSecretStatus.masked})
                             </span>
                           ) : (
-                            <span className="text-[10px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2.5 py-1 rounded-full">Not configured</span>
+                            <span className="text-[11px] bg-zinc-900 text-zinc-400 border border-zinc-700 font-bold px-2.5 py-1 rounded-full">Not configured</span>
                           )}
                         </div>
                         <div className="flex gap-2 flex-wrap">
@@ -5312,7 +4179,7 @@ export default function App() {
                         )}
                       </div>
 
-                      <p className="text-[10px] text-zinc-500 leading-relaxed pt-2">
+                      <p className="text-[11px] text-zinc-500 leading-relaxed pt-2">
                         Stored in the server's <code className="bg-black text-amber-300 px-1.5 py-0.5 rounded border border-white/10 font-mono">.env</code> file and applied immediately — no restart needed. Values are masked and never leave the server.
                       </p>
                     </div>
@@ -5437,7 +4304,7 @@ export default function App() {
                         </div>
                         <div>
                           <p className="text-xs font-bold text-white">{config.newsletterName}</p>
-                          <p className="text-[10px] text-zinc-400">Official updates & announcements</p>
+                          <p className="text-[11px] text-zinc-400">Official updates & announcements</p>
                         </div>
                       </div>
                       <ArrowRight className="w-4 h-4 text-zinc-500 group-hover:text-amber-400 transition" />
@@ -5457,7 +4324,7 @@ export default function App() {
             <span className="flex items-center gap-1.5 text-zinc-400">
               <Bot className="w-4 h-4 text-amber-400" /> Nebula Engine Control Center
             </span>
-            <span>© 2026 Nebula Bot Engine · Reference Template Standard</span>
+            <span>© 2026 Nebula Bot Engine</span>
           </div>
         </footer>
       </div>

@@ -10,7 +10,6 @@ import {
   ShieldAlert,
   BarChart2,
   Settings,
-  KeyRound,
   FileText,
   BookOpen,
   FileDown,
@@ -34,7 +33,6 @@ export type NavTab =
   | "security"
   | "analytics"
   | "diagnostics"
-  | "secrets"
   | "logs"
   | "settings"
   | "docs"
@@ -62,6 +60,7 @@ function NavItem({ icon, label, badge, active, collapsed, onClick }: NavItemProp
   return (
     <motion.button
       onClick={onClick}
+      aria-current={active ? "page" : undefined}
       title={collapsed ? label : undefined}
       initial="rest"
       whileHover="hover"
@@ -106,7 +105,7 @@ function NavItem({ icon, label, badge, active, collapsed, onClick }: NavItemProp
           <span className="truncate text-white">{label}</span>
           {badge !== undefined && (
             <span 
-              className="ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-mono shrink-0 bg-white/5 border border-white/10"
+              className="ml-auto rounded-full px-1.5 py-0.5 text-[11px] font-mono shrink-0 bg-white/5 border border-white/10"
               style={{ color: "var(--theme-primary, #f59e0b)" }}
             >
               {badge}
@@ -126,7 +125,7 @@ function SectionLabel({ children, collapsed }: { children: React.ReactNode; coll
     <motion.p
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="px-3 pb-1.5 pt-4 text-[10px] font-bold uppercase tracking-wider text-zinc-500"
+      className="px-3 pb-1.5 pt-4 text-[11px] font-bold uppercase tracking-wider text-zinc-500"
     >
       {children}
     </motion.p>
@@ -163,9 +162,8 @@ export default function Sidebar({
             >
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-sm text-white tracking-tight whitespace-nowrap">Nebula</span>
-                <span className="rounded-md bg-amber-500/20 px-1.5 py-0.2 text-[10px] font-mono font-semibold text-amber-400">v1.1</span>
               </div>
-              <p className="text-[10px] text-zinc-500 truncate whitespace-nowrap">WhatsApp Cloud Bot</p>
+              <p className="text-[11px] text-zinc-500 truncate whitespace-nowrap">WhatsApp Multi-Device Bot</p>
             </motion.div>
           )}
         </AnimatePresence>
@@ -280,13 +278,6 @@ export default function Sidebar({
           <SectionLabel collapsed={collapsed}>Developer</SectionLabel>
           <div className="space-y-1">
             <NavItem
-              icon={<KeyRound size={16} />}
-              label="API Secrets"
-              active={activeTab === "secrets"}
-              collapsed={collapsed}
-              onClick={() => setActiveTab("secrets")}
-            />
-            <NavItem
               icon={<FileText size={16} />}
               label="Console Logs"
               active={activeTab === "logs"}
@@ -326,11 +317,11 @@ export default function Sidebar({
                 <span
                   className={`h-2.5 w-2.5 shrink-0 rounded-full ${
                     botStatus === "connected"
-                      ? "bg-emerald-400 ring-4 ring-emerald-400/20 animate-pulse"
+                      ? "bg-emerald-400 ring-4 ring-emerald-400/20"
                       : botStatus === "connecting"
-                      ? "bg-amber-400 ring-4 ring-amber-400/20 animate-pulse"
+                      ? "bg-amber-400 ring-4 ring-amber-400/20"
                       : botStatus === "qr_ready" || botStatus === "pair_code"
-                      ? "bg-amber-400 ring-4 ring-amber-400/20 animate-pulse"
+                      ? "bg-amber-400 ring-4 ring-amber-400/20"
                       : "bg-rose-500"
                   }`}
                 />
@@ -343,7 +334,7 @@ export default function Sidebar({
                 </span>
               </div>
               {reconnectCount > 0 && (
-                <span className="text-[10px] font-mono text-zinc-500 bg-white/5 px-1.5 py-0.5 rounded shrink-0">
+                <span className="text-[11px] font-mono text-zinc-500 bg-white/5 px-1.5 py-0.5 rounded shrink-0">
                   #{reconnectCount}
                 </span>
               )}

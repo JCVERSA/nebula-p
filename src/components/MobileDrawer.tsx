@@ -12,7 +12,6 @@ import {
   ShieldAlert,
   BarChart2,
   Settings,
-  KeyRound,
   FileText,
   BookOpen,
   FileDown,
@@ -64,7 +63,6 @@ const ITEMS: DrawerItem[] = [
   { id: "settings", label: "Bot Settings", icon: <Settings size={18} />, category: "admin" },
 
   // Developer
-  { id: "secrets", label: "API Secrets", icon: <KeyRound size={18} />, category: "dev" },
   { id: "logs", label: "Console Logs", icon: <FileText size={18} />, category: "dev" },
   { id: "docs", label: "Documentation", icon: <BookOpen size={18} />, category: "dev" },
   { id: "export", label: "Export Codebase", icon: <FileDown size={18} />, category: "dev" },
@@ -167,7 +165,7 @@ export default function MobileDrawer({
         <div className="overflow-y-auto p-5 space-y-5 dark-scroll">
           {/* Main sections */}
           <div>
-            <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500 px-1 mb-3">
+            <h4 className="text-[11px] font-extrabold uppercase tracking-widest text-zinc-500 px-1 mb-3">
               Management & Controls
             </h4>
             <div className="grid grid-cols-2 gap-2.5">
@@ -192,7 +190,7 @@ export default function MobileDrawer({
           </div>
 
           <div>
-            <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500 px-1 mb-3">
+            <h4 className="text-[11px] font-extrabold uppercase tracking-widest text-zinc-500 px-1 mb-3">
               Administration
             </h4>
             <div className="grid grid-cols-2 gap-2.5">
@@ -217,7 +215,7 @@ export default function MobileDrawer({
           </div>
 
           <div>
-            <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500 px-1 mb-3">
+            <h4 className="text-[11px] font-extrabold uppercase tracking-widest text-zinc-500 px-1 mb-3">
               Developer & Tools
             </h4>
             <div className="grid grid-cols-2 gap-2.5">

@@ -182,7 +182,7 @@ export default function SystemDiagnostics() {
           </div>
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+              <span className="text-[11px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
                 Core Diagnostics
               </span>
               <span className="text-xs text-zinc-500 font-mono">Real-time resource monitor</span>
@@ -226,12 +226,12 @@ export default function SystemDiagnostics() {
             <Cpu className="w-5 h-5" />
           </div>
           <div className="space-y-1 min-w-0 flex-1">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">CPU UTILIZATION</p>
+            <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">CPU UTILIZATION</p>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold font-mono text-white">
                 {data.length > 0 ? data[data.length - 1].cpu : 0}%
               </span>
-              <span className="text-[10px] text-zinc-500">
+              <span className="text-[11px] text-zinc-500">
                 Peak: <strong className="text-zinc-400 font-mono">{cpuPeak}%</strong>
               </span>
             </div>
@@ -250,12 +250,12 @@ export default function SystemDiagnostics() {
             <Database className="w-5 h-5" />
           </div>
           <div className="space-y-1 min-w-0 flex-1">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">MEMORY ALLOCATION</p>
+            <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">MEMORY ALLOCATION</p>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold font-mono text-white">
                 {memoryCurrent}%
               </span>
-              <span className="text-[10px] text-zinc-500">
+              <span className="text-[11px] text-zinc-500">
                 System: <strong className="text-zinc-400 font-mono">1.6 / 3.0 GB</strong>
               </span>
             </div>
@@ -274,12 +274,12 @@ export default function SystemDiagnostics() {
             <Globe className="w-5 h-5" />
           </div>
           <div className="space-y-1 min-w-0 flex-1">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">SOCKET BANDWIDTH</p>
+            <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">SOCKET BANDWIDTH</p>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold font-mono text-white">
                 {data.length > 0 ? data[data.length - 1].network : 0} <span className="text-xs font-semibold font-sans text-zinc-400">Mbps</span>
               </span>
-              <span className="text-[10px] text-zinc-500">
+              <span className="text-[11px] text-zinc-500">
                 Peak: <strong className="text-zinc-400 font-mono">{networkPeak}M</strong>
               </span>
             </div>
@@ -301,7 +301,7 @@ export default function SystemDiagnostics() {
             <Gauge className="w-4 h-4 text-amber-500" />
             <h3 className={`font-bold text-sm ${themeTextClass}`}>Utilization Performance Chart</h3>
             {isPaused && (
-              <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[9px] font-bold uppercase tracking-wider animate-pulse">
+              <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-[11px] font-bold uppercase tracking-wider animate-pulse">
                 Paused
               </span>
             )}
@@ -444,11 +444,11 @@ export default function SystemDiagnostics() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-white/5 text-zinc-500">
-                <th className="pb-2.5 font-bold uppercase tracking-wider text-[10px]">Resource Channel</th>
-                <th className="pb-2.5 font-bold uppercase tracking-wider text-[10px]">Active Engine</th>
-                <th className="pb-2.5 font-bold uppercase tracking-wider text-[10px]">Virtual PID</th>
-                <th className="pb-2.5 font-bold uppercase tracking-wider text-[10px]">Load Allocation</th>
-                <th className="pb-2.5 font-bold uppercase tracking-wider text-[10px] text-right">Status</th>
+                <th className="pb-2.5 font-bold uppercase tracking-wider text-[11px]">Resource Channel</th>
+                <th className="pb-2.5 font-bold uppercase tracking-wider text-[11px]">Active Engine</th>
+                <th className="pb-2.5 font-bold uppercase tracking-wider text-[11px]">Virtual PID</th>
+                <th className="pb-2.5 font-bold uppercase tracking-wider text-[11px]">Load Allocation</th>
+                <th className="pb-2.5 font-bold uppercase tracking-wider text-[11px] text-right">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -458,7 +458,7 @@ export default function SystemDiagnostics() {
                 <td className="py-3 text-zinc-500 font-mono">PID 4110</td>
                 <td className="py-3 font-mono text-amber-400">2.4% CPU / 142 MB</td>
                 <td className="py-3 text-right">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold">Active</span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold">Active</span>
                 </td>
               </tr>
               <tr>
@@ -467,7 +467,7 @@ export default function SystemDiagnostics() {
                 <td className="py-3 text-zinc-500 font-mono">PID 4112</td>
                 <td className="py-3 font-mono text-amber-400">0.0% CPU / 85 MB</td>
                 <td className="py-3 text-right">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold">Standby</span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold">Standby</span>
                 </td>
               </tr>
               <tr>
@@ -476,7 +476,7 @@ export default function SystemDiagnostics() {
                 <td className="py-3 text-zinc-500 font-mono">PID 4119</td>
                 <td className="py-3 font-mono text-amber-400">0.0% CPU / 18 MB</td>
                 <td className="py-3 text-right">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/5 border border-white/10 text-zinc-400 font-semibold">Idle</span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] bg-white/5 border border-white/10 text-zinc-400 font-semibold">Idle</span>
                 </td>
               </tr>
             </tbody>

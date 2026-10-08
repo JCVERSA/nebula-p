@@ -977,3 +977,29 @@ aside {
 
 
 
+
+
+/* ==========================================================================
+   8.92 — Plancher d'accessibilité (Design Mode P2)
+   ========================================================================== */
+
+/* Navigation clavier : focus toujours visible (ambre Nebula) */
+:focus-visible {
+  outline: 2px solid #f59e0b;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Respect de prefers-reduced-motion : le motion décoratif est coupé.
+   Les spinners de chargement deviennent statiques — l'état reste indiqué
+   par le texte (Saving…, Generating…) et l'opacité des boutons. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

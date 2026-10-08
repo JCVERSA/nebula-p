@@ -26,7 +26,7 @@ export default function HeroChip({
 }: HeroChipProps) {
   // Styles based on HeroUI/NextUI design patterns
   const sizeClasses = {
-    sm: "px-2 py-0.5 text-[10px] h-5 gap-1",
+    sm: "px-2 py-0.5 text-[11px] h-5 gap-1",
     md: "px-2.5 py-1 text-xs h-6 gap-1.5",
     lg: "px-3 py-1 text-sm h-7 gap-2",
   };

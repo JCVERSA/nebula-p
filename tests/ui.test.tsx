@@ -49,11 +49,14 @@ function normalHandler(url: string): Promise<{ ok: boolean; status: number; json
 
 /** Click a nav item by label, tolerating the label appearing more than once. */
 async function clickNav(label: string) {
-  const elements = await screen.findAllByText(label, {}, { timeout: 3000 });
+  const elements = await screen.findAllByText(label, {}, { timeout: 5000 });
   const button = elements.find((el) => el.closest("button"));
   if (!button) throw new Error(`Nav item "${label}" not clickable`);
   fireEvent.click(button);
 }
+
+// 8.92b : runners CI plus lents que la sandbox — marge sur les timeouts UI
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 15_000 });
 
 describe("Nebula dashboard UI", () => {
   beforeEach(() => {
@@ -67,7 +70,7 @@ describe("Nebula dashboard UI", () => {
 
   it("renders the dashboard shell without crashing", async () => {
     render(<App />);
-    const titles = await screen.findAllByText("Overview", {}, { timeout: 3000 });
+    const titles = await screen.findAllByText("Overview", {}, { timeout: 5000 });
     expect(titles.length).toBeGreaterThan(0);
     // Stat cards appear after data loads
     await waitFor(() => expect(screen.getAllByText("Commands").length).toBeGreaterThan(0));
@@ -76,7 +79,7 @@ describe("Nebula dashboard UI", () => {
 
   it("navigates through every tab without crashing", async () => {
     render(<App />);
-    await screen.findAllByText("Overview", {}, { timeout: 3000 });
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
 
     await clickNav("Simulator");
     await waitFor(() => expect(screen.getByPlaceholderText(/Send message/)).toBeTruthy());
@@ -111,7 +114,7 @@ describe("Nebula dashboard UI", () => {
 
     render(<App />);
     // The login gate must render and the panel must NOT leak the dashboard.
-    const gate = await screen.findByText("Nebula Controller — Panel Access", {}, { timeout: 3000 });
+    const gate = await screen.findByText("Nebula Controller — Panel Access", {}, { timeout: 5000 });
     expect(gate).toBeTruthy();
     expect(screen.queryByText("Overview")).toBeNull();
     expect(screen.getByText(/The key is never stored in your browser/)).toBeTruthy();

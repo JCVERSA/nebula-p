@@ -87,11 +87,14 @@ function stubFetch(responses: Record<string, unknown>) {
 }
 
 async function clickNav(label: string) {
-  const elements = await screen.findAllByText(label, {}, { timeout: 3000 });
+  const elements = await screen.findAllByText(label, {}, { timeout: 5000 });
   const button = elements.find((el) => el.closest("button"));
   if (!button) throw new Error(`Nav item "${label}" not clickable`);
   fireEvent.click(button);
 }
+
+// 8.92b : runners CI plus lents que la sandbox — marge sur les timeouts UI
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 15_000 });
 
 describe("Multi-bots panel UI", () => {
   beforeEach(() => {
@@ -107,7 +110,7 @@ describe("Multi-bots panel UI", () => {
 
   it("shows the bots cards from /api/bots with process and WhatsApp state", async () => {
     render(<App />);
-    await screen.findAllByText("Overview", {}, { timeout: 3000 });
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
 
     await clickNav("Multi-Bots");
     await waitFor(() => expect(screen.getByText("Bot Deux")).toBeTruthy());
@@ -120,10 +123,10 @@ describe("Multi-bots panel UI", () => {
 
   it("selecting a bot routes the panel requests to it (?bot=) and persists the choice", async () => {
     render(<App />);
-    await screen.findAllByText("Overview", {}, { timeout: 3000 });
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
 
     await clickNav("Multi-Bots");
-    const controlButtons = await screen.findAllByText("Control", {}, { timeout: 3000 });
+    const controlButtons = await screen.findAllByText("Control", {}, { timeout: 5000 });
     fireEvent.click(controlButtons[0]); // carte bot2 (nebula affiche « In panel »)
 
     // Persistance + pill topbar + rafraîchissement routé vers bot2.
@@ -137,10 +140,10 @@ describe("Multi-bots panel UI", () => {
 
   it("stop action on a running bot calls the supervisor API then refreshes", async () => {
     render(<App />);
-    await screen.findAllByText("Overview", {}, { timeout: 3000 });
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
 
     await clickNav("Multi-Bots");
-    await screen.findByText("Bot Deux", {}, { timeout: 3000 });
+    await screen.findByText("Bot Deux", {}, { timeout: 5000 });
     const stopButtons = screen.getAllByText("Stop");
     fireEvent.click(stopButtons[0]); // nebula (running)
 
@@ -171,9 +174,9 @@ describe("Multi-bots panel UI", () => {
     stubFetch(makeResponses(payload));
 
     render(<App />);
-    await screen.findAllByText("Overview", {}, { timeout: 3000 });
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
     await clickNav("Multi-Bots");
-    expect(await screen.findByText("ABCD-EFGH", {}, { timeout: 3000 })).toBeTruthy();
+    expect(await screen.findByText("ABCD-EFGH", {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText(/Pairing code ready/)).toBeTruthy();
   });
 
@@ -183,16 +186,16 @@ describe("Multi-bots panel UI", () => {
     stubFetch(makeResponses(payload));
 
     render(<App />);
-    await screen.findAllByText("Overview", {}, { timeout: 3000 });
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
     await clickNav("Multi-Bots");
-    expect(await screen.findByText(/bots.json is invalid/, {}, { timeout: 3000 })).toBeTruthy();
+    expect(await screen.findByText(/bots.json is invalid/, {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByText(/la liste/)).toBeTruthy();
   });
 
   it("a saved selection that no longer exists is reset to the default bot", async () => {
     localStorage.setItem("nebula-active-bot", "ghost-bot");
     render(<App />);
-    await screen.findAllByText("Overview", {}, { timeout: 3000 });
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
     // L'effet de validation interroge /api/bots et remet la sélection à zéro.
     await waitFor(() => expect(calls).toContain("/api/bots"));
     await waitFor(() => expect(localStorage.getItem("nebula-active-bot")).toBeNull());

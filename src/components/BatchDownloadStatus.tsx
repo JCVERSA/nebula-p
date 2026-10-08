@@ -310,7 +310,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                 </HeroChip>
               )}
             </div>
-            <p className="text-[10px] text-zinc-400">
+            <p className="text-[11px] text-zinc-400">
               Concurrent stream engine with automatic retry &amp; 60m ZIP cleanup
             </p>
           </div>
@@ -386,7 +386,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                 <span>
                   {j.animeTitle.slice(0, 14)} ({j.season})
                 </span>
-                <span className="text-[10px] text-zinc-500">[{j.progressPercent}%]</span>
+                <span className="text-[11px] text-zinc-500">[{j.progressPercent}%]</span>
               </button>
             ))}
           </div>
@@ -429,7 +429,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     {activeJob.status === "downloading" && (
                       <button
                         onClick={() => handleInjectError(activeJob.id, "network")}
-                        className="px-2 py-1 bg-white/5 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-300 border border-white/5 rounded-lg text-[10px] transition flex items-center gap-1 cursor-pointer"
+                        className="px-2 py-1 bg-white/5 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-300 border border-white/5 rounded-lg text-[11px] transition flex items-center gap-1 cursor-pointer"
                         title="Simulate network failure"
                       >
                         <Bug className="w-3 h-3 text-rose-400" />
@@ -442,7 +442,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     <span className={`text-lg font-black font-mono ${activeJob.status === "failed" ? "text-rose-400" : "text-amber-400"}`}>
                       {Math.round(activeJob.progressPercent)}%
                     </span>
-                    <p className="text-[10px] text-zinc-500 font-mono">
+                    <p className="text-[11px] text-zinc-500 font-mono">
                       {activeJob.status === "completed"
                         ? "All files ready"
                         : activeJob.status === "failed"
@@ -468,7 +468,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                       <div>
                         <h5 className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
                           <span>Download Stream Failure</span>
-                          <span className="px-1.5 py-0.2 bg-rose-500/20 border border-rose-500/30 rounded text-[10px] font-mono text-rose-400">
+                          <span className="px-1.5 py-0.2 bg-rose-500/20 border border-rose-500/30 rounded text-[11px] font-mono text-rose-400">
                             Network / CDN Error
                           </span>
                         </h5>
@@ -589,7 +589,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                       {activeJob.currentStatusText}
                     </span>
                   </span>
-                  <span className="font-mono text-[10px] text-zinc-500">
+                  <span className="font-mono text-[11px] text-zinc-500">
                     {activeJob.totalEpisodes - activeJob.completedEpisodes === 0
                       ? "All episodes ready"
                       : `${activeJob.totalEpisodes - activeJob.completedEpisodes} remaining`}
@@ -612,11 +612,11 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                       <div>
                         <h5 className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
                           <span>ZIP Archive Generated &amp; Ready</span>
-                          <span className="px-1.5 py-0.2 bg-emerald-500/20 rounded text-[10px] font-mono text-emerald-400">
+                          <span className="px-1.5 py-0.2 bg-emerald-500/20 rounded text-[11px] font-mono text-emerald-400">
                             {activeJob.zipSizeMB || "214.8"} MB
                           </span>
                         </h5>
-                        <p className="text-[10px] text-zinc-400 truncate max-w-xs font-mono">
+                        <p className="text-[11px] text-zinc-400 truncate max-w-xs font-mono">
                           {activeJob.zipFilename || "Season_Complete.zip"}
                         </p>
                       </div>
@@ -650,7 +650,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-1 border-t border-emerald-500/20 text-[10px] text-emerald-400/80 font-mono">
+                  <div className="flex items-center justify-between pt-1 border-t border-emerald-500/20 text-[11px] text-emerald-400/80 font-mono">
                     <span className="flex items-center gap-1">
                       <Clock className="w-3 h-3" />
                       <span>
@@ -679,7 +679,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     <button
                       onClick={() => handleRetryBatch(activeJob.id)}
                       disabled={isRetryingJob === activeJob.id}
-                      className="px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      className="px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                     >
                       <RotateCcw className={`w-3 h-3 ${isRetryingJob === activeJob.id ? "animate-spin" : ""}`} />
                       <span>Retry Failed ({failedEpisodesCount})</span>
@@ -699,7 +699,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     >
                       <div className="flex items-center gap-2.5 min-w-[130px]">
                         <span
-                          className={`w-6 h-6 rounded-lg border flex items-center justify-center font-mono font-bold text-[10px] ${
+                          className={`w-6 h-6 rounded-lg border flex items-center justify-center font-mono font-bold text-[11px] ${
                             ep.status === "failed"
                               ? "bg-rose-500/20 border-rose-500/40 text-rose-300"
                               : "bg-white/5 border-white/10 text-amber-400"
@@ -712,12 +712,12 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                             Episode {ep.epNum}
                           </span>
                           {ep.sizeMB > 0 && (
-                            <span className="text-[10px] text-zinc-400 font-mono ml-1.5">
+                            <span className="text-[11px] text-zinc-400 font-mono ml-1.5">
                               ({ep.sizeMB} MB)
                             </span>
                           )}
                           {ep.error && (
-                            <p className="text-[10px] text-rose-400 truncate mt-0.5 font-mono" title={ep.error}>
+                            <p className="text-[11px] text-rose-400 truncate mt-0.5 font-mono" title={ep.error}>
                               {ep.error}
                             </p>
                           )}
@@ -775,7 +775,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                             <button
                               onClick={() => handleRetryEpisode(activeJob.id, ep.epNum)}
                               disabled={retryingEpisode?.jobId === activeJob.id && retryingEpisode?.epNum === ep.epNum}
-                              className="px-2 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 hover:text-white border border-rose-500/40 rounded-lg text-[10px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
+                              className="px-2 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 hover:text-white border border-rose-500/40 rounded-lg text-[11px] font-bold transition flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-sm"
                               title={`Retry stream for Episode ${ep.epNum}`}
                             >
                               <RotateCcw
@@ -844,7 +844,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
 
           <div className="flex items-center gap-2">
             {cleanupMessage && (
-              <span className="text-[10px] text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg">
+              <span className="text-[11px] text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-lg">
                 {cleanupMessage}
               </span>
             )}

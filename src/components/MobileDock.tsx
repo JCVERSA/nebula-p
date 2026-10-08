@@ -32,7 +32,6 @@ export default function MobileDock({
       "groups",
       "security",
       "analytics",
-      "secrets",
       "logs",
       "settings",
       "docs",

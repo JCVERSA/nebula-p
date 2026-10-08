@@ -126,7 +126,7 @@ export default function AccessControlPanel() {
           </div>
           <div>
             <h3 className="text-sm font-bold text-white">RoleGuard — Command Access Control</h3>
-            <p className="text-[10px] text-zinc-400">
+            <p className="text-[11px] text-zinc-400">
               Declarative per-group ACL. Owner bypasses everything; admins get adminAllow overrides; members follow default + lists.
             </p>
           </div>
@@ -143,11 +143,11 @@ export default function AccessControlPanel() {
 
       <div className="grid grid-cols-2 gap-3 max-w-md">
         <div className="p-3 bg-white/5 border border-white/10 rounded-xl">
-          <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Group policies</div>
+          <div className="text-[11px] text-zinc-400 font-bold uppercase tracking-wider">Group policies</div>
           <div className="text-lg font-bold text-amber-400">{groupCount}</div>
         </div>
         <div className="p-3 bg-white/5 border border-white/10 rounded-xl">
-          <div className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">Commands indexed</div>
+          <div className="text-[11px] text-zinc-400 font-bold uppercase tracking-wider">Commands indexed</div>
           <div className="text-lg font-bold text-zinc-200">{cmdCount}</div>
         </div>
       </div>
@@ -157,7 +157,7 @@ export default function AccessControlPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* left: policy list */}
         <div className="space-y-2">
-          <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Configured groups</div>
+          <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Configured groups</div>
           {data && Object.keys(data.policies).length === 0 && (
             <div className="p-3 bg-black/40 border border-white/5 rounded-xl text-xs text-zinc-500">
               No custom policies yet — every group uses the default (allow, no lists). Try the whatsapp-side <code>.access</code> command or edit below.
@@ -174,7 +174,7 @@ export default function AccessControlPanel() {
               >
                 <div className="min-w-0">
                   <div className="text-xs font-mono text-zinc-200 truncate">{group}</div>
-                  <div className="text-[10px] text-zinc-400">
+                  <div className="text-[11px] text-zinc-400">
                     {policy.defaultTo === "deny" ? "🔒 Locked (default deny)" : "🔓 Open (default allow)"} · deny {policy.memberDeny.length} · allow {policy.memberAllow.length}
                   </div>
                 </div>
@@ -194,10 +194,10 @@ export default function AccessControlPanel() {
 
         {/* right: editor */}
         <div className="space-y-3">
-          <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Policy editor</div>
+          <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Policy editor</div>
           <div className="p-3 bg-black/40 border border-white/10 rounded-xl space-y-2.5">
             <div>
-              <label className="text-[10px] text-zinc-400 block mb-1">Group JID (e.g. 1203630123@g.us)</label>
+              <label className="text-[11px] text-zinc-400 block mb-1">Group JID (e.g. 1203630123@g.us)</label>
               <input
                 value={selected}
                 onChange={(e) => setSelected(e.target.value)}
@@ -223,7 +223,7 @@ export default function AccessControlPanel() {
               ))}
             </div>
             <div>
-              <label className="text-[10px] text-zinc-400 block mb-1">Member deny (names/categories, comma or space separated)</label>
+              <label className="text-[11px] text-zinc-400 block mb-1">Member deny (names/categories, comma or space separated)</label>
               <textarea
                 value={draft.memberDeny.join(", ")}
                 onChange={(e) => setDraft({ ...draft, memberDeny: splitEntries(e.target.value) })}
@@ -233,7 +233,7 @@ export default function AccessControlPanel() {
               />
             </div>
             <div>
-              <label className="text-[10px] text-zinc-400 block mb-1">Member allow (wins over deny-default)</label>
+              <label className="text-[11px] text-zinc-400 block mb-1">Member allow (wins over deny-default)</label>
               <textarea
                 value={draft.memberAllow.join(", ")}
                 onChange={(e) => setDraft({ ...draft, memberAllow: splitEntries(e.target.value) })}
@@ -243,7 +243,7 @@ export default function AccessControlPanel() {
               />
             </div>
             <div>
-              <label className="text-[10px] text-zinc-400 block mb-1">Admin allow (overrides member deny)</label>
+              <label className="text-[11px] text-zinc-400 block mb-1">Admin allow (overrides member deny)</label>
               <textarea
                 value={draft.adminAllow.join(", ")}
                 onChange={(e) => setDraft({ ...draft, adminAllow: splitEntries(e.target.value) })}

@@ -282,7 +282,7 @@ export default function CheckupModal({
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-sm text-white">{test.name}</span>
-                            <span className="rounded bg-white/10 px-1.5 py-0.2 text-[10px] font-mono text-zinc-400 uppercase">
+                            <span className="rounded bg-white/10 px-1.5 py-0.2 text-[11px] font-mono text-zinc-400 uppercase">
                               {test.category}
                             </span>
                           </div>

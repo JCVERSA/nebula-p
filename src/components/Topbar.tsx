@@ -38,7 +38,6 @@ const TAB_TITLES: Record<NavTab, string> = {
   security: "Security & Antilink",
   analytics: "Usage & Analytics",
   diagnostics: "System Diagnostics",
-  secrets: "API Keys & Secrets",
   logs: "System Logs",
   settings: "Settings",
   docs: "Documentation",
@@ -87,13 +86,12 @@ export default function Topbar({
     { label: "WhatsApp Connect", desc: "Link WhatsApp via QR Code or Pair Code", tab: "connect", keys: ["qr", "pair", "connect", "link", "whatsapp", "phone"] },
     { label: "Commands Registry", desc: "Browse, configure, and sandbox bot commands", tab: "commands", keys: ["command", "prefix", "list", "registry", "sandbox", "trigger"] },
     { label: "Bot Simulator", desc: "Simulate and test incoming messages in the chat console", tab: "simulator", keys: ["chat", "simulator", "sandbox", "test", "incoming"] },
-    { label: "Gemini AI Assistant", desc: "Configure server-side AI model, context, and prompts", tab: "gemini", keys: ["ai", "gemini", "google", "intelligence", "prompt"] },
-    { label: "Plugins Engine", desc: "Enable community-authored add-on scripts and features", tab: "plugins", keys: ["plugin", "add-on", "extension", "market", "npm"] },
-    { label: "Group Tools & Management", desc: "Configure broadcast tools, auto-welcome, and anti-spam", tab: "groups", keys: ["group", "broadcast", "welcome", "admin", "kick", "promote"] },
-    { label: "Security & Antilink", desc: "Protect groups with links filter and automated antibot", tab: "security", keys: ["security", "antilink", "antibot", "spam", "ban", "protection"] },
-    { label: "Usage & Analytics", desc: "Real-time message volume and system load analytics", tab: "analytics", keys: ["analytics", "chart", "graph", "metric", "volume", "cpu"] },
+    { label: "AI Playground", desc: "Test AI prompts, speech recognition and voice replies", tab: "gemini", keys: ["ai", "gemini", "nim", "prompt", "playground"] },
+    { label: "Engine Capabilities", desc: "Live state of the engine: socket, commands, AI keys", tab: "plugins", keys: ["plugin", "capability", "engine", "feature"] },
+    { label: "Group Broadcast", desc: "Send an announcement to all groups where the bot is a member", tab: "groups", keys: ["group", "broadcast", "announce"] },
+    { label: "Security & Access", desc: "RoleGuard policies, audit trail, backups and restore", tab: "security", keys: ["security", "access", "audit", "backup", "role"] },
+    { label: "Usage & Analytics", desc: "Command usage chart, speech recognition and voice tools", tab: "analytics", keys: ["analytics", "chart", "graph", "usage"] },
     { label: "System Diagnostics", desc: "Real-time CPU, RAM and Network resource line charts with Light/Dark themes", tab: "diagnostics", keys: ["diagnostics", "resource", "cpu", "memory", "ram", "network", "speed", "theme"] },
-    { label: "API Keys & Secrets", desc: "Manage Gemini keys, environment variables and configuration", tab: "secrets", keys: ["key", "secret", "env", "token", "api", "gemini_api_key"] },
     { label: "System Logs", desc: "Real-time server terminal and backend stderr/stdout streams", tab: "logs", keys: ["log", "terminal", "console", "stderr", "stdout", "stream"] },
     { label: "Settings", desc: "Adjust layout density, theme, and local session preferences", tab: "settings", keys: ["setting", "config", "layout", "pref", "theme"] },
     { label: "Documentation", desc: "Browse complete guide on commands, flags, and installation", tab: "docs", keys: ["doc", "help", "guide", "readme", "instruction"] },
@@ -195,18 +193,18 @@ export default function Topbar({
                       className="w-full text-left px-3.5 py-2 hover:bg-white/5 transition-colors flex flex-col cursor-pointer"
                     >
                       <span className="text-xs font-semibold text-zinc-100">{item.label}</span>
-                      <span className="text-[10px] text-zinc-500 mt-0.5">{item.desc}</span>
+                      <span className="text-[11px] text-zinc-500 mt-0.5">{item.desc}</span>
                     </button>
                   ))}
                 </div>
               ) : searchQuery.trim() !== "" ? (
                 <div className="px-3.5 py-3 text-center">
                   <p className="text-xs text-zinc-400">No matching features found.</p>
-                  <p className="text-[10px] text-zinc-600 mt-0.5">Try searching 'gemini', 'reset' or 'logs'</p>
+                  <p className="text-[11px] text-zinc-600 mt-0.5">Try searching 'gemini', 'reset' or 'logs'</p>
                 </div>
               ) : (
                 <div className="px-3.5 py-2">
-                  <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1.5">Quick Actions</p>
+                  <p className="text-[11px] font-bold text-amber-400 uppercase tracking-wider mb-1.5">Quick Actions</p>
                   <div className="grid grid-cols-2 gap-1">
                     {searchItems.slice(0, 4).map((item, idx) => (
                       <button
@@ -215,7 +213,7 @@ export default function Topbar({
                           if (item.tab) setActiveTab(item.tab as any);
                           setSearchQuery("");
                         }}
-                        className="text-left px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors text-[10px] font-semibold text-zinc-300 truncate cursor-pointer"
+                        className="text-left px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors text-[11px] font-semibold text-zinc-300 truncate cursor-pointer"
                       >
                         {item.label}
                       </button>
@@ -330,7 +328,7 @@ export default function Topbar({
               
               {/* Theme Dropdown Pane */}
               <div className="absolute right-0 mt-2 w-48 rounded-2xl bg-[#0a0a0c]/95 border border-white/10 shadow-2xl z-50 p-2.5 backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-200">
-                <p className="text-[10px] font-extrabold uppercase tracking-widest text-zinc-500 px-2 pb-2 border-b border-white/5">
+                <p className="text-[11px] font-extrabold uppercase tracking-widest text-zinc-500 px-2 pb-2 border-b border-white/5">
                   Select Theme
                 </p>
                 <div className="space-y-1 mt-1.5">
