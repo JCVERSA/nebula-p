@@ -41,6 +41,13 @@ const purgeCommand: BotCommand = {
         r.activeBatches > 0
           ? `🛡️ Batch en cours épargné : *${r.activeBatches}* (${r.sparedDelivered} fichier(s) gardés)`
           : null,
+        // 8.98c (retour terrain) : sans cette ligne, un purge pendant la
+        // grâce de 5 min affiche « 0 fichiers, +0 Mo » sans explication —
+        // on croit le purge cassé alors qu'il épargne les liens tout juste
+        // livrés pour ne pas couper un téléchargement en cours côté user.
+        r.sparedDelivered > 0
+          ? `⏳ *${r.sparedDelivered}* fichier(s) récents épargnés (grâce 5 min${r.activeBatches > 0 ? " / batch actif" : ""}) — relance \`.purge\` dans quelques minutes pour les inclure.`
+          : null,
         `💾 Espace libre : *${fmt(r.freeBytesBefore)}* → *${fmt(r.freeBytesAfter)}* (+${fmt(delta)})`
       ].filter(Boolean);
       await context.reply(lines.join("\n"));

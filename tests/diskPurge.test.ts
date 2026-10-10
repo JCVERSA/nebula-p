@@ -134,6 +134,30 @@ describe("8.88 — commande .purge : gate owner + bilan", () => {
     expect(ctx.react).toHaveBeenCalledWith("🧹");
   });
 
+  it("8.98c : fichiers épargnés par la grâce → ligne explicite (retour terrain)", async () => {
+    // Cas réel owner : purge 3 min après la livraison → 0 supprimé, 4 épargnés
+    // par la grâce 5 min — le bilan doit EXPLIQUER pourquoi (sinon « +0 Mo »
+    // ressemble à un purge cassé) et dire de relancer.
+    mockedExec.mockResolvedValue({
+      deletedFiles: 0,
+      deletedDirs: 0,
+      freedBytes: 0,
+      sparedDelivered: 4,
+      sparedRootDebris: 0,
+      activeBatches: 0,
+      freeBytesBefore: 671 * 1024 * 1024,
+      freeBytesAfter: 671 * 1024 * 1024,
+      errors: 0
+    });
+    const ctx = mkContext(true);
+    await purgeCommand.execute(mkSock(), mkMsg(), ctx);
+    const text = ctx.reply.mock.calls[0][0];
+    expect(text).toContain("*4* fichier(s) récents épargnés");
+    expect(text).toContain("grâce 5 min");
+    expect(text).toContain("relance");
+    expect(text).not.toContain("grâce 5 min / batch actif"); // pas de batch actif
+  });
+
   it("owner, rien à purger → bilan propre, pas de ligne batch", async () => {
     mockedExec.mockResolvedValue({
       deletedFiles: 0,

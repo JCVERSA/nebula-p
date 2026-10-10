@@ -45,6 +45,28 @@ describe("persona — base prompt", () => {
     expect(command).not.toBe(dm);
   });
 
+  it("8.98b : le crédit du partenaire IA suit le moteur actif (honnêteté §38)", () => {
+    const saved = process.env.NEBULA_AI_PRIMARY;
+    try {
+      // Moteur NVIDIA NIM (déploiement owner) → NVIDIA, jamais Google/Gemini.
+      process.env.NEBULA_AI_PRIMARY = "nim";
+      const nim = getPersonaPrompt("dm");
+      expect(nim).toContain("*NVIDIA*");
+      expect(nim).toContain("NIM (Nemotron)");
+      expect(nim).not.toContain("Google");
+      expect(nim).not.toContain("Gemini");
+      // Moteur Gemini (défaut) → wording d'origine.
+      delete process.env.NEBULA_AI_PRIMARY;
+      const gem = getPersonaPrompt("dm");
+      expect(gem).toContain("*Google*");
+      expect(gem).toContain("Gemini");
+      expect(gem).not.toContain("NVIDIA");
+    } finally {
+      if (saved === undefined) delete process.env.NEBULA_AI_PRIMARY;
+      else process.env.NEBULA_AI_PRIMARY = saved;
+    }
+  });
+
   it("stays compact enough for a system prompt (< 10000 chars, commande IA incluse)", () => {
     // 8.79 : le bloc de connaissance des commandes (fiche .a + inventaire)
     // est ajouté au persona — ~7k chars au total restent négligeables pour

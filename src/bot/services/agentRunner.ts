@@ -319,7 +319,7 @@ async function runErrorRecovery(
         setPendingConfirmation(info.actorJid, { command: c.name, args: oArgs });
         recordAudit(`wa:${info.actorNumber}`, "agent.confirm.pending", c.name, "recovery");
         const pretty = `\`${info.prefix}${c.name}${oArgs.length ? ` ${oArgs.join(" ")}` : ""}\``;
-        out += `\n\n_Réponds *OK* pour que je lance ${pretty} _(2 minutes)_._`;
+        out += `\n\n_Réponds *OK* pour lancer ${pretty} — 2 minutes pour confirmer._`;
       }
     }
     try {
