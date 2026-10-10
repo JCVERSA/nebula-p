@@ -702,6 +702,7 @@ ENV_KEYS=(
   "NEBULA_WEB_DAILY_LIMIT|Budget web/jour/utilisateur partagé .search/.fetch/.wiki (défaut 20)"
   "NEBULA_AI_MAX_CONCURRENT|Requêtes IA simultanées max (défaut 3)"
   "NEBULA_DOWNLOAD_TIMEOUT_MS|Délai max global par téléchargement d'épisode en ms (défaut 600000 = 10 min)"
+  "NEBULA_YTDLP_COOKIES|Chemin du fichier cookies YouTube (format Netscape, exporté depuis ton navigateur) — débloque .ytv/.ytm quand YouTube exige une session (IP datacenter)"
   "NEBULA_WATCH_CRON|Planification cron de la veille épisodes (défaut toutes les 6 h)"
   "NEBULA_WATCH_QUIET|Heures silencieuses de la veille, format H-H (défaut 23-7, off = désactivé)"
   "NEBULA_WATCH_TZ|Fuseau horaire de la veille (défaut Africa/Douala)"
