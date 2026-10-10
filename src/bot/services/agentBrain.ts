@@ -196,6 +196,50 @@ export function replySuggestsOtherCatalog(text: string): boolean {
  * [titre, s2, e1] → [va, titre, s2, e1] ; [va, titre, …] → [titre, …].
  */
 /**
+ * 8.99 — guardrail d'arguments (leçon OpenAI Agents SDK : guardrails en
+ * entrée de l'exécution, pas seulement sur le nom de commande). L'IA ne
+ * doit JAMAIS pouvoir glisser une URL, des backticks ou des flags shell
+ * dans les args d'une commande autorisée. Pur et testé à plat.
+ * Retourne les args nettoyés + un flag quand quelque chose a bougé
+ * (l'appelant audite l'événement — exécution avec les args nettoyés,
+ * la commande revalide ses arguments de toute façon).
+ */
+export function sanitizeAgentArgs(args: string[]): { args: string[]; changed: boolean } {
+  const MAX_TOTAL = 200;
+  const MAX_TOKEN = 80;
+  const URL_RE = /^(?:https?:\/\/|www\.)\S+$/i;
+  const cleaned: string[] = [];
+  let changed = false;
+  for (const raw of args) {
+    let token = String(raw ?? "");
+    const before = token;
+    if (URL_RE.test(token)) token = "";
+    token = token.replace(/[`*'"]+/g, "");
+    if (/^--\w+/.test(token)) token = "";
+    if (token.length > MAX_TOKEN) token = token.slice(0, MAX_TOKEN);
+    if (token !== before) changed = true;
+    if (token) cleaned.push(token);
+  }
+  const total = cleaned.join(" ");
+  if (total.length > MAX_TOTAL) {
+    // Coupe au dernier token complet qui tient dans le budget.
+    const kept: string[] = [];
+    let len = 0;
+    for (const t of cleaned) {
+      if (len + t.length + 1 > MAX_TOTAL) break;
+      kept.push(t);
+      len += t.length + 1;
+    }
+    if (kept.length !== cleaned.length) {
+      cleaned.length = 0;
+      cleaned.push(...kept);
+      changed = true;
+    }
+  }
+  return { args: cleaned, changed };
+}
+
+/**
  * 8.94/8.96 — bascule vers l'AUTRE catalogue : va ↔ as, en respectant le
  * catalogue par défaut (fourni par l'appelant — va depuis 8.96, via
  * effectiveDefaultSource()). Un one-liner nu vise le défaut ; si l'autre

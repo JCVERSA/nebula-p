@@ -178,6 +178,29 @@ export function getAnimeChoice(chatJid: string, now = Date.now()): AnimeChoiceRe
   return getAnimeChoiceHistory(chatJid, now)[0] || null;
 }
 
+/**
+ * 8.99 (leçon Mastra — observational memory) : le bloc historique n'a
+ * d'utilité que si le message parle d'anime/téléchargement. L'injecter
+ * partout pollue le prompt de « salut ça va » (bruit = moins bonnes
+ * décisions + tokens gaspillés). Heuristique FR volontairement large —
+ * faux positif = historique inutile mais inoffensif, faux négatif = on
+ * retombe sur le comportement d'avant 8.97 (pas de contexte).
+ */
+export function messageSuggestsAnimeHistory(text: string): boolean {
+  const t = (text || "").toLowerCase();
+  if (!t.trim()) return false;
+  if (/(t[ée]l[ée]charg|t[ée]l[ée]|t[ée]lecharge|download|dl\b)/.test(t)) return true;
+  if (/(anime|manga|[ée]pisode|\bep\b|eps?\d|\be\d+\b|saison|\bs\d+\b|\bsaison\s*\d)/.test(t)) return true;
+  if (/(suite|prochain|next|m[êe]me\b|encore|dernier|pr[ée]c[ée]dent)/.test(t)) return true;
+  if (/qu.est.ce qu.on avait|on avait (pris|t[ée]l[ée]charg)/.test(t)) return true;
+  if (/\b(vf|vostfr|480p|720p|1080p|360p|q(ualit[ée])?)\b/.test(t)) return true;
+  // Un one-liner `.a <titre>` (ou l'évoquer en début de message) — la
+  // règle ANCIENNE (/.?a\b\s+/) matchait « salut ça va » (le « a » de
+  // « ça ») : on ancre au début du message.
+  if (/^\s*\.?a\s+/.test(t) && t.length < 120) return true;
+  return false;
+}
+
 function relativeFr(ms: number): string {
   if (ms < 60_000) return "à l'instant";
   const min = Math.floor(ms / 60_000);

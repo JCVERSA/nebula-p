@@ -24,6 +24,9 @@
  */
 interface Scenario {
   name: string;
+  /** 8.99 — criticité : "critical" (défaut) fait échouer le run ; "warn"
+   *  signale sans casser le exit code (qualité IA variable selon le jour). */
+  severity?: "critical" | "warn";
   text: string;
   /** Historique anime à semer avant le tour (simule la mémoire 8.97/8.98). */
   seedHistory?: Array<{
@@ -76,6 +79,7 @@ const SCENARIOS: Scenario[] = [
     argsExclude: ["r1", "r2"]
   },
   {
+    severity: "warn", // réponse générée : formulation variable
     name: "qu'est-ce qu'on avait pris avant ? — ligne Précédents (8.98)",
     text: "qu'est ce qu'on avait telecharge avant ?",
     seedHistory: [
@@ -92,6 +96,7 @@ const SCENARIOS: Scenario[] = [
     sayMustInclude: ["?"]
   },
   {
+    severity: "warn", // l'IA peut préférer demander la qualité — acceptable
     name: "un seul épisode → exécution directe (léger)",
     text: "mets moi one piece en vostfr episode 3",
     expect: "execute",
@@ -247,6 +252,7 @@ function checkScenario(scenario: Scenario, result: RunResult): string[] {
 }
 
 async function main(): Promise<number> {
+  const jsonOut = process.argv.includes("--json");
   // Isolement : données (audit, mémoires) dans un dossier temporaire —
   // ne JAMAIS toucher la vraie base du bot lors d'un replay.
   const { mkdtempSync, rmSync } = await import("fs");
@@ -284,17 +290,43 @@ async function main(): Promise<number> {
     }
   }
 
-  console.log(`\n${passed}/${SCENARIOS.length} scénarios OK`);
-  if (failed.length > 0) {
-    console.log("\nÉchecs :");
-    for (const f of failed) {
-      console.log(`  ✗ ${f.name}`);
-      for (const reason of f.failures) console.log(`      — ${reason}`);
+  const criticalFailed = failed.filter((f) => {
+    const sc = SCENARIOS.find((s) => s.name === f.name);
+    return !sc || sc.severity !== "warn";
+  });
+  const warnFailed = failed.length - criticalFailed.length;
+
+  if (jsonOut) {
+    // 8.99 — sortie machine (évals notées, leçon Pydantic Evals) : score,
+    // sévérités séparées, détails par scénario. Exit code inchangé.
+    console.log(JSON.stringify({
+      total: SCENARIOS.length,
+      passed,
+      failed: failed.length,
+      criticalFailed: criticalFailed.length,
+      warnFailed,
+      score: Math.round((passed / SCENARIOS.length) * 100),
+      details: failed.map((f) => ({ name: f.name, failures: f.failures }))
+    }, null, 2));
+  } else {
+    console.log(`\n${passed}/${SCENARIOS.length} scénarios OK (score ${Math.round((passed / SCENARIOS.length) * 100)}/100)`);
+    if (criticalFailed.length > 0) {
+      console.log("\nÉchecs critiques :");
+      for (const f of criticalFailed) {
+        console.log(`  ✗ ${f.name}`);
+        for (const reason of f.failures) console.log(`      — ${reason}`);
+      }
+    }
+    if (warnFailed > 0) {
+      console.log("\nAvertissements (non bloquants) :");
+      for (const f of failed.filter((x) => !criticalFailed.includes(x))) {
+        console.log(`  ⚠ ${f.name}`);
+      }
     }
   }
 
   rmSync(dataDir, { recursive: true, force: true });
-  return failed.length === 0 ? 0 : 1;
+  return criticalFailed.length === 0 ? 0 : 1;
 }
 
 main().then((code) => process.exit(code));

@@ -27,12 +27,20 @@ function toTextPrompt(prompt: string | any[]): string {
 }
 
 /** NIM fallback wrapper: skips cleanly when the prompt has no text at all. */
-async function nimFallback(prompt: string | any[], systemInstruction?: string): Promise<string> {
+async function nimFallback(
+  prompt: string | any[],
+  systemInstruction?: string,
+  opts: { jsonMode?: boolean } = {}
+): Promise<string> {
   const text = toTextPrompt(prompt);
   if (!text.trim()) {
     throw new Error("Textless (image-only) prompt — the NVIDIA fallback is text-only.");
   }
-  return nimChat(text, systemInstruction);
+  // 8.99 : 3e argument UNIQUEMENT en mode JSON — les espions existants
+  // (tests nimClient/aiFallbackDeadline) attendent nimChat(text, system).
+  return opts.jsonMode
+    ? nimChat(text, systemInstruction, { jsonMode: true })
+    : nimChat(text, systemInstruction);
 }
 
 /**
@@ -80,14 +88,15 @@ function promptHasImageParts(prompt: string | any[]): boolean {
 export async function generateTextWithFallback(
   prompt: string | any[],
   systemInstruction?: string,
-  preferredModel = "gemini-3.7-flash"
+  preferredModel = "gemini-3.7-flash",
+  opts: { jsonMode?: boolean } = {}
 ): Promise<string> {
   const ai = getAIClient();
   if (!ai) {
     // Primary engine unconfigured — the NVIDIA fallback can carry the request.
     if (isNimConfigured()) {
       console.log("🤖 [AI Engine] Gemini not configured — answering via NVIDIA NIM.");
-      return await nimFallback(prompt, systemInstruction);
+      return await nimFallback(prompt, systemInstruction, opts);
     }
     throw new Error("No AI engine configured. Please add GEMINI_API_KEY or NVIDIA_NIM_API_KEY in Settings > Secrets.");
   }
@@ -101,7 +110,7 @@ export async function generateTextWithFallback(
     if (isNimConfigured()) {
       console.log("🤖 [AI Engine] NVIDIA NIM primary (NEBULA_AI_PRIMARY=nim).");
       try {
-        return await nimFallback(prompt, systemInstruction);
+        return await nimFallback(prompt, systemInstruction, opts);
       } catch (nimErr: any) {
         console.log(`🤖 [AI Engine] NIM primary failed (${nimErr?.message || nimErr}) — falling back to Gemini.`);
       }
@@ -151,6 +160,10 @@ export async function generateTextWithFallback(
           contents: prompt,
           config: {
             ...(systemInstruction ? { systemInstruction } : {}),
+            // 8.99 — mode JSON natif : l'API contraint la réponse à un JSON
+            // valide (leçon Pydantic AI/BAML : schéma au niveau API, parsing
+            // tolérant conservé en dessous — fail-closed inchangé).
+            ...(opts.jsonMode ? { responseMimeType: "application/json" } : {}),
             httpOptions: { timeout: CALL_TIMEOUT_MS }
           }
         });
@@ -190,7 +203,7 @@ export async function generateTextWithFallback(
   if (isNimConfigured()) {
     console.log("🤖 [AI Engine] Gemini exhausted — falling back to NVIDIA NIM.");
     try {
-      return await nimFallback(prompt, systemInstruction);
+      return await nimFallback(prompt, systemInstruction, opts);
     } catch (nimErr: any) {
       const combined = new Error(
         `Gemini unavailable: ${lastError?.message || String(lastError)} — NVIDIA fallback also failed: ${nimErr?.message || nimErr}`

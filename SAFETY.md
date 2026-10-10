@@ -43,6 +43,15 @@ Le déclenchement en DM est automatique (message sans préfixe). `.agent` / `.ag
 - **Bascule de catalogue** (8.94/8.96) → offre déterministe, zéro appel IA supplémentaire, confirmation OK requise ;
 - Priorité des réponses nues : un « oui »/« non » nu répond **à la question en cours** (novabox ou agent), il ne redémarre pas une conversation (8.95b).
 
+## 4bis. Guardrail d'arguments (8.99)
+
+Même après validation de la commande, les arguments produits par l'IA sont
+**nettoyés avant exécution** : URLs retirées, backticks/quotes écorchés,
+flags shell (`--x`) supprimés, tokens plafonnés (80 chars) et budget total
+(200 chars). Un nettoyage actif est audité (`agent.args.sanitized`) et
+l'exécution utilise les arguments nettoyés — la commande revalide ses
+propres arguments ensuite (défense en profondeur).
+
 ## 5. Budgets et quotas
 
 | Ressource | Plafond |
@@ -51,6 +60,7 @@ Le déclenchement en DM est automatique (message sans préfixe). `.agent` / `.ag
 | Exécutions agent | 10 / heure / utilisateur |
 | Concurrence IA | globale, file d'attente |
 | Fiche agent (contexte) | < 6 000 caractères (test CI `agentContextBudget`) |
+| Historique anime dans le prompt | uniquement si le message parle d'anime (8.99, leçon Mastra) |
 | Prompt système total estimé | < 18 000 caractères |
 
 La mémoire de conversation (8.38) et la mémoire des choix anime (8.97/8.98) sont **plafonnées et compactées** : tours bruts + résumé glissant, TTL 10 h (conversation) / 7 jours (`NEBULA_ANIME_CHOICES_TTL_HOURS`) — le bloc historique est gardé sous 900 caractères.
@@ -68,7 +78,14 @@ La mémoire de conversation (8.38) et la mémoire des choix anime (8.97/8.98) so
 2. **hermes-agent a découvert que sa fiche de contexte de 38,7k caractères débordait son budget** : « chaque session perdait son milieu ». Nous : budget de fiche **verrouillé par un test CI** (8.98).
 3. **deepseek-harness** : infrastructure de tests en couches (e2e, snapshot, stress). Nous : harness de replay agent (`scripts/agent-replay.ts`) pour rejouer de vraies conversations contre l'IA réelle — hors CI (clés requises), lancement manuel.
 
-## 8. Harness de replay (tests agent avec la vraie IA)
+## 8. Métriques de l'agent (8.99)
+
+Chaque tour est tracé SANS contenu de message : action (execute/ask/reply/
+degraded/denied/error), moteur, latence, décision conforme oui/non, args
+nettoyés. Agrégat 24 h via `/api/bot/agent-health` (carte « AI Agent —
+last 24 h » du panneau) et dans le digest quotidien du propriétaire.
+
+## 9. Harness de replay (tests agent avec la vraie IA)
 
 Rejoue des conversations réelles de référence et vérifie les décisions de
 l'agent (commande, arguments, say). **Nécessite une clé IA configurée**
@@ -89,7 +106,7 @@ Sortie : un rapport par scénario (✓/✗ + raison), code de sortie non nul si
 un scénario échoue. Les scénarios vivent dans `scripts/agent-replay.ts`
 (les ajouter = éditer le tableau `SCENARIOS`).
 
-## 9. Ce qui resterait à faire (v3 éventuelle)
+## 10. Ce qui resterait à faire (v3 éventuelle)
 
 - Tâches planifiées en langage naturel (cron) — nécessite un cadre d'approbation ;
 - Mémoire auto-curée par l'agent (hermes-style) — risque de dérive à cadrer ;

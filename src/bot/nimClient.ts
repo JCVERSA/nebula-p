@@ -42,6 +42,8 @@ export interface NimChatOptions {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   post?: (url: string, body: unknown, config: any) => Promise<{ data: any }>;
   maxTokens?: number;
+  /** 8.99 : contraint la réponse à un JSON valide (response_format). */
+  jsonMode?: boolean;
 }
 
 export interface NimChatRequestBody {
@@ -87,7 +89,11 @@ export async function nimChat(
     // integrations (nucleus sampling, moderate temperature).
     temperature: 0.6,
     top_p: 0.95,
-    max_tokens: options.maxTokens ?? 2048
+    max_tokens: options.maxTokens ?? 2048,
+    // 8.99 — mode JSON natif (OpenAI-compatible) : contraint la réponse à
+    // un objet JSON valide. Le parsing tolérant côté appelant reste en
+    // place (fail-closed) — c'est une réduction d'échecs, pas une confiance.
+    ...(options.jsonMode ? { response_format: { type: "json_object" as const } } : {})
   };
 
   const post = options.post || ((url: string, b: unknown, cfg: any) => axios.post(url, b, cfg));

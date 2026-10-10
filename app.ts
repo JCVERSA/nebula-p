@@ -9,6 +9,7 @@ import { getCommandsDir, getCommands, getCommand } from "./src/bot/commandRegist
 import { getBotState, startLiveBot, stopLiveBot, retryLiveConnection, clearSessionAuth, requestPairingCode, addLog, simulateMessage, clearLogs } from "./src/bot/botEngine.js";
 
 import { getCommandStats } from "./src/bot/commandStats.js";
+import { getAgentHealth } from "./src/bot/services/agentMetrics.js";
 import { getAIClient, generateTextWithFallback } from "./src/bot/geminiClient.js";
 import { savePanelCommand, getPanelCommandSource, exportAllPanelCommands } from "./src/bot/panelCommands.js";
 import { replaceAllPanelCommands } from "./src/bot/panelCommands.js";
@@ -236,6 +237,16 @@ export function createApp(): express.Express {
   // ---------------------------------------------------------------------------
   app.get("/api/bot/status", (req, res) => {
     res.json(getBotState());
+  });
+
+  // 8.99 — santé de l'agent IA (agrégat 24 h : décisions, dégradations,
+  // latence). Aucun contenu de message. Proxifié par le panneau parent.
+  app.get("/api/bot/agent-health", rateLimit(30, 60_000), (_req, res) => {
+    try {
+      res.json(getAgentHealth(24));
+    } catch {
+      res.status(500).json({ error: "Agent health unavailable." });
+    }
   });
 
   app.get("/api/bot/qr", async (req, res) => {

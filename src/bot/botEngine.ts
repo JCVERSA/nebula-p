@@ -30,11 +30,12 @@ import {
 import { database } from "./database.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
 import { setWatchSender, startWatchScheduler } from "./services/episodeWatchService.js";
+import { setDigestSender, startDigestScheduler } from "./services/digestService.js";
 import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
 import { handleAgentMessage } from "./services/agentRunner.js";
 import { peekPendingConfirmation } from "./services/agentBrain.js";
 import { hasPendingLanguageConfirm, bareLanguageAnswer } from "./commands/novabox.js";
-import { getAnimeChoiceContext } from "./services/animeChoices.js";
+import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "./services/animeChoices.js";
 
 
 const groupMetadataCache = new Map<string, { data: any; timestamp: number }>();
@@ -557,6 +558,16 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           await sock.sendMessage(chatJid, { text });
         });
         startWatchScheduler();
+
+        // 8.99 — digest quotidien du propriétaire (8 h, NEBULA_DIGEST=0 off)
+        // : même pattern que le watcher — sender réinjecté à chaque
+        // (re)connexion, planificateur démarré une seule fois.
+        setDigestSender(async (text) => {
+          if (ownerDigits.length >= 8) {
+            await sock.sendMessage(`${ownerDigits}@s.whatsapp.net`, { text });
+          }
+        });
+        startDigestScheduler();
       }
 
       if (connection === "close") {
@@ -843,8 +854,12 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
               }
               consumeAIQuota(actualSenderJid);
               const memoryBlock = getMemoryContext(senderJid);
-              // 8.97 — dernier téléchargement anime du chat, comme l'agent.
-              const choiceBlock = getAnimeChoiceContext(senderJid);
+              // 8.97/8.99 — dernier téléchargement anime du chat, comme
+              // l'agent — mais SEULEMENT si le message y ressemble (leçon
+              // Mastra : pas d'historique inutile dans « salut ça va »).
+              const choiceBlock = messageSuggestsAnimeHistory(text)
+                ? getAnimeChoiceContext(senderJid)
+                : null;
               const answer = await withAIConcurrency(() =>
                 generateTextWithFallback(
                   text,

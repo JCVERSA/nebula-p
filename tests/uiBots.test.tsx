@@ -152,6 +152,36 @@ describe("Multi-bots panel UI", () => {
     await waitFor(() => expect(calls.filter((c) => c === "/api/bots").length).toBeGreaterThanOrEqual(2));
   });
 
+  it("8.99 : la carte santé de l'agent rend les métriques du moteur", async () => {
+    stubFetch({
+      ...makeResponses(makeBotsPayload()),
+      "/api/bot/agent-health": {
+        turns: 12,
+        executes: 8,
+        degraded: 1,
+        denied: 0,
+        parseOkRate: 11 / 12,
+        avgLatencyMs: 2400,
+        argsSanitized: 1
+      }
+    });
+    render(<App />);
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
+    await clickNav("Multi-Bots");
+    await waitFor(() => expect(screen.getByTestId("agent-health-card")).toBeTruthy());
+    expect(screen.getByText(/AI Agent — last 24 h/)).toBeTruthy();
+    // Le badge arrive après le fetch asynchrone — attendre sa valeur finale.
+    await waitFor(() => {
+      // Feuille uniquement (sinon tous les ancêtres matchent aussi).
+      const badge = screen.getByText(
+        (_, el) => !!el?.textContent?.match(/92% valid decisions/) && el.children.length === 0
+      );
+      expect(badge).toBeTruthy();
+    });
+    expect(screen.getByText("2.4s")).toBeTruthy();
+    expect(calls).toContain("/api/bot/agent-health");
+  });
+
   it("shows the pairing code of a bot waiting for linking", async () => {
     vi.unstubAllGlobals();
     const payload = makeBotsPayload({

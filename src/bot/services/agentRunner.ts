@@ -35,7 +35,9 @@ import {
 } from "./aiMemory.js";
 import { buildAgentKnowledge } from "../commandKnowledge.js";
 import { effectiveDefaultSource } from "./animeSources.js";
-import { getAnimeChoiceContext } from "./animeChoices.js";
+import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "./animeChoices.js";
+import { recordAgentTurn } from "./agentMetrics.js";
+import { getPrimaryAIEngine } from "../geminiClient.js";
 import type { AgentCommandOutcome } from "../commandDispatch.js";
 import {
   parseAgentDecision,
@@ -49,7 +51,8 @@ import {
   takePendingConfirmation,
   clearPendingConfirmation,
   isConfirmationAffirmative,
-  toggleCatalogFlag
+  toggleCatalogFlag,
+  sanitizeAgentArgs
 } from "./agentBrain.js";
 
 export interface AgentMessageInfo {
@@ -143,8 +146,13 @@ export async function handleAgentMessage(
   try {
     consumeAIQuota(info.actorJid);
     const memoryBlock = getMemoryContext(info.senderJid);
-    // 8.97 — mémoire des choix interactifs : dernier téléchargement du chat.
-    const choiceBlock = getAnimeChoiceContext(info.senderJid);
+    // 8.97/8.99 — mémoire des choix interactifs, INJECTÉE À LA DEMANDE
+    // (leçon Mastra : ce bloc n'a d'utilité que si le message parle
+    // d'anime/téléchargement — le sortir de « salut ça va » économise le
+    // prompt et réduit le bruit).
+    const choiceBlock = messageSuggestsAnimeHistory(text)
+      ? getAnimeChoiceContext(info.senderJid)
+      : null;
     const persona =
       getPersonaPrompt("dm", info.botName) +
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
@@ -152,12 +160,22 @@ export async function handleAgentMessage(
     const agentSystem = `${persona}\n\n${buildAgentKnowledge(info.prefix)}`;
 
     let decision = null as ReturnType<typeof parseAgentDecision>;
+    let rawLatencyMs = 0;
     try {
+      const tStart = Date.now();
       const raw = await withAIConcurrency(() =>
-        generateTextWithFallback(text, agentSystem, "gemini-3.7-flash")
+        // 8.99 — mode JSON natif : l'API contraint la réponse (Gemini
+        // responseMimeType / NIM response_format). Le parsing tolérant
+        // reste la garde (fail-closed) — ce n'est pas de la confiance.
+        generateTextWithFallback(text, agentSystem, "gemini-3.7-flash", { jsonMode: true })
       );
+      rawLatencyMs = Date.now() - tStart;
       decision = parseAgentDecision(raw);
     } catch {
+      recordAgentTurn({
+        ts: Date.now(), action: "error", engine: getPrimaryAIEngine(),
+        latencyMs: 0, parseOk: false, argsSanitized: false
+      });
       await sendText(AI_DOWN_NOTICE);
       return true;
     }
@@ -165,6 +183,10 @@ export async function handleAgentMessage(
     if (!decision) {
       // ── Dégradation : prompt guidage classique (comportement d'avant
       //    l'agent) — jamais de silence, jamais de JSON cassé chez l'user.
+      recordAgentTurn({
+        ts: Date.now(), action: "degraded", engine: getPrimaryAIEngine(),
+        latencyMs: rawLatencyMs, parseOk: false, argsSanitized: false
+      });
       const raw = await withAIConcurrency(() =>
         generateTextWithFallback(text, persona, "gemini-3.7-flash")
       );
@@ -173,6 +195,16 @@ export async function handleAgentMessage(
       compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
       return true;
     }
+
+    // 8.99 — tracing : une ligne par tour, SANS contenu (vie privée).
+    recordAgentTurn({
+      ts: Date.now(),
+      action: decision.action === "execute" ? "execute" : decision.action === "ask" ? "ask" : "reply",
+      engine: getPrimaryAIEngine(),
+      latencyMs: rawLatencyMs,
+      parseOk: true,
+      argsSanitized: false // mis à jour ci-dessous si le guardrail agit
+    });
 
     if (decision.action === "reply" || decision.action === "ask") {
       await sendText(decision.text);
@@ -184,6 +216,10 @@ export async function handleAgentMessage(
     // ── action = execute : validation locale, zéro confiance ───────────────
     const canonical = getCommand(decision.command);
     if (!canonical || isAgentDeniedCommand(canonical.name)) {
+      recordAgentTurn({
+        ts: Date.now(), action: "denied", engine: getPrimaryAIEngine(),
+        latencyMs: rawLatencyMs, parseOk: true, argsSanitized: false
+      });
       recordAudit(
         `wa:${info.actorNumber}`,
         "agent.deny",
@@ -199,7 +235,15 @@ export async function handleAgentMessage(
       return true;
     }
 
-    const args = decision.args.split(/\s+/).filter(Boolean);
+    // 8.99 — guardrail d'arguments (leçon OpenAI Agents SDK) : l'IA ne
+    // peut pas glisser URL/backticks/flags dans les args d'une commande
+    // autorisée. Exécution avec les args NETTOYÉS (la commande revalide).
+    const rawArgs = decision.args.split(/\s+/).filter(Boolean);
+    const sanitized = sanitizeAgentArgs(rawArgs);
+    if (sanitized.changed) {
+      recordAudit(`wa:${info.actorNumber}`, "agent.args.sanitized", canonical.name, "");
+    }
+    const args = sanitized.args;
     const pretty = `\`${info.prefix}${canonical.name}${args.length ? ` ${args.join(" ")}` : ""}\``;
 
     // ── Lourd → confirmation fail-closed ──────────────────────────────────

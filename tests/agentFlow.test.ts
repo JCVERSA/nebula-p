@@ -8,6 +8,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/bot/geminiClient.js", () => ({
   isAIConfigured: vi.fn(() => true),
   generateTextWithFallback: vi.fn(),
+  getPrimaryAIEngine: vi.fn(() => "nim"), // 8.99 : métriques agent
+}));
+// 8.99 : les métriques ne doivent rien écrire pendant les tests de flow.
+vi.mock("../src/bot/services/agentMetrics.js", () => ({
+  recordAgentTurn: vi.fn(),
+  getAgentHealth: vi.fn(() => ({ turns: 0, parseOkRate: 1, avgLatencyMs: null, executes: 0, asks: 0, replies: 0, degraded: 0, denied: 0, errors: 0, argsSanitized: 0, lastDegradedAt: null, windowHours: 24 }))
 }));
 vi.mock("../src/bot/commandRegistry.js", () => ({
   getCommand: vi.fn(),
@@ -24,7 +30,9 @@ vi.mock("../src/bot/auditTrail.js", () => ({
   recordAudit: vi.fn(),
 }));
 vi.mock("../src/bot/services/animeChoices.js", () => ({
-  getAnimeChoiceContext: vi.fn(() => null)
+  getAnimeChoiceContext: vi.fn(() => null),
+  // 8.99 : injection sélective de l'historique (aucune IO en test).
+  messageSuggestsAnimeHistory: vi.fn(() => false)
 }));
 vi.mock("../src/bot/services/aiMemory.js", () => ({
   getMemoryContext: vi.fn(() => null),
@@ -41,7 +49,7 @@ import { generateTextWithFallback, isAIConfigured } from "../src/bot/geminiClien
 import { getCommand } from "../src/bot/commandRegistry.js";
 import { checkAIQuota } from "../src/bot/aiQuota.js";
 import { recordAgentExecution, __resetAgentStateForTests } from "../src/bot/services/agentBrain.js";
-import { getAnimeChoiceContext } from "../src/bot/services/animeChoices.js";
+import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "../src/bot/services/animeChoices.js";
 
 const mAI = vi.mocked(generateTextWithFallback);
 const mChoices = vi.mocked(getAnimeChoiceContext);
@@ -298,7 +306,10 @@ describe("8.94 — bascule de catalogue anime (hint « autre catalogue »)", () 
 });
 
 describe("8.97 — mémoire des choix interactifs (injection agent)", () => {
-  it("l'historique anime du chat part dans le prompt système de l'IA", async () => {
+  it("l'historique anime du chat part dans le prompt système de l'IA (message anime)", async () => {
+    // 8.99 : le bloc n'est injecté QUE si le message parle d'anime —
+    // le filtre (mocké) doit donc dire true pour ce scénario.
+    vi.mocked(messageSuggestsAnimeHistory).mockReturnValueOnce(true);
     mChoices.mockReturnValueOnce(
       "[Historique anime — dernier téléchargement de ce chat, il y a 3 h]\nTitre : Tokyo Ghoul · Langue : VOSTFR · dernier épisode : 7"
     );

@@ -96,12 +96,24 @@ function whatsappMeta(bot: BotCardData): { label: string; classes: string; code?
   }
 }
 
+interface AgentHealthData {
+  turns: number;
+  executes: number;
+  degraded: number;
+  denied: number;
+  parseOkRate: number;
+  avgLatencyMs: number | null;
+  argsSanitized: number;
+}
+
 export default function BotsPanel({ activeBotId, onSelectBot }: BotsPanelProps) {
   const [bots, setBots] = useState<BotCardData[] | null>(null);
   const [config, setConfig] = useState<BotsApiResponse["config"] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, BotAction | undefined>>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // 8.99 — santé de l'agent IA (24 h) du bot sélectionné, via le proxy panneau.
+  const [agentHealth, setAgentHealth] = useState<AgentHealthData | null>(null);
 
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -127,6 +139,29 @@ export default function BotsPanel({ activeBotId, onSelectBot }: BotsPanelProps) 
     const interval = setInterval(refresh, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHealth = async () => {
+      try {
+        const res = await fetch("/api/bot/agent-health", { credentials: "same-origin" });
+        if (!res.ok) {
+          if (!cancelled) setAgentHealth(null);
+          return;
+        }
+        const data: AgentHealthData = await res.json();
+        if (!cancelled) setAgentHealth(data);
+      } catch {
+        if (!cancelled) setAgentHealth(null);
+      }
+    };
+    loadHealth();
+    const interval = setInterval(loadHealth, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeBotId]);
 
   const runAction = useCallback(
     async (botId: string, action: BotAction) => {
@@ -344,6 +379,54 @@ export default function BotsPanel({ activeBotId, onSelectBot }: BotsPanelProps) 
             </div>
           );
         })}
+      </div>
+
+      {/* 8.99 — santé de l'agent IA (données réelles du moteur sélectionné) */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4" data-testid="agent-health-card">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-xs font-bold tracking-wide text-zinc-200 uppercase">
+            🤖 AI Agent — last 24 h
+          </h3>
+          {agentHealth ? (
+            <span
+              className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                agentHealth.parseOkRate >= 0.9
+                  ? "bg-emerald-500/15 text-emerald-300"
+                  : "bg-amber-500/15 text-amber-300"
+              }`}
+            >
+              {Math.round(agentHealth.parseOkRate * 100)}% valid decisions
+            </span>
+          ) : (
+            <span className="text-[11px] text-zinc-500">unavailable</span>
+          )}
+        </div>
+        {agentHealth ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+            <div className="rounded-lg bg-white/[0.04] p-2">
+              <div className="text-lg font-bold text-zinc-100">{agentHealth.turns}</div>
+              <div className="text-[10px] text-zinc-500 uppercase">turns</div>
+            </div>
+            <div className="rounded-lg bg-white/[0.04] p-2">
+              <div className="text-lg font-bold text-zinc-100">{agentHealth.executes}</div>
+              <div className="text-[10px] text-zinc-500 uppercase">executed</div>
+            </div>
+            <div className="rounded-lg bg-white/[0.04] p-2">
+              <div className="text-lg font-bold text-amber-300">{agentHealth.degraded}</div>
+              <div className="text-[10px] text-zinc-500 uppercase">degraded</div>
+            </div>
+            <div className="rounded-lg bg-white/[0.04] p-2">
+              <div className="text-lg font-bold text-zinc-100">
+                {agentHealth.avgLatencyMs !== null ? `${(agentHealth.avgLatencyMs / 1000).toFixed(1)}s` : "—"}
+              </div>
+              <div className="text-[10px] text-zinc-500 uppercase">avg latency</div>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[11px] text-zinc-500">
+            No agent metrics for the selected engine (stopped, or no AI activity yet).
+          </p>
+        )}
       </div>
 
       <p className="text-[11px] text-zinc-500">
