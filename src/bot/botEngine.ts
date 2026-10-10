@@ -32,6 +32,8 @@ import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
 import { setWatchSender, startWatchScheduler } from "./services/episodeWatchService.js";
 import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
 import { handleAgentMessage } from "./services/agentRunner.js";
+import { peekPendingConfirmation } from "./services/agentBrain.js";
+import { hasPendingLanguageConfirm, bareLanguageAnswer } from "./commands/novabox.js";
 
 
 const groupMetadataCache = new Map<string, { data: any; timestamp: number }>();
@@ -789,6 +791,20 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
 
         // Direct AI response in private chat when not starting with prefix
         if (!isGroup && !isFromMe && !text.startsWith(prefix)) {
+          // 8.95b : question novabox en attente (« continuer en VOSTFR ? ») —
+          // un « oui »/« non » nu doit RÉPONDRE À CETTE QUESTION, pas partir
+          // dans l'agent IA (qui reformulerait une nouvelle demande).
+          // Priorité à la confirmation de l'agent si les deux pendent (elle
+          // est alors plus récente : l'agent vient de poser sa question).
+          const bareAnswer = bareLanguageAnswer(text);
+          if (
+            bareAnswer &&
+            hasPendingLanguageConfirm(senderJid) &&
+            !peekPendingConfirmation(actualSenderJid)
+          ) {
+            await dispatchBotCommand(sock, msg, dispatchInfo, "a", [bareAnswer], "agent");
+            continue;
+          }
           if (isAIConfigured()) {
             // 8.93 agent beta (privé uniquement) : l'IA traduit la demande
             // naturelle en commande existante et l'exécute aux droits de

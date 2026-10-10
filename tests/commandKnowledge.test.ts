@@ -31,8 +31,13 @@ describe("commandKnowledge — fiche .a (statique)", () => {
       ".a e2,e5,e9",
       ".a 1-5",
       ".a r <numéro>",
-      ".a jjk s3 ep6 r2",
-      ".a jjk s3 all r2",
+      // 8.95b : exemples en qualité ÉCRITE (l'agent ne doit plus deviner
+      // les flags r — r2=360p a coûté une mauvaise commande en réel).
+      ".a jjk s3 ep6 480p",
+      ".a jjk s3 all 720p",
+      ".a jjk s3 1-5 1080p",
+      "r1`=480p",
+      "r2`=360p",
       ".a va <titre>",
       "12 épisodes",
       "Tout télécharger",

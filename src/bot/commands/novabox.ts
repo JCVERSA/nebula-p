@@ -124,6 +124,23 @@ export interface AnimeSession {
 
 // Global active sessions map for the multi-step flow
 const sessions = new Map<string, AnimeSession>();
+
+/** 8.95b : une question « continuer en <langue> ? » est-elle en attente
+ * pour cet utilisateur ? (routage DM du « oui »/« non » nu, botEngine) */
+export function hasPendingLanguageConfirm(senderJid: string): boolean {
+  const session = sessions.get(senderJid);
+  return !!session?.pendingLanguageConfirm;
+}
+
+/** 8.95b : vocabulaire NU accepté pour répondre à la question langue —
+ * « oui »/« ok »/« yes »/« go » vs « non »/« annuler »/« cancel ».
+ * Source unique partagée entre `.a oui` et le routage DM sans préfixe. */
+export function bareLanguageAnswer(text: string): "oui" | "non" | null {
+  const t = (text || "").trim().toLowerCase();
+  if (t === "oui" || t === "ok" || t === "yes" || t === "go") return "oui";
+  if (t === "non" || t === "annuler" || t === "cancel") return "non";
+  return null;
+}
 const MAX_ACTIVE_SESSIONS = 500;
 
 const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutes (8.70: 5 cut users mid-flow)
@@ -677,7 +694,7 @@ async function executeQuickDownloadPipeline(
       session.pendingLanguageConfirm = { chosen: chosenAnime, language: wired.language };
       return context.reply(
         `ℹ️ *Pas de ${effectiveWant} pour ce titre* — j'ai vérifié les deux catalogues.\n\n` +
-        `On continue en *${wired.language}* ?\n\n✅ \`.a oui\` — continuer en ${wired.language}\n❌ \`.a non\` — annuler`
+        `On continue en *${wired.language}* ?\n\n✅ Réponds *oui* — continuer en ${wired.language}\n❌ Réponds *non* — annuler\n\n_(en groupe : \`.a oui\` / \`.a non\`)_`
       );
     }
 
@@ -813,6 +830,11 @@ async function executeQuickDownloadPipeline(
         console.log(
           `[NOVABOX] Quick quality "${canonical}" -> ${match.exact ? "exact" : "nearest"} ${match.label} via ${match.mirror} (scan ${((Date.now() - tScan) / 1000).toFixed(1)}s)`
         );
+        if (!match.exact) {
+          // 8.95b (§38 honnêteté) : la qualité demandée n'existe pas sur
+          // cette source — le dire au lieu de livrer un autre label en silence.
+          await context.reply(`ℹ️ *${canonical} indisponible sur cette source* → je prends la plus proche : *${match.label}*.`);
+        }
       } else {
         console.log(`[NOVABOX] Quick quality "${canonical}": no mirror yielded tracks (scan ${((Date.now() - tScan) / 1000).toFixed(1)}s) — adaptive download`);
       }
@@ -1056,8 +1078,8 @@ const animeCommand: BotCommand = {
     if (sessions.has(sender) && sessions.get(sender)!.pendingLanguageConfirm) {
       const session = sessions.get(sender)!;
       refreshSessionTimer(session);
-      const answer = (firstArg || "").toLowerCase();
-      if (answer === "oui" || answer === "ok" || answer === "yes" || answer === "go") {
+      const answer = bareLanguageAnswer(firstArg || "");
+      if (answer === "oui") {
         const pending = session.pendingLanguageConfirm!;
         session.pendingLanguageConfirm = undefined;
         if (session.pendingQuickParams && pending.chosen) {
@@ -1066,11 +1088,11 @@ const animeCommand: BotCommand = {
             { ...session.pendingQuickParams, language: pending.language }, true
           );
         }
-      } else if (answer === "non" || answer === "annuler" || answer === "cancel") {
+      } else if (answer === "non") {
         clearUserSession(sender);
         return context.reply("👌 *Annulé.* Relance quand tu veux avec `.a <titre>`.");
       }
-      return context.reply(`❓ *Continuer en ${session.pendingLanguageConfirm!.language} ?*\nRéponds \`.a oui\` pour continuer, ou \`.a non\` pour annuler.`);
+      return context.reply(`❓ *Continuer en ${session.pendingLanguageConfirm!.language} ?*\nRéponds *oui* (ou \`.a oui\`) pour continuer, *non* pour annuler.`);
     }
 
     // Step-by-step handler if there's an active session and the user is responding to the step
