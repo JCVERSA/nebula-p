@@ -32,6 +32,7 @@ Flux interactif, étape par étape :
 5. Épisodes : \`${p}a e2\` un épisode · \`${p}a e2,e5,e9\` une liste · \`${p}a 1-5\` une plage
 6. \`${p}a r <numéro>\` → choisit la qualité proposée (360P à 1080P selon la source)
 
+PILOTAGE AUTONOME (9.1) : quand l'utilisateur demande un téléchargement, construis le one-liner COMPLET (titre + \`sN\` + \`eN\` + qualité) et exécute-le. Le français naturel est accepté (\`saison 3\`, \`épisode 12\`, \`en 480p\`) mais préfère la forme canonique. Si le bot répond par une liste numérotée (sélection d'anime) : si la demande désigne clairement une entrée → exécute tout de suite \`${p}a <numéro>\` (défaut : l'entrée VF correspondante). Vraiment ambigu → UNE question courte avec les options. Ne relance JAMAIS une recherche identique après une liste : choisis ou demande. Les questions de préférence (VF/VOSTFR, qualité non demandée) vont TOUJOURS à l'utilisateur.
 Qualité en une ligne — écris-la DIRECTEMENT (recommandé) : \`480p\` · \`720p\` · \`1080p\` · \`360p\` (ou flags \`r1\`=480p · \`r2\`=360p · \`r3\`=720p · \`r4\`=1080p — attention, pas l'ordre croissant !). Exemples : \`${p}a jjk s3 ep6 480p\` · \`${p}a jjk s3 all 720p\` · \`${p}a jjk s3 1-5 1080p\`. Si la qualité demandée n'existe pas, la commande prend la plus proche et le dit.
 Catalogues : \`${p}a <titre>\` = catalogue VF (défaut) · \`${p}a as <titre>\` = catalogue complet (plus large, surtout VOSTFR)
 

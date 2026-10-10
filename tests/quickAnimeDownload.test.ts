@@ -182,3 +182,47 @@ describe("Quick Anime Download Parser & Matcher", () => {
     });
   });
 });
+
+describe("9.1 — parseur français naturel (retour terrain : l'agent transmettait « épisode 12 » tel quel)", () => {
+  it("« saison 3 épisode 12 en 480p » → one-liner canonique complet", () => {
+    const p = parseQuickDownloadParams(["mushoku", "tensei", "saison", "3", "épisode", "12", "en", "480p"]);
+    expect(p.animeQuery).toBe("mushoku tensei");
+    expect(p.seasonNumber).toBe(3);
+    expect(p.episodesMode).toBe("single");
+    expect(p.parsedEpisodeNumbers).toEqual([12]);
+    expect(p.resolutionChoice).toBe("480P");
+  });
+
+  it("« épisode12 » collé et « en vf »", () => {
+    const p = parseQuickDownloadParams(["naruto", "épisode12", "en", "vf"]);
+    expect(p.animeQuery).toBe("naruto");
+    expect(p.parsedEpisodeNumbers).toEqual([12]);
+    expect(p.language).toBe("VF");
+  });
+
+  it("« episode 5 » (orthographe EN) deux tokens", () => {
+    const p = parseQuickDownloadParams(["one", "piece", "episode", "5"]);
+    expect(p.animeQuery).toBe("one piece");
+    expect(p.parsedEpisodeNumbers).toEqual([5]);
+  });
+
+  it("« en qualité 720p » et « en vostfr »", () => {
+    const p = parseQuickDownloadParams(["jjk", "en", "qualité", "720p", "en", "vostfr"]);
+    expect(p.animeQuery).toBe("jjk");
+    expect(p.resolutionChoice).toBe("720P");
+    expect(p.language).toBe("VOSTFR");
+  });
+
+  it("un « en » au milieu d'un titre reste dans le titre (pas de sur-consommation)", () => {
+    const p = parseQuickDownloadParams(["gate", "en", "guerre"]);
+    expect(p.animeQuery).toBe("gate en guerre");
+  });
+
+  it("comportement historique inchangé : s3 e12 480p canonique", () => {
+    const p = parseQuickDownloadParams(["jjk", "s3", "e12", "480p"]);
+    expect(p.animeQuery).toBe("jjk");
+    expect(p.seasonNumber).toBe(3);
+    expect(p.parsedEpisodeNumbers).toEqual([12]);
+    expect(p.resolutionChoice).toBe("480P");
+  });
+});

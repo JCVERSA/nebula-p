@@ -43,6 +43,25 @@ Le déclenchement en DM est automatique (message sans préfixe). `.agent` / `.ag
 - **Bascule de catalogue** (8.94/8.96) → offre déterministe, zéro appel IA supplémentaire, confirmation OK requise ;
 - Priorité des réponses nues : un « oui »/« non » nu répond **à la question en cours** (novabox ou agent), il ne redémarre pas une conversation (8.95b).
 
+## 4quater. Boucle d'observation de l'agent (9.1)
+
+L'agent peut enchaîner plusieurs commandes par message (ex. `.a mushoku
+tensei s3 e12 480p` puis `.a 1` pour choisir dans la liste) parce qu'il
+OBSERVE les réponses des commandes qu'il exécute. Bornes :
+- **3 décisions IA max par message** (décision owner) — quota IA
+  re-vérifié avant chaque décision ;
+- **anti-dérive** : la même commande avec les mêmes arguments ne
+  s'exécute JAMAIS deux fois dans un même message ;
+- CHAQUE itération repasse la validation locale zéro confiance
+  (registre + denylist), le guardrail d'arguments et la règle
+  lourd = confirmation fail-closed ;
+- la mémoire d'écran (dernière sortie interactive, TTL 10 min,
+  en RAM, aucun fichier) ne contient que ce que le bot a déjà envoyé ;
+- les questions de PRÉFÉRENCE (VF/VOSTFR, qualité non demandée) sont
+  toujours relées à l'utilisateur — jamais auto-répondues ;
+- au plafond ou en cas d'échec de parsing : relais propre (« réponds
+  directement au message ci-dessus ») — jamais de boucle silencieuse.
+
 ## 4ter. Outils web (9.0) — .search / .fetch / .wiki
 
 Recherche DÉTERMINISTE : aucun token IA, aucune synthèse par le modèle —

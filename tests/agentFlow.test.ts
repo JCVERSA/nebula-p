@@ -50,6 +50,7 @@ import { getCommand } from "../src/bot/commandRegistry.js";
 import { checkAIQuota } from "../src/bot/aiQuota.js";
 import { recordAgentExecution, __resetAgentStateForTests } from "../src/bot/services/agentBrain.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "../src/bot/services/animeChoices.js";
+import { __resetObservationsForTests } from "../src/bot/services/agentObservation.js";
 
 const mAI = vi.mocked(generateTextWithFallback);
 const mChoices = vi.mocked(getAnimeChoiceContext);
@@ -92,8 +93,8 @@ function mk(text: string) {
   return { sock, msg, info, sent };
 }
 
-const mkExec = (over: Partial<{ ok: boolean; denied: boolean; hadError: boolean; lastText: string; vfFallbackHint: boolean }> = {}) =>
-  vi.fn(async () => ({ ok: true, denied: false, hadError: false, lastText: "", vfFallbackHint: false, ...over }));
+const mkExec = (over: Partial<{ ok: boolean; denied: boolean; hadError: boolean; lastText: string; vfFallbackHint: boolean; texts: string[] }> = {}) =>
+  vi.fn(async () => ({ ok: true, denied: false, hadError: false, lastText: "", vfFallbackHint: false, texts: [] as string[], ...over }));
 
 const texts = (sent: any[]) => sent.map((p) => p.text);
 const run = (ctx: ReturnType<typeof mk>, exec: any, text?: string) =>
@@ -102,6 +103,7 @@ const run = (ctx: ReturnType<typeof mk>, exec: any, text?: string) =>
 beforeEach(() => {
   vi.clearAllMocks();
   __resetAgentStateForTests();
+  __resetObservationsForTests();
   mConfigured.mockReturnValue(true);
   mQuota.mockReturnValue({ allowed: true } as any);
   mGetCommand.mockImplementation(((n: string) => COMMANDS[n]) as any);
@@ -327,6 +329,82 @@ describe("8.97 — mémoire des choix interactifs (injection agent)", () => {
     const ctx = mk("bonjour");
     await run(ctx, mkExec());
     expect(mAI.mock.calls[0][1]).not.toContain("Historique anime");
+  });
+});
+
+describe("9.1 — boucle d'observation (pilotage autonome)", () => {
+  const LIST_OUTPUT = [
+    "🔍 *Recherche rapide pour:* \"mushoku tensei\"...",
+    "🎬 *Novabox - Sélectionnez l'Anime* 🎬\n\n1. Mushoku Tensei 3 (*VF*)\n2. Mushoku Tensei 2 (*VF*)\n\n👉 Répondez avec: `.a [numéro]` (ex: `.a 1`)"
+  ];
+  const ok = (texts: string[]) => ({ ok: true, denied: false, hadError: false, lastText: texts[texts.length - 1] || "", vfFallbackHint: false, texts });
+
+  it("liste de sélection → l'agent lit la sortie et auto-choisit (.a 1) jusqu'au lien", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"mushoku tensei s3 e12 480p"}');
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"1"}');
+    const exec = vi.fn()
+      .mockResolvedValueOnce(ok(LIST_OUTPUT))
+      .mockResolvedValueOnce(ok(["🔗 https://exemple.com/mushoku-s3-e12.html"]));
+    const ctx = mk("telecharge mushoku tensei saison 3 episode 12 en 480p");
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(2);
+    expect(exec.mock.calls[1][0]).toBe("anime");
+    expect(exec.mock.calls[1][1]).toEqual(["1"]);
+    // Aucune question à l'utilisateur : autonomie complète (owner 9.1).
+    expect(texts(ctx.sent).some((t) => /\?/.test(t))).toBe(false);
+  });
+
+  it("vraiment ambigu → UNE question claire, pas de relance de la recherche", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"mushoku tensei"}');
+    mAI.mockResolvedValueOnce('{"action":"ask","text":"Tu veux lequel : 1) Mushoku Tensei 3 (VF) · 2) Mushoku Tensei 2 (VF) ?"}');
+    const exec = vi.fn().mockResolvedValue(ok(LIST_OUTPUT));
+    const ctx = mk("telecharge mushoku tensei");
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(1); // pas de deuxième .a
+    expect(texts(ctx.sent).some((t) => t.includes("Tu veux lequel"))).toBe(true);
+  });
+
+  it("plafond 3 décisions IA → relais propre (pas de boucle infinie)", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"mushoku"}');
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"1"}');
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"2"}');
+    const exec = vi.fn().mockResolvedValue(ok(LIST_OUTPUT)); // toujours interactif
+    const ctx = mk("telecharge mushoku");
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(3); // 3 exécutions max
+    expect(mAI).toHaveBeenCalledTimes(3); // 3 décisions IA max (cap owner)
+    expect(texts(ctx.sent).some((t) => t.includes("Je passe le relais"))).toBe(true);
+  });
+
+  it("anti-dérive : la même commande+args deux fois → arrêt immédiat", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"mushoku"}');
+    mAI.mockResolvedValue('{"action":"execute","command":"anime","args":"1"}'); // toujours pareil
+    const exec = vi.fn().mockResolvedValue(ok(LIST_OUTPUT));
+    const ctx = mk("telecharge mushoku");
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(2); // mushoku + 1 (le second .a 1 est refusé)
+    expect(texts(ctx.sent).some((t) => t.includes("Je m'arrête là"))).toBe(true);
+  });
+
+  it("mémoire d'écran : la réponse naturelle suivante (« le 2e ») est reliée à la liste", async () => {
+    // Tour 1 : la demande mène à une liste, l'agent pose LA question.
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"mushoku tensei"}');
+    mAI.mockResolvedValueOnce('{"action":"ask","text":"Tu veux lequel : 1) MT 3 (VF) · 2) MT 2 (VF) ?"}');
+    // Tour 1 : la commande renvoie la liste ; tour 2 (choix « 2 ») : le lien.
+    const exec = vi.fn()
+      .mockResolvedValueOnce(ok(LIST_OUTPUT))
+      .mockResolvedValue(ok(["🔗 https://exemple.com/mt2.html"]));
+    const ctx1 = mk("telecharge mushoku tensei");
+    await run(ctx1, exec);
+
+    // Tour 2 : l'utilisateur répond en langage naturel — le prompt doit
+    // contenir l'écran en attente (sinon boucle, retour terrain 9.0).
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"2"}');
+    const ctx2 = mk("le 2e en vf");
+    await run(ctx2, exec);
+    const systemPrompt = mAI.mock.calls[mAI.mock.calls.length - 1][1];
+    expect(systemPrompt).toContain("Écran en attente dans ce chat");
+    expect(exec.mock.calls[exec.mock.calls.length - 1][1]).toEqual(["2"]);
   });
 });
 

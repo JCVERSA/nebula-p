@@ -230,6 +230,43 @@ export function parseQuickDownloadParams(input: string[] | string): QuickDownloa
       continue;
     }
 
+    // D-bis. 9.1 — français naturel : « épisode 12 », « episode12 », « ép12 »
+    // (retour terrain : l'agent transmettait les mots de l'utilisateur tels
+    // quels et ils finissaient dans le titre → recherche cassée).
+    const epFrMatch = lower.match(/^(?:épisode|episode|ép|epis)(\d+)$/i);
+    if (epFrMatch) {
+      episodesSpec = token;
+      episodesMode = "single";
+      parsedEpisodeNumbers = [parseInt(epFrMatch[1], 10)];
+      continue;
+    }
+    if (/^(?:épisode|episode|ép|e|ep)$/i.test(lower) && i + 1 < tokens.length && /^\d+$/.test(tokens[i + 1])) {
+      episodesSpec = tokens[i + 1];
+      episodesMode = "single";
+      parsedEpisodeNumbers = [parseInt(tokens[i + 1], 10)];
+      i++; // consomme le numéro
+      continue;
+    }
+
+    // D-ter. 9.1 — mots de liaison : « en 480p », « en vf », « qualité 720p »…
+    // Consommés UNIQUEMENT si le token suivant est un marqueur reconnu (un
+    // « en » au milieu d'un titre reste dans le titre).
+    if (/^(?:en|dans|avec|qualité|qualite|en\s+qualité)$/i.test(lower) && i + 1 < tokens.length) {
+      const nxt = tokens[i + 1].toLowerCase();
+      const nextIsMarker =
+        /^(?:vf|vostfr)$/i.test(nxt) ||
+        /^(?:1080p|720p|480p|360p)$/i.test(nxt) ||
+        /^r\d+$/i.test(nxt) ||
+        /^(?:s|saison|season)\d*$/i.test(nxt) ||
+        /^(?:épisode|episode|ép|e|ep)\d*$/i.test(nxt) ||
+        // Chaine de mots de liaison (« en qualité 720p ») : chaque filler
+        // sera consommé à son tour s'il débouche sur un marqueur.
+        /^(?:en|dans|avec|qualité|qualite)$/i.test(nxt);
+      if (nextIsMarker) {
+        continue; // le marqueur sera traité à son tour
+      }
+    }
+
     // Otherwise, this token is likely part of the anime title
     remainingTokens.push(token);
   }

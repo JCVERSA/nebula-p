@@ -43,9 +43,50 @@ interface Scenario {
   argsExclude?: string[];        // aucun ne doit apparaître
   sayMustNotInclude?: string[];  // interdits dans TOUS les textes envoyés
   sayMustInclude?: string[];     // requis dans au moins un texte envoyé
+  /** 9.1 — sortie de commande simulée (écran novabox) : déclenche la boucle
+   *  d'observation — la DERNIÈRE exécution devient l'auto-sélection attendue. */
+  mockOutput?: string[];
+  /** 9.1 — vérifications portant sur la PREMIÈRE exécution (le one-liner). */
+  firstExec?: {
+    argsInclude?: string[];
+    argsIncludeAny?: string[][];
+  };
 }
 
 const SCENARIOS: Scenario[] = [
+  {
+    // 9.1 — retour terrain Mushoku Tensei : liste de sélection → l'agent
+    // doit TOUT piloter (owner : « je n'aurai rien à taper »). Le one-liner
+    // initial doit être complet (s3 e12 480p), puis l'agent choisit
+    // lui-même l'entrée 1 (MT 3 VF — défaut VF) dans la liste simulée.
+    name: "sélection multiple → auto-pilotage complet (boucle 9.1)",
+    severity: "critical",
+    text: "télécharge mushoku tensei saison 3 épisode 12 en 480p",
+    mockOutput: [
+      "🎬 *Novabox - Sélectionnez l'Anime* 🎬\n\n1. Mushoku Tensei 3 (*VF*)\n2. Mushoku Tensei 2 (*VF*)\n3. Mushoku Tensei: Isekai Ittara Honki Dasu (*VF*)\n4. Mushoku Tensei 3\n\n👉 Répondez avec: `.a [numéro]` (ex: `.a 1`)"
+    ],
+    expect: "execute",
+    command: "anime",
+    firstExec: {
+      argsInclude: ["mushoku"],
+      argsIncludeAny: [["s3", "e12", "480p"], ["saison", "3", "épisode", "12", "480p"]]
+    },
+    argsIncludeAny: [["1"], ["4"]], // l'auto-sélection (1 = VF, défaut produit)
+    sayMustNotInclude: ["Quel anime souhaites-tu"] // l'amnésie d'avant 9.1
+  },
+  {
+    // 9.1 — vraiment ambigu (aucune saison précisée, 3 séries distinctes) :
+    // l'idéal est UNE question claire — jamais une relance de la recherche.
+    name: "demande réellement ambiguë → UNE question, pas de re-recherche",
+    severity: "warn",
+    text: "télécharge mushoku tensei",
+    mockOutput: [
+      "🎬 *Novabox - Sélectionnez l'Anime* 🎬\n\n1. Mushoku Tensei 3 (*VF*)\n2. Mushoku Tensei 2 (*VF*)\n3. Mushoku Tensei: Isekai Ittara Honki Dasu (*VF*)\n\n👉 Répondez avec: `.a [numéro]` (ex: `.a 1`)"
+    ],
+    expect: "execute-or-conversational", // ask (idéal) OU choix 3 (série d'origine)
+    command: "anime",
+    sayMustNotInclude: ["Recherche rapide pour"]
+  },
   {
     // Retour terrain 8.95b : l'IA émettait r2 (=360p) pour une demande 480p.
     name: "qualité écrite, pas de flag r deviné (r2=360p !)",
@@ -143,7 +184,9 @@ const JID_BASE = "237900000000";
 const ACTOR_NUMBER = "237900000000";
 
 interface RunResult {
-  executed: null | { command: string; args: string[] };
+  executed: null | { command: string; args: string[] }
+  /** 9.1 — toutes les exécutions de la boucle, dans l'ordre. */
+  executions: Array<{ command: string; args: string[] }>;
   texts: string[];
   askedConfirm: boolean;
   error: string | null;
@@ -176,9 +219,17 @@ async function runScenario(
     prefix: "."
   };
   let executed: RunResult["executed"] = null;
+  const executions: RunResult["executions"] = [];
   const exec = async (command: string, args: string[], _source: string) => {
     executed = { command, args };
-    return { ok: true, denied: false, hadError: false, lastText: "", vfFallbackHint: false };
+    executions.push({ command, args });
+    // 9.1 — le scénario peut simuler la réponse du bot (liste de sélection)
+    // pour éprouver la boucle d'observation : l'agent doit auto-choisir.
+    const texts = scenario.mockOutput ?? [];
+    return {
+      ok: true, denied: false, hadError: false,
+      lastText: texts[texts.length - 1] || "", vfFallbackHint: false, texts
+    };
   };
 
   if (scenario.seedHistory?.length) {
@@ -201,10 +252,10 @@ async function runScenario(
       new Promise((_, rej) => setTimeout(() => rej(new Error("timeout 90 s")), 90_000))
     ]);
   } catch (e: any) {
-    return { executed, texts, askedConfirm: false, error: e?.message || String(e) };
+    return { executed, executions, texts, askedConfirm: false, error: e?.message || String(e) };
   }
   const askedConfirm = texts.some((t) => /OK\s+pour\s+confirmer|réponds\s+\*?OK\*?/i.test(t));
-  return { executed, texts, askedConfirm, error: null };
+  return { executed, executions, texts, askedConfirm, error: null };
 }
 
 function classify(result: RunResult): "execute" | "confirm" | "conversational" | "error" {
@@ -240,6 +291,16 @@ function checkScenario(scenario: Scenario, result: RunResult): string[] {
   }
   for (const exc of scenario.argsExclude || []) {
     if (args.includes(exc.toLowerCase())) failures.push(`args contenant l'interdit « ${exc} »`);
+  }
+  // 9.1 — première exécution (le one-liner complet avant auto-sélection)
+  const first = (result.executions?.[0]?.args || []).map((a) => a.toLowerCase());
+  for (const inc of scenario.firstExec?.argsInclude || []) {
+    if (!first.includes(inc.toLowerCase())) failures.push(`1re exécution sans « ${inc} » (args: ${first.join(" ") || "∅"})`);
+  }
+  for (const group of scenario.firstExec?.argsIncludeAny || []) {
+    if (!group.every((g) => first.includes(g.toLowerCase()))) {
+      failures.push(`1re exécution sans aucun de [${group.join("|")}] (args: ${first.join(" ") || "∅"})`);
+    }
   }
   const allText = result.texts.join("\n").toLowerCase();
   for (const must of scenario.sayMustNotInclude || []) {

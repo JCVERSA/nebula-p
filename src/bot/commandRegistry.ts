@@ -68,7 +68,7 @@ const commandsMap = new Map<string, BotCommand>();
 
 /** Disk files that are the SOURCE of a statically-imported built-in command
  *  whose filename differs from its registered command name. */
-const BUILTIN_SOURCE_FILE_EXCEPTIONS = new Set(["novabox"]);
+const BUILTIN_SOURCE_FILE_EXCEPTIONS = new Set(["novabox", "watch"]);
 
 /** Commands loaded from disk (name -> module), kept in memory between reloads. */
 const diskCommandCache = new Map<string, BotCommand>();

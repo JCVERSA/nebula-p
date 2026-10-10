@@ -37,10 +37,17 @@ export interface DispatchInfo {
 export interface AgentCommandOutcome {
   ok: boolean;        // commande exécutée sans exception
   denied: boolean;    // RoleGuard a refusé (aucun rattrapage possible)
-  hadError: boolean;  // une réponse commençait par ❌/⚠️/⛔ (ou exception)
+  hadError: boolean;  // une réponse commençant par ❌/⚠️/⛔ (ou exception)
   lastText: string;   // dernier texte capturé
   /** 8.94 : la commande a signalé « langue absente → autre catalogue ». */
   vfFallbackHint: boolean;
+  /**
+   * 9.1 — TOUTES les réponses envoyées pendant l'exécution, dans l'ordre.
+   * Nécessaire à la boucle d'observation de l'agent : une sélection
+   * d'anime affiche plusieurs messages (recherche, puis liste) et c'est la
+   * LISTE qui contient les choix à piloter. Plafonné pour rester léger.
+   */
+  texts: string[];
 }
 
 function replyLooksLikeError(t: string): boolean {
@@ -56,7 +63,7 @@ export async function dispatchBotCommand(
   source: "prefix" | "agent" = "prefix"
 ): Promise<AgentCommandOutcome> {
   const { senderJid, senderName, messageContent } = info;
-  const outcome: AgentCommandOutcome = { ok: false, denied: false, hadError: false, lastText: "", vfFallbackHint: false };
+  const outcome: AgentCommandOutcome = { ok: false, denied: false, hadError: false, lastText: "", vfFallbackHint: false, texts: [] };
 
   const command = getCommand(commandName);
   if (!command) {
@@ -72,6 +79,12 @@ export async function dispatchBotCommand(
         // (avant la liste des résolutions) → vérifier CHAQUE reply, pas juste
         // la dernière.
         outcome.lastText = textStr;
+        // 9.1 : mémoire complète pour la boucle d'observation (cap : on
+        // garde les 6 derniers textes, 1 800 chars chacun — au-delà c'est
+        // du bruit pour l'IA, pas de l'information actionnable).
+        if (outcome.texts.length < 6) {
+          outcome.texts.push(textStr.slice(0, 1800));
+        }
         if (replyLooksLikeError(textStr)) outcome.hadError = true;
         if (replySuggestsOtherCatalog(textStr)) outcome.vfFallbackHint = true;
       }

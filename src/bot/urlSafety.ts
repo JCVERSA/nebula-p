@@ -234,21 +234,50 @@ async function resolvePinnedAddresses(hostname: string): Promise<Array<{ address
   return addresses.map((a) => ({ address: a.address, family: a.family }));
 }
 
-function buildPinnedAgentFor(url: URL, pinned: Array<{ address: string; family: number }>): http.Agent | https.Agent {
-  // The agent's `lookup` returns only the pre-validated addresses. It is
-  // invoked for every new connection, so a re-resolution of the hostname by
-  // the OS (which could return a different, private address) never happens.
-  type LookupCallback = (err: Error | null, address: string, family: number) => void;
-  const lookup = (_hostname: string, options: { family?: number | string; hints?: number; all?: boolean }, callback: LookupCallback) => {
+export type PinnedLookupOptions = { family?: number | string; hints?: number; all?: boolean };
+export type PinnedLookupCallback = (
+  err: Error | null,
+  address: string | Array<{ address: string; family: number }>,
+  family: number,
+) => void;
+
+/**
+ * Lookup DNS « épinglé » pour l'agent HTTP (9.0c, pur — testé).
+ *
+ * Ne retourne JAMAIS d'autre adresse que celles pré-validées par
+ * resolvePinnedAddresses : une re-résolution par l'OS (qui pourrait
+ * retourner une adresse privée) est impossible.
+ *
+ * DEUX formes de callback doivent être honorées : Node ≥ 20.13/22 active
+ * Happy Eyeballs (autoSelectFamily) et appelle lookup avec { all: true }
+ * en attendant un TABLEAU d'adresses ; répondre en forme simple
+ * (address, family) faisait planter net.connect avec « Invalid IP
+ * address: undefined » — constaté sur le nouveau VPS Docker (Node 22)
+ * où TOUT safeFetch était cassé (recherche ET téléchargements).
+ */
+export function makePinnedLookup(pinned: Array<{ address: string; family: number }>) {
+  return (_hostname: string, options: PinnedLookupOptions, callback: PinnedLookupCallback) => {
     const family = typeof options.family === "number" && options.family !== 0 ? options.family : 0;
     const candidates = pinned.filter((a) => family === 0 || a.family === family);
     if (candidates.length === 0) {
       callback(new Error("Blocked unsafe URL (no validated address for requested family)."), "", 0);
       return;
     }
+    if (options.all === true) {
+      // Forme tableau (Happy Eyeballs, dns.lookup all:true)
+      callback(null, candidates, candidates.length);
+      return;
+    }
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
     callback(null, pick.address, pick.family);
   };
+}
+
+function buildPinnedAgentFor(url: URL, pinned: Array<{ address: string; family: number }>): http.Agent | https.Agent {
+  // The agent's `lookup` returns only the pre-validated addresses. It is
+  // invoked for every new connection, so a re-resolution of the hostname by
+  // the OS (which could return a different, private address) never happens.
+  const lookup = makePinnedLookup(pinned);
 
   const agentOptions: any = { keepAlive: true, lookup };
   return url.protocol === "https:"

@@ -12,6 +12,9 @@ import {
   fetchLatestBaileysVersion
 } from "@whiskeysockets/baileys";
 import pino from "pino";
+// 9.0c (SEC) : avant toute connexion — libsignal console.info des sessions
+// complètes (rootKey/privKey…) à la fermeture ; on les avale ICI.
+import "./suppressLibsignalNoise.js";
 import { Boom } from "@hapi/boom";
 import fs from "fs";
 import { getConfig } from "./config.js";
