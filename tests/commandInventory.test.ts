@@ -36,6 +36,8 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "purge", aliases: ["p"] },
   // 8.91 : annales GCE Cameroun (décision owner : .gce/.g/.ge/.papier, tous users)
   { name: "gce", aliases: ["g", "ge", "papier"] },
+  // 8.93 : agent IA (beta, privé) — .agent/.ag
+  { name: "agent", aliases: ["ag"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

@@ -32,6 +32,7 @@ export const MENU_SECTIONS: MenuSection[] = [
     title: "AI",
     entries: [
       ["ai", "Pose une question à l'IA"],
+      ["agent", "L'agent IA exécute tes demandes (beta, privé)"],
       ["define", "Définition d'un mot ou concept"],
     ],
   },

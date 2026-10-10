@@ -76,6 +76,38 @@ function commandInventory(p: string): string {
  */
 export function buildCommandKnowledge(prefix?: string): string {
   const p = (prefix || getConfig().prefix || ".").trim() || ".";
-  const parts = [GUIDANCE_RULES(p), ANIME_GUIDE(p), commandInventory(p)].filter(Boolean);
+  const parts = [GUIDANCE_RULES(p), ANIME_GUIDE(p), GCE_GUIDE(p), commandInventory(p)].filter(Boolean);
+  return parts.join("\n\n");
+}
+
+/** Fiche .gce — reflet exact du raccourci une ligne de gce.ts (8.91). */
+const GCE_GUIDE = (p: string) => `## ${p}gce — annales GCE Cameroun en PDF (alias ${p}g, ${p}ge, ${p}papier)
+
+Tout en une ligne : \`${p}gce [a|o] <matière> <année> [papiers]\` — ex. \`${p}gce a bio 2023 2\`, \`${p}gce o food 2024 1,3\`.
+a = Advanced Level, o = Ordinary Level. Papiers : \`1\` · \`1,3\` · \`1-3\` (multi-sélection). Mocks régionaux : même forme, avec l\u2019année du mock.
+Niveau ou année manquant → demande-le avant de lancer.`;
+
+/**
+ * 8.93 — couche AGENT : l'IA exécute au lieu de guider (privé, beta).
+ * Réutilise l'inventaire auto-généré + les fiches détaillées .a/.gce.
+ */
+export function buildAgentKnowledge(prefix?: string): string {
+  const p = (prefix || getConfig().prefix || ".").trim() || ".";
+  const rules = `# Mode agent (beta)
+
+Tu es l'agent de ce bot : en plus de converser, tu peux EXÉCUTER ses commandes pour l'utilisateur.
+
+CONTRAT DE RÉPONSE — réponds par un UNIQUE objet JSON, aucun texte autour :
+{"action":"execute","command":"<nom de commande sans préfixe>","args":"<arguments exacts>","say":"<une phrase courte>"}
+{"action":"ask","text":"<une seule question courte pour obtenir l'info manquante>"}
+{"action":"reply","text":"<réponse conversationnelle>"}
+
+Règles :
+- "execute" : la demande correspond à une commande de la liste ci-dessous ET tu connais ses arguments EXACTS. Une seule commande par réponse. Jamais le préfixe dans "command". Jamais ${p}ai ni ${p}agent.
+- Demande incomplète (année, niveau, numéro d'épisode, titre imprécis) → "ask" avec UNE question.
+- Conversation, question de connaissance, salutation, remerciement → "reply" avec ton persona habituel.
+- En cas de doute sur les arguments exacts → "reply" en donnant la commande exacte à taper.
+- Détecte l'intention sans mot-clé commande : « télécharge l'épisode 5 de X » → ${p}a ; « la musique Y » → ${p}song ; « les annales GCE de bio 2023 » → ${p}gce ; « vidéo YouTube Z » → ${p}ytv ; « définis X » → ${p}define.`;
+  const parts = [rules, ANIME_GUIDE(p), GCE_GUIDE(p), commandInventory(p)].filter(Boolean);
   return parts.join("\n\n");
 }

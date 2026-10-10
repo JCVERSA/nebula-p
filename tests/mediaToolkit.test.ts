@@ -163,9 +163,11 @@ describe("quoted media extraction (8.48)", () => {
 });
 
 describe("wiring (8.48)", () => {
-  it("botEngine falls back to the quoted media; deterministic novabox compression exists", () => {
-    const engine = fs.readFileSync("src/bot/botEngine.ts", "utf8");
-    expect(engine).toContain("extractQuotedMediaContent(messageContent)");
+  it("dispatch falls back to the quoted media; deterministic novabox compression exists", () => {
+    // 8.93 : le dispatch (contexte reply/média des commandes) vit désormais
+    // dans commandDispatch.ts — même logique, source unique partagée agent.
+    const dispatch = fs.readFileSync("src/bot/commandDispatch.ts", "utf8");
+    expect(dispatch).toContain("extractQuotedMediaContent(messageContent)");
 
     const nova = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");
     expect(nova).toContain("whatsappFitVideoOptions(probed.durationSec, 92, 480)");
