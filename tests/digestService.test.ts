@@ -121,4 +121,11 @@ describe("wiring digest (8.99)", () => {
     expect(svc).toContain("NEBULA_DIGEST_HOUR");
     expect(svc).toContain("0 ${hour} * * *");
   });
+
+  it("nebula env propose les variables du digest (réglable sans éditer le fichier à la main)", () => {
+    const fs = require("fs");
+    const manage = fs.readFileSync(join(__dirname, "../manage.sh"), "utf-8");
+    expect(manage).toContain("NEBULA_DIGEST|");
+    expect(manage).toContain("NEBULA_DIGEST_HOUR|");
+  });
 });

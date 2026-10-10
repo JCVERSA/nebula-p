@@ -686,6 +686,7 @@ ENV_KEYS=(
   "NEBULA_AI_PERSONALITY|Remplace TOUTE la personnalité IA (system prompt) — vide = persona Nebula intégrée"
   "NEBULA_AI_MEMORY_TTL_HOURS|Durée de vie (heures) de la mémoire IA par discussion — glissante, 0 = désactivée (défaut 10)"
   "NEBULA_AI_MEMORY_MAX_TURNS|Tours bruts gardés avant compaction en résumé (défaut 20)"
+  "TAVILY_API_KEY|Clé Tavily (tvly-…) pour améliorer la recherche web .search — gratuite sur app.tavily.com (1000 recherches/mois) ; vide = DuckDuckGo sans clé"
   "OWNER_NUMBER|Numéro WhatsApp propriétaire (indicatif pays + numéro, sans + ni espaces)"
   "PORT|Port du panneau (défaut 3000)"
   "NEBULA_VF_DEFAULT|Mettre 0 pour désactiver la VF par défaut (défaut: VF d'abord)"
@@ -698,11 +699,14 @@ ENV_KEYS=(
   "NEBULA_FRANIME_ENABLED|Active l'oracle VF franime (vérité VF par titre/saison, catalogue public — sans FlareSolverr) — 1 = actif"
   "FLARESOLVERR_URL|URL FlareSolverr (franime)"
   "NEBULA_AI_DAILY_LIMIT|Budget IA/jour/utilisateur (défaut 40)"
+  "NEBULA_WEB_DAILY_LIMIT|Budget web/jour/utilisateur partagé .search/.fetch/.wiki (défaut 20)"
   "NEBULA_AI_MAX_CONCURRENT|Requêtes IA simultanées max (défaut 3)"
-  "NEBULA_DOWNLOAD_TIMEOUT_MS|Délai max global par téléchargement d'épisode en ms (défaut 600000 = 10 min)",
-  "NEBULA_WATCH_CRON|Planification cron de la veille épisodes (défaut toutes les 6 h)",
-  "NEBULA_WATCH_QUIET|Heures silencieuses de la veille, format H-H (défaut 23-7, off = désactivé)",
-  "NEBULA_WATCH_TZ|Fuseau horaire de la veille (défaut Africa/Douala)",
+  "NEBULA_DOWNLOAD_TIMEOUT_MS|Délai max global par téléchargement d'épisode en ms (défaut 600000 = 10 min)"
+  "NEBULA_WATCH_CRON|Planification cron de la veille épisodes (défaut toutes les 6 h)"
+  "NEBULA_WATCH_QUIET|Heures silencieuses de la veille, format H-H (défaut 23-7, off = désactivé)"
+  "NEBULA_WATCH_TZ|Fuseau horaire de la veille (défaut Africa/Douala)"
+  "NEBULA_DIGEST|Mettre 0 pour couper le digest quotidien du propriétaire en DM (défaut activé)"
+  "NEBULA_DIGEST_HOUR|Heure d'envoi du digest quotidien propriétaire, 0-23 (défaut 8, fuseau NEBULA_WATCH_TZ)"
   "DEBUG_MEDIA|Mettre true pour logs média verbeux"
 )
 

@@ -255,4 +255,10 @@ describe("wiring 9.0 — commandes enregistrées et sures", () => {
     const cmd = read("../src/bot/commands/search.ts");
     expect(cmd).toContain("la requête leur est transmise");
   });
+
+  it("nebula env propose TAVILY_API_KEY et le budget web (le owner colle juste la clé)", () => {
+    const manage = read("../manage.sh");
+    expect(manage).toContain("TAVILY_API_KEY|");
+    expect(manage).toContain("NEBULA_WEB_DAILY_LIMIT|");
+  });
 });
