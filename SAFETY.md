@@ -43,6 +43,25 @@ Le déclenchement en DM est automatique (message sans préfixe). `.agent` / `.ag
 - **Bascule de catalogue** (8.94/8.96) → offre déterministe, zéro appel IA supplémentaire, confirmation OK requise ;
 - Priorité des réponses nues : un « oui »/« non » nu répond **à la question en cours** (novabox ou agent), il ne redémarre pas une conversation (8.95b).
 
+## 4ter. Outils web (9.0) — .search / .fetch / .wiki
+
+Recherche DÉTERMINISTE : aucun token IA, aucune synthèse par le modèle —
+les résultats partent tels quels à l'utilisateur. Le texte extrait par
+`.fetch` est une DONNÉE affichée : aucune IA ne le lit, aucune commande
+ne s'exécute à partir de lui (anti-injection de prompt par construction).
+
+Tout le réseau sortant passe par `safeFetch` (urlSafety.ts, déjà utilisé
+par le téléchargeur) : localhost, IPs privées, IPv6-mappées et `.internal`
+sont REFUSÉS — le panneau et le moteur (même conteneur) restent
+injoignables ; le DNS est épinglé pour empêcher un rebond de redirection
+vers le réseau interne. Plafonds : 2 Mo / 15 s par requête, 4 redirections.
+
+Budget partagé par utilisateur (`NEBULA_WEB_DAILY_LIMIT`, défaut 20/jour,
+débité uniquement en cas de succès) pour ne pas faire bloquer l'IP du
+serveur par les moteurs. Transparence M11 : le moteur utilisé
+(DuckDuckGo, Tavily si clé, Wikipédia) voit la requête — dit dans la
+réponse du bot.
+
 ## 4bis. Guardrail d'arguments (8.99)
 
 Même après validation de la commande, les arguments produits par l'IA sont

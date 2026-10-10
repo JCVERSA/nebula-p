@@ -19,6 +19,9 @@ import traceCommand from "./commands/trace.js";
 import menuCommand from "./commands/menu.js";
 import aiCommand from "./commands/ai.js";
 import defineCommand from "./commands/define.js";
+import searchCommand from "./commands/search.js";
+import fetchCommand from "./commands/fetch.js";
+import wikiCommand from "./commands/wiki.js";
 import helpCommand from "./commands/help.js";
 import swebCommand from "./commands/sweb.js";
 import watchCommand from "./commands/watch.js";
@@ -84,6 +87,9 @@ function getBuiltinCommands(): BotCommand[] {
     helpCommand,
     aiCommand,
     defineCommand,
+    searchCommand,
+    fetchCommand,
+    wikiCommand,
     swebCommand,
     watchCommand,
     animeCommand,

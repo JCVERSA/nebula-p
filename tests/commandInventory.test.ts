@@ -38,6 +38,9 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "gce", aliases: ["g", "ge", "papier"] },
   // 8.93 : agent IA (beta, privé) — .agent/.ag
   { name: "agent", aliases: ["ag"] },
+  { name: "search", aliases: ["recherche", "websearch"] },
+  { name: "fetch", aliases: ["read", "lire"] },
+  { name: "wiki", aliases: ["wikipedia", "encyclopedie"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

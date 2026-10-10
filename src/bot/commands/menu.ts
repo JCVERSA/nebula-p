@@ -34,6 +34,9 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["ai", "Pose une question à l'IA"],
       ["agent", "L'agent IA exécute tes demandes (beta, privé)"],
       ["define", "Définition d'un mot ou concept"],
+      ["search", "Recherche web (sources récentes : -w semaine, -d 24 h)"],
+      ["fetch", "Lire une page web en texte"],
+      ["wiki", "Résumé Wikipédia FR"],
     ],
   },
   {

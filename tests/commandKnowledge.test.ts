@@ -51,7 +51,8 @@ describe("commandKnowledge — fiche .a (statique)", () => {
 
   it("raconte des règles de guidage proactives mais honnêtes", () => {
     const k = buildCommandKnowledge(".");
-    expect(k).toContain("Tu ne peux pas agir toi-même");
+    expect(k).toContain("Tu ne peux pas télécharger ni envoyer de fichiers");
+  expect(k).toContain("RECHERCHE D'INFO (9.0)");
     expect(k).toContain("Détecte l'intention");
     expect(k).toContain("Ne promets jamais une capacité qui n'existe pas");
     expect(k).toContain("Que sais-tu faire ?");
