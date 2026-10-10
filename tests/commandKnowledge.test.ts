@@ -38,7 +38,7 @@ describe("commandKnowledge — fiche .a (statique)", () => {
       ".a jjk s3 1-5 1080p",
       "r1`=480p",
       "r2`=360p",
-      ".a va <titre>",
+      ".a as <titre>",
       "12 épisodes",
       "Tout télécharger",
       "2 h",

@@ -33,7 +33,7 @@ Flux interactif, étape par étape :
 6. \`${p}a r <numéro>\` → choisit la qualité proposée (360P à 1080P selon la source)
 
 Qualité en une ligne — écris-la DIRECTEMENT (recommandé) : \`480p\` · \`720p\` · \`1080p\` · \`360p\` (ou flags \`r1\`=480p · \`r2\`=360p · \`r3\`=720p · \`r4\`=1080p — attention, pas l'ordre croissant !). Exemples : \`${p}a jjk s3 ep6 480p\` · \`${p}a jjk s3 all 720p\` · \`${p}a jjk s3 1-5 1080p\`. Si la qualité demandée n'existe pas, la commande prend la plus proche et le dit.
-Catalogues : \`${p}a <titre>\` = catalogue complet (défaut) · \`${p}a va <titre>\` = catalogue VF
+Catalogues : \`${p}a <titre>\` = catalogue VF (défaut) · \`${p}a as <titre>\` = catalogue complet (plus large, surtout VOSTFR)
 
 À savoir : maximum 12 épisodes par demande ; un épisode = un lien direct, plusieurs = une page HTML avec un bouton « Tout télécharger » ; les liens expirent après ~30 min d'inactivité — chaque téléchargement relance le délai (2 h max ; pareil pour l'archive ZIP) ; après une longue inactivité la session expire → relancer \`${p}a <titre>\` ; \`${p}w <titre>\` pose une veille et notifie automatiquement dès qu'un nouvel épisode sort.`;
 
@@ -109,7 +109,8 @@ Règles :
 - En cas de doute sur les arguments exacts → "reply" en donnant la commande exacte à taper.
 - Détecte l'intention sans mot-clé commande : « télécharge l'épisode 5 de X » → ${p}a ; « la musique Y » → ${p}song ; « les annales GCE de bio 2023 » → ${p}gce ; « vidéo YouTube Z » → ${p}ytv ; « définis X » → ${p}define.
 - Animes : la langue (VF par défaut) ET la qualité réelle sont gérées par la commande elle-même — n'annonce JAMAIS la langue, la disponibilité ni la qualité dans "say" (« en VF », « en 480p », « voici l'épisode ») : la commande décide et le dira honnêtement si la langue ou la qualité manque. ✗ « Voici X en VF en 480p » · ✓ « C'est parti pour X, épisodes 5 à 7 ! »
-- Suites renommées (« Tokyo Ghoul » vs « Tokyo Ghoul:re », « Naruto » vs « Shippuden ») : si la demande peut désigner deux animés différents, demande lequel (ask) avant de lancer.`;
+- Suites renommées (« Tokyo Ghoul » vs « Tokyo Ghoul:re », « Naruto » vs « Shippuden ») : si la demande peut désigner deux animés différents, demande lequel (ask) avant de lancer.
+- Historique anime : si un bloc « Historique anime » est fourni (dernier téléchargement détaillé + ligne « Précédents »), sers-t'en pour « le même anime », « la suite », « l'épisode suivant » (dernier épisode + 1), « le même mais en 720p », « qu'est-ce qu'on avait pris avant ? » → commande exacte (ex. \`${p}a <titre> s<num> e<num> <qualité>\`) ou réponse depuis la liste. Info manquante → demande, ne devine pas.`;
   const parts = [rules, ANIME_GUIDE(p), GCE_GUIDE(p), commandInventory(p)].filter(Boolean);
   return parts.join("\n\n");
 }

@@ -8,9 +8,10 @@
   },
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild engine.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/engine.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild engine.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/engine.cjs && esbuild scripts/agent-replay.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/agent-replay.cjs",
     "start": "NODE_ENV=production node --max-old-space-size=384 --expose-gc dist/server.cjs",
     "clean": "rm -rf dist server.js",
+    "agent-replay": "node dist/agent-replay.cjs",
     "lint": "tsc --noEmit && eslint . && prettier --check .",
     "lint:ts": "tsc --noEmit",
     "lint:eslint": "eslint .",

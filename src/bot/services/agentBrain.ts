@@ -13,6 +13,8 @@
  *  - en groupe : JAMAIS d'exécution (beta) — l'IA guide seulement.
  */
 
+import type { AnimeSourceId } from "./animeSources.js";
+
 // ── Décision renvoyée par l'IA ─────────────────────────────────────────────
 
 export type AgentDecision =
@@ -193,9 +195,19 @@ export function replySuggestsOtherCatalog(text: string): boolean {
  * Bascule le one-liner anime sur l'autre catalogue :
  * [titre, s2, e1] → [va, titre, s2, e1] ; [va, titre, …] → [titre, …].
  */
-export function toggleCatalogFlag(args: string[]): string[] {
-  if (args[0]?.toLowerCase() === "va") return args.slice(1);
-  return ["va", ...args];
+/**
+ * 8.94/8.96 — bascule vers l'AUTRE catalogue : va ↔ as, en respectant le
+ * catalogue par défaut (fourni par l'appelant — va depuis 8.96, via
+ * effectiveDefaultSource()). Un one-liner nu vise le défaut ; si l'autre
+ * catalogue EST le défaut, le flag disparaît (commande nu).
+ */
+export function toggleCatalogFlag(args: string[], defaultSource: AnimeSourceId): string[] {
+  const first = args[0]?.toLowerCase();
+  const flagged = first === "va" || first === "as";
+  const current: AnimeSourceId = flagged ? first : defaultSource;
+  const rest = flagged ? args.slice(1) : args;
+  const target: AnimeSourceId = current === "va" ? "as" : "va";
+  return target === defaultSource ? rest : [target, ...rest];
 }
 
 // ── Rattrapage : réponse de l'IA après une commande en erreur ──────────────

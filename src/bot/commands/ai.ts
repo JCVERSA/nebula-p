@@ -8,6 +8,7 @@ import {
   forgetMemory,
   defaultMemorySummarizer
 } from "../services/aiMemory.js";
+import { forgetAnimeChoices } from "../services/animeChoices.js";
 import { getConfig } from "../config.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "../aiQuota.js";
 
@@ -22,9 +23,10 @@ const aiCommand: BotCommand = {
     // Memory control: `.ai forget` wipes this chat's conversation memory.
     const first = (context.args[0] || "").toLowerCase();
     if (first === "forget" || first === "oublie") {
-      const wiped = forgetMemory(msg.key.remoteJid || "");
+      const wipedMemory = forgetMemory(msg.key.remoteJid || "");
+      const wipedChoices = forgetAnimeChoices(msg.key.remoteJid || "");
       return void (await context.reply(
-        wiped
+        wipedMemory || wipedChoices
           ? "🧹 *Mémoire de cette discussion effacée.* Le bot repart d'une page blanche."
           : "ℹ️ Aucune mémoire enregistrée pour cette discussion."
       ));

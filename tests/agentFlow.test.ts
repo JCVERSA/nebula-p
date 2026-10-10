@@ -23,6 +23,9 @@ vi.mock("../src/bot/aiQuota.js", () => ({
 vi.mock("../src/bot/auditTrail.js", () => ({
   recordAudit: vi.fn(),
 }));
+vi.mock("../src/bot/services/animeChoices.js", () => ({
+  getAnimeChoiceContext: vi.fn(() => null)
+}));
 vi.mock("../src/bot/services/aiMemory.js", () => ({
   getMemoryContext: vi.fn(() => null),
   recordExchange: vi.fn(),
@@ -38,8 +41,10 @@ import { generateTextWithFallback, isAIConfigured } from "../src/bot/geminiClien
 import { getCommand } from "../src/bot/commandRegistry.js";
 import { checkAIQuota } from "../src/bot/aiQuota.js";
 import { recordAgentExecution, __resetAgentStateForTests } from "../src/bot/services/agentBrain.js";
+import { getAnimeChoiceContext } from "../src/bot/services/animeChoices.js";
 
 const mAI = vi.mocked(generateTextWithFallback);
+const mChoices = vi.mocked(getAnimeChoiceContext);
 const mConfigured = vi.mocked(isAIConfigured);
 const mGetCommand = vi.mocked(getCommand);
 const mQuota = vi.mocked(checkAIQuota);
@@ -246,7 +251,7 @@ describe("8.93 — rattrapage unique après erreur de commande", () => {
 });
 
 describe("8.94 — bascule de catalogue anime (hint « autre catalogue »)", () => {
-  it("VF absente sur le catalogue courant → offre déterministe .a va, puis OK exécute", async () => {
+  it("VF absente sur le catalogue courant (va par défaut) → offre déterministe .a as, puis OK exécute", async () => {
     mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"tokyo ghoul s2 e1"}');
     const ctx = mk("tokyo ghoul saison 2 en français");
     const exec = mkExec({ vfFallbackHint: true, lastText: "🎬 Choix de la Résolution" });
@@ -254,23 +259,33 @@ describe("8.94 — bascule de catalogue anime (hint « autre catalogue »)", () 
     expect(exec).toHaveBeenCalledTimes(1); // la commande a tourné (VOSTFR listé)
 
     const offer = texts(ctx.sent).at(-1)!;
-    expect(offer).toContain(".a va tokyo ghoul s2 e1");
+    expect(offer).toContain(".a as tokyo ghoul s2 e1");
     expect(offer).toContain("OK");
     expect(offer).toContain("VOSTFR"); // le bot a déjà proposé la suite
 
     await run(ctx, exec, "ok");
-    expect(exec).toHaveBeenLastCalledWith("anime", ["va", "tokyo", "ghoul", "s2", "e1"], "agent");
+    expect(exec).toHaveBeenLastCalledWith("anime", ["as", "tokyo", "ghoul", "s2", "e1"], "agent");
   });
 
-  it("lancé sur va → le retry repasse sur le catalogue complet", async () => {
+  it("lancé sur va explicite → le retry passe sur le catalogue complet (as)", async () => {
     mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"va tokyo ghoul vostfr"}');
     const ctx = mk("tokyo ghoul en vostfr");
     const exec = mkExec({ vfFallbackHint: true, hadError: true, lastText: "❌ Aucun VOSTFR pour ce titre sur ce catalogue." });
     await run(ctx, exec);
     const offer = texts(ctx.sent).at(-1)!;
-    expect(offer).toContain(".a tokyo ghoul vostfr"); // sans va
-    expect(offer).not.toContain(".a va");
+    expect(offer).toContain(".a as tokyo ghoul vostfr");
     expect(mAI).toHaveBeenCalledTimes(1); // offre déterministe : aucun appel IA de plus
+  });
+
+  it("lancé sur as explicite → le retry revient au défaut nu (va)", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"as tokyo ghoul"}');
+    const ctx = mk("tokyo ghoul");
+    const exec = mkExec({ vfFallbackHint: true, hadError: true, lastText: "❌ Aucun VF pour ce titre sur ce catalogue." });
+    await run(ctx, exec);
+    const offer = texts(ctx.sent).at(-1)!;
+    expect(offer).toContain(".a tokyo ghoul");
+    expect(offer).not.toContain(".a as tokyo ghoul");
+    expect(offer).not.toContain(".a va tokyo ghoul");
   });
 
   it("hint sur une commande non-anime → ignoré (pas d'offre)", async () => {
@@ -279,6 +294,28 @@ describe("8.94 — bascule de catalogue anime (hint « autre catalogue »)", () 
     const exec = mkExec({ vfFallbackHint: true });
     await run(ctx, exec);
     expect(texts(ctx.sent).length).toBe(0); // rien de plus que le say (absent ici)
+  });
+});
+
+describe("8.97 — mémoire des choix interactifs (injection agent)", () => {
+  it("l'historique anime du chat part dans le prompt système de l'IA", async () => {
+    mChoices.mockReturnValueOnce(
+      "[Historique anime — dernier téléchargement de ce chat, il y a 3 h]\nTitre : Tokyo Ghoul · Langue : VOSTFR · dernier épisode : 7"
+    );
+    mAI.mockResolvedValueOnce('{"action":"reply","text":"ok"}');
+    const ctx = mk("télécharge le même anime");
+    await run(ctx, mkExec());
+    expect(mAI).toHaveBeenCalledTimes(1);
+    expect(mAI.mock.calls[0][1]).toContain("Historique anime");
+    expect(mAI.mock.calls[0][1]).toContain("Tokyo Ghoul");
+    expect(mAI.mock.calls[0][1]).toContain("dernier épisode : 7");
+  });
+
+  it("sans historique, le prompt reste sans bloc (pas de bruit)", async () => {
+    mAI.mockResolvedValueOnce('{"action":"reply","text":"ok"}');
+    const ctx = mk("bonjour");
+    await run(ctx, mkExec());
+    expect(mAI.mock.calls[0][1]).not.toContain("Historique anime");
   });
 });
 

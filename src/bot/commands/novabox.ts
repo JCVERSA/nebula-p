@@ -11,13 +11,14 @@ import { buildDownloadPage } from "../services/downloadPage.js";
 import { formatFailedEpisodes } from "../services/batchRecap.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
 import { isNakanimeUrl, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js"; // 8.69: dormant mirror — parse helpers only, never searched
+import { recordAnimeChoice } from "../services/animeChoices.js";
 import {
   searchAnimeBySource,
   applyLanguagePolicy,
   type SourceSearchResult,
   samaSubPathLanguage,
   languagesOf,
-  DEFAULT_ANIME_SOURCE,
+  effectiveDefaultSource,
   otherFlagOf,
   exactEntryForLanguage,
   searchEmptyMessage,
@@ -987,7 +988,8 @@ const animeCommand: BotCommand = {
     const sender = context.sender;
     const quickParams = parseQuickDownloadParams(args);
     // 8.69: the chosen catalog (`as` default / `va` flag) — mono-source flow.
-    const source = quickParams.source || DEFAULT_ANIME_SOURCE;
+    // 8.96 : défaut = voir-anime (owner) — sauf si l'opérateur l'a désactivé.
+    const source = quickParams.source || effectiveDefaultSource();
 
     // Reset session helper
     const refreshSessionTimer = (session: AnimeSession) => {
@@ -2237,6 +2239,30 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   const indices = session.selectedEpisodeIndices && session.selectedEpisodeIndices.length > 0 
     ? session.selectedEpisodeIndices 
     : [session.selectedEpisodeIndex || 0];
+
+  // 8.97 — mémoire des choix interactifs : le DERNIER téléchargement du chat
+  // (anime, saison, langue, qualité, épisodes) pour que l'agent résolve
+  // « le même anime », « l'épisode suivant », « le même en 720p ». Best-effort :
+  // un échec d'écriture ne bloque JAMAIS le téléchargement.
+  try {
+    const quick = session.pendingQuickParams;
+    const lastFromParsed = quick?.parsedEpisodeNumbers?.length
+      ? Math.max(...quick.parsedEpisodeNumbers)
+      : null;
+    recordAnimeChoice(context.sender, {
+      title: session.animeTitle || "",
+      source: session.source,
+      language: session.selectedLanguage === "VF" ? "VF" : "VOSTFR",
+      seasonName: session.selectedSeason?.name || (quick?.seasonNumber ? `Saison ${quick.seasonNumber}` : ""),
+      quality: resolution,
+      episodesSpec:
+        quick?.episodesSpec ||
+        (indices.length > 1
+          ? `e${indices[0] + 1}-e${indices[indices.length - 1] + 1}`
+          : `e${(indices[0] ?? 0) + 1}`),
+      lastEpisode: lastFromParsed ?? (indices.length ? Math.max(...indices) + 1 : null)
+    });
+  } catch {}
 
   const animeClean = session.animeTitle.replace(/\s+/g, "_");
   const lang = session.selectedLanguage || "VOSTFR";

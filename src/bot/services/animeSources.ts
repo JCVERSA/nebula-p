@@ -27,8 +27,24 @@ import { animeProxyOptions } from "./scrapingProxy.js";
 export type AnimeSourceId = "as" | "va";
 export type SeasonLanguage = "VF" | "VOSTFR" | null;
 
-/** Default catalog when the user types no flag (owner decision 2026-09-21). */
-export const DEFAULT_ANIME_SOURCE: AnimeSourceId = "as";
+/**
+ * Default catalog when the user types no flag. Owner decision 2026-10-10
+ * (8.96): voir-anime (va) — the VF catalog, aligned with the VF-by-default
+ * language policy and the .w watcher. `.a as <titre>` reaches the full
+ * catalog explicitly.
+ */
+export const DEFAULT_ANIME_SOURCE: AnimeSourceId = "va";
+
+/**
+ * 8.96 — effective default: the implicit default must NEVER crash when the
+ * operator disabled voir-anime (NEBULA_VOIRANIME_DISABLED=1) — it falls
+ * back to the full catalog instead.
+ */
+export function effectiveDefaultSource(): AnimeSourceId {
+  return DEFAULT_ANIME_SOURCE === "va" && process.env.NEBULA_VOIRANIME_DISABLED === "1"
+    ? "as"
+    : DEFAULT_ANIME_SOURCE;
+}
 
 /** Error code surfaced when the operator disabled the va catalog. */
 export const VA_DISABLED_CODE = "NEBULA_VA_DISABLED";

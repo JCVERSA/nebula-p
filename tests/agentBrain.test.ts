@@ -157,10 +157,15 @@ describe("8.94 — hint « autre catalogue » (politique langue anime)", () => {
     expect(replySuggestsOtherCatalog("")).toBe(false);
   });
 
-  it("toggleCatalogFlag : ajoute va, ou le retire s'il est déjà là", () => {
-    expect(toggleCatalogFlag(["tokyo", "ghoul", "s2", "e1"])).toEqual(["va", "tokyo", "ghoul", "s2", "e1"]);
-    expect(toggleCatalogFlag(["va", "tokyo", "ghoul"])).toEqual(["tokyo", "ghoul"]);
-    expect(toggleCatalogFlag([])).toEqual(["va"]);
+  it("toggleCatalogFlag (8.96, défaut = va) : nu → as ; va → as ; as → nu", () => {
+    expect(toggleCatalogFlag(["tokyo", "ghoul", "s2", "e1"], "va")).toEqual(["as", "tokyo", "ghoul", "s2", "e1"]);
+    expect(toggleCatalogFlag(["va", "tokyo", "ghoul"], "va")).toEqual(["as", "tokyo", "ghoul"]);
+    expect(toggleCatalogFlag(["as", "tokyo", "ghoul"], "va")).toEqual(["tokyo", "ghoul"]);
+    // Rétro-compat : avec l'ancien défaut as, le comportement 8.94 tient.
+    expect(toggleCatalogFlag(["tokyo", "ghoul"], "as")).toEqual(["va", "tokyo", "ghoul"]);
+    expect(toggleCatalogFlag(["va", "tokyo", "ghoul"], "as")).toEqual(["tokyo", "ghoul"]);
+    expect(toggleCatalogFlag(["as", "tokyo", "ghoul"], "as")).toEqual(["va", "tokyo", "ghoul"]);
+    expect(toggleCatalogFlag([], "va")).toEqual(["as"]);
   });
 });
 

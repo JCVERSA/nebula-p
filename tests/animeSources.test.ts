@@ -8,7 +8,9 @@ import {
   samaSubPathLanguage,
   searchEmptyMessage,
   vaDisabledMessage,
-  voiranimeSlugLanguage
+  voiranimeSlugLanguage,
+  DEFAULT_ANIME_SOURCE,
+  effectiveDefaultSource
 } from "../src/bot/services/animeSources.js";
 import { parseQuickDownloadParams } from "../src/bot/utils/quickAnimeParser.js";
 
@@ -19,6 +21,25 @@ import { parseQuickDownloadParams } from "../src/bot/utils/quickAnimeParser.js";
  */
 
 const PRIVACY_RE = /nakanime|voir[- ]?anime|franime|anime[- ]?sama/i;
+
+describe("catalogue par défaut (8.96 — owner : voir-anime)", () => {
+  it("le défaut est voir-anime (va)", () => {
+    expect(DEFAULT_ANIME_SOURCE).toBe("va");
+  });
+
+  it("défaut effectif : as si l'opérateur a désactivé va, sinon va", () => {
+    const saved = process.env.NEBULA_VOIRANIME_DISABLED;
+    try {
+      delete process.env.NEBULA_VOIRANIME_DISABLED;
+      expect(effectiveDefaultSource()).toBe("va");
+      process.env.NEBULA_VOIRANIME_DISABLED = "1";
+      expect(effectiveDefaultSource()).toBe("as");
+    } finally {
+      if (saved === undefined) delete process.env.NEBULA_VOIRANIME_DISABLED;
+      else process.env.NEBULA_VOIRANIME_DISABLED = saved;
+    }
+  });
+});
 
 describe("parseQuickDownloadParams — catalog flag (8.69)", () => {
   it("strips a leading `as`/`va` flag and reports it", () => {

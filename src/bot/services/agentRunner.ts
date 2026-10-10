@@ -34,6 +34,8 @@ import {
   defaultMemorySummarizer
 } from "./aiMemory.js";
 import { buildAgentKnowledge } from "../commandKnowledge.js";
+import { effectiveDefaultSource } from "./animeSources.js";
+import { getAnimeChoiceContext } from "./animeChoices.js";
 import type { AgentCommandOutcome } from "../commandDispatch.js";
 import {
   parseAgentDecision,
@@ -141,7 +143,12 @@ export async function handleAgentMessage(
   try {
     consumeAIQuota(info.actorJid);
     const memoryBlock = getMemoryContext(info.senderJid);
-    const persona = getPersonaPrompt("dm", info.botName) + (memoryBlock ? `\n\n${memoryBlock}` : "");
+    // 8.97 — mémoire des choix interactifs : dernier téléchargement du chat.
+    const choiceBlock = getAnimeChoiceContext(info.senderJid);
+    const persona =
+      getPersonaPrompt("dm", info.botName) +
+      (memoryBlock ? `\n\n${memoryBlock}` : "") +
+      (choiceBlock ? `\n\n${choiceBlock}` : "");
     const agentSystem = `${persona}\n\n${buildAgentKnowledge(info.prefix)}`;
 
     let decision = null as ReturnType<typeof parseAgentDecision>;
@@ -246,9 +253,13 @@ async function offerCatalogRetry(
   args: string[],
   commandStopped: boolean
 ): Promise<void> {
-  const retryArgs = toggleCatalogFlag(args);
-  const rest = (retryArgs[0]?.toLowerCase() === "va" ? retryArgs.slice(1) : retryArgs).join(" ");
-  const display = `${info.prefix}a${retryArgs[0]?.toLowerCase() === "va" ? " va" : ""}${rest ? ` ${rest}` : ""}`;
+  // 8.96 : le défaut est fourni ici (agentBrain reste sans dépendance) et
+  // le flag de retry peut être va OU as — même règle de reconnaissance que
+  // le parser (mot isolé exact).
+  const retryArgs = toggleCatalogFlag(args, effectiveDefaultSource());
+  const flag = /^(va|as)$/i.test(retryArgs[0] || "") ? retryArgs[0].toLowerCase() : "";
+  const rest = (flag ? retryArgs.slice(1) : retryArgs).join(" ");
+  const display = `${info.prefix}a${flag ? ` ${flag}` : ""}${rest ? ` ${rest}` : ""}`;
   setPendingConfirmation(info.actorJid, { command: "anime", args: retryArgs });
   recordAudit(`wa:${info.actorNumber}`, "agent.confirm.pending", "anime", "catalog-retry");
   const closing = commandStopped

@@ -34,6 +34,7 @@ import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
 import { handleAgentMessage } from "./services/agentRunner.js";
 import { peekPendingConfirmation } from "./services/agentBrain.js";
 import { hasPendingLanguageConfirm, bareLanguageAnswer } from "./commands/novabox.js";
+import { getAnimeChoiceContext } from "./services/animeChoices.js";
 
 
 const groupMetadataCache = new Map<string, { data: any; timestamp: number }>();
@@ -842,10 +843,14 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
               }
               consumeAIQuota(actualSenderJid);
               const memoryBlock = getMemoryContext(senderJid);
+              // 8.97 — dernier téléchargement anime du chat, comme l'agent.
+              const choiceBlock = getAnimeChoiceContext(senderJid);
               const answer = await withAIConcurrency(() =>
                 generateTextWithFallback(
                   text,
-                  getPersonaPrompt("dm", config.botName) + (memoryBlock ? `\n\n${memoryBlock}` : ""),
+                  getPersonaPrompt("dm", config.botName) +
+                    (memoryBlock ? `\n\n${memoryBlock}` : "") +
+                    (choiceBlock ? `\n\n${choiceBlock}` : ""),
                   "gemini-3.7-flash"
                 )
               );
