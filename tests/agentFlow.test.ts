@@ -79,8 +79,8 @@ function mk(text: string) {
   return { sock, msg, info, sent };
 }
 
-const mkExec = (over: Partial<{ ok: boolean; denied: boolean; hadError: boolean; lastText: string }> = {}) =>
-  vi.fn(async () => ({ ok: true, denied: false, hadError: false, lastText: "", ...over }));
+const mkExec = (over: Partial<{ ok: boolean; denied: boolean; hadError: boolean; lastText: string; vfFallbackHint: boolean }> = {}) =>
+  vi.fn(async () => ({ ok: true, denied: false, hadError: false, lastText: "", vfFallbackHint: false, ...over }));
 
 const texts = (sent: any[]) => sent.map((p) => p.text);
 const run = (ctx: ReturnType<typeof mk>, exec: any, text?: string) =>
@@ -242,6 +242,43 @@ describe("8.93 — rattrapage unique après erreur de commande", () => {
     await run(ctx, execDenied, "oui");
     expect(execDenied).toHaveBeenCalledTimes(1);
     expect(mAI).toHaveBeenCalledTimes(2); // décision initiale seulement, pas de rattrapage
+  });
+});
+
+describe("8.94 — bascule de catalogue anime (hint « autre catalogue »)", () => {
+  it("VF absente sur le catalogue courant → offre déterministe .a va, puis OK exécute", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"tokyo ghoul s2 e1"}');
+    const ctx = mk("tokyo ghoul saison 2 en français");
+    const exec = mkExec({ vfFallbackHint: true, lastText: "🎬 Choix de la Résolution" });
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(1); // la commande a tourné (VOSTFR listé)
+
+    const offer = texts(ctx.sent).at(-1)!;
+    expect(offer).toContain(".a va tokyo ghoul s2 e1");
+    expect(offer).toContain("OK");
+    expect(offer).toContain("VOSTFR"); // le bot a déjà proposé la suite
+
+    await run(ctx, exec, "ok");
+    expect(exec).toHaveBeenLastCalledWith("anime", ["va", "tokyo", "ghoul", "s2", "e1"], "agent");
+  });
+
+  it("lancé sur va → le retry repasse sur le catalogue complet", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"va tokyo ghoul vostfr"}');
+    const ctx = mk("tokyo ghoul en vostfr");
+    const exec = mkExec({ vfFallbackHint: true, hadError: true, lastText: "❌ Aucun VOSTFR pour ce titre sur ce catalogue." });
+    await run(ctx, exec);
+    const offer = texts(ctx.sent).at(-1)!;
+    expect(offer).toContain(".a tokyo ghoul vostfr"); // sans va
+    expect(offer).not.toContain(".a va");
+    expect(mAI).toHaveBeenCalledTimes(1); // offre déterministe : aucun appel IA de plus
+  });
+
+  it("hint sur une commande non-anime → ignoré (pas d'offre)", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"song","args":"test"}');
+    const ctx = mk("la musique de test");
+    const exec = mkExec({ vfFallbackHint: true });
+    await run(ctx, exec);
+    expect(texts(ctx.sent).length).toBe(0); // rien de plus que le say (absent ici)
   });
 });
 

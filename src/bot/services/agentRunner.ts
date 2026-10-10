@@ -46,7 +46,8 @@ import {
   peekPendingConfirmation,
   takePendingConfirmation,
   clearPendingConfirmation,
-  isConfirmationAffirmative
+  isConfirmationAffirmative,
+  toggleCatalogFlag
 } from "./agentBrain.js";
 
 export interface AgentMessageInfo {
@@ -110,7 +111,9 @@ export async function handleAgentMessage(
       await setPresence("composing");
       try {
         const out = await exec(p.command, p.args, "agent");
-        if (out.hadError && !out.denied) {
+        if (!out.denied && out.vfFallbackHint && p.command === "anime") {
+          await offerCatalogRetry(sock, msg, info, p.args, out.hadError);
+        } else if (out.hadError && !out.denied) {
           await runErrorRecovery(sock, msg, info, exec, {
             command: p.command, args: p.args, lastText: out.lastText
           });
@@ -212,7 +215,9 @@ export async function handleAgentMessage(
     recordAudit(`wa:${info.actorNumber}`, "agent.exec", canonical.name, "light");
     const out = await exec(canonical.name, args, "agent");
 
-    if (out.hadError && !out.denied) {
+    if (!out.denied && out.vfFallbackHint && canonical.name === "anime") {
+      await offerCatalogRetry(sock, msg, info, args, out.hadError);
+    } else if (out.hadError && !out.denied) {
       await runErrorRecovery(sock, msg, info, exec, {
         command: canonical.name, args, lastText: out.lastText
       });
@@ -226,6 +231,36 @@ export async function handleAgentMessage(
   } finally {
     await setPresence("paused");
   }
+}
+
+/**
+ * 8.94 — Bascule déterministe de catalogue anime : la commande a signalé
+ * « langue absente sur ce catalogue, essaie l'autre ». L'agent connaît le
+ * retry EXACT (même one-liner, flag va basculé) : aucun appel IA, juste
+ * une offre confirmée par OK (fail-closed comme le reste).
+ */
+async function offerCatalogRetry(
+  sock: any,
+  msg: any,
+  info: AgentMessageInfo,
+  args: string[],
+  commandStopped: boolean
+): Promise<void> {
+  const retryArgs = toggleCatalogFlag(args);
+  const rest = (retryArgs[0]?.toLowerCase() === "va" ? retryArgs.slice(1) : retryArgs).join(" ");
+  const display = `${info.prefix}a${retryArgs[0]?.toLowerCase() === "va" ? " va" : ""}${rest ? ` ${rest}` : ""}`;
+  setPendingConfirmation(info.actorJid, { command: "anime", args: retryArgs });
+  recordAudit(`wa:${info.actorNumber}`, "agent.confirm.pending", "anime", "catalog-retry");
+  const closing = commandStopped
+    ? ""
+    : "\n_Le bot a déjà proposé la suite en VOSTFR — choisis simplement la résolution si ça te convient._";
+  try {
+    await sock.sendMessage(
+      info.senderJid,
+      { text: `ℹ️ *Cette langue n'est pas sur ce catalogue.*\nJe peux essayer l'autre : \`${display}\`\n\nRéponds *OK* pour que je lance _(2 minutes)_.${closing}` },
+      { quoted: msg }
+    );
+  } catch {}
 }
 
 /**

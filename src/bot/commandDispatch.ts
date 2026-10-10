@@ -18,6 +18,7 @@ import { authorizeCommand, resolveRole } from "./accessControl.js";
 import { getGroupPolicy } from "./groupAccessStore.js";
 import { recordAudit } from "./auditTrail.js";
 import { extractQuotedMediaContent } from "./utils/quotedMedia.js";
+import { replySuggestsOtherCatalog } from "./services/agentBrain.js";
 import { addLog, bufferFromDataUri, getCachedGroupMetadata, maskLogNumber } from "./botEngine.js";
 
 export interface DispatchInfo {
@@ -38,6 +39,8 @@ export interface AgentCommandOutcome {
   denied: boolean;    // RoleGuard a refusé (aucun rattrapage possible)
   hadError: boolean;  // une réponse commençait par ❌/⚠️/⛔ (ou exception)
   lastText: string;   // dernier texte capturé
+  /** 8.94 : la commande a signalé « langue absente → autre catalogue ». */
+  vfFallbackHint: boolean;
 }
 
 function replyLooksLikeError(t: string): boolean {
@@ -53,7 +56,7 @@ export async function dispatchBotCommand(
   source: "prefix" | "agent" = "prefix"
 ): Promise<AgentCommandOutcome> {
   const { senderJid, senderName, messageContent } = info;
-  const outcome: AgentCommandOutcome = { ok: false, denied: false, hadError: false, lastText: "" };
+  const outcome: AgentCommandOutcome = { ok: false, denied: false, hadError: false, lastText: "", vfFallbackHint: false };
 
   const command = getCommand(commandName);
   if (!command) {
@@ -65,8 +68,12 @@ export async function dispatchBotCommand(
   const replyHandler = async (textStr: string, mediaUrl?: string) => {
     try {
       if (source === "agent") {
+        // 8.94 : le hint « autre catalogue » peut apparaître en MILIEU de flow
+        // (avant la liste des résolutions) → vérifier CHAQUE reply, pas juste
+        // la dernière.
         outcome.lastText = textStr;
         if (replyLooksLikeError(textStr)) outcome.hadError = true;
+        if (replySuggestsOtherCatalog(textStr)) outcome.vfFallbackHint = true;
       }
       // Typing simulation to enhance interaction realism
       if (sock && typeof sock.sendPresenceUpdate === "function") {

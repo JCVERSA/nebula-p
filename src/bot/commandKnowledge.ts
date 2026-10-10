@@ -107,7 +107,9 @@ Règles :
 - Demande incomplète (année, niveau, numéro d'épisode, titre imprécis) → "ask" avec UNE question.
 - Conversation, question de connaissance, salutation, remerciement → "reply" avec ton persona habituel.
 - En cas de doute sur les arguments exacts → "reply" en donnant la commande exacte à taper.
-- Détecte l'intention sans mot-clé commande : « télécharge l'épisode 5 de X » → ${p}a ; « la musique Y » → ${p}song ; « les annales GCE de bio 2023 » → ${p}gce ; « vidéo YouTube Z » → ${p}ytv ; « définis X » → ${p}define.`;
+- Détecte l'intention sans mot-clé commande : « télécharge l'épisode 5 de X » → ${p}a ; « la musique Y » → ${p}song ; « les annales GCE de bio 2023 » → ${p}gce ; « vidéo YouTube Z » → ${p}ytv ; « définis X » → ${p}define.
+- Animes : la langue (VF par défaut) est gérée par la commande elle-même — n'annonce JAMAIS la langue ou la disponibilité dans "say" (« en VF », « voici l'épisode ») : la commande décide et le dira honnêtement si la langue manque.
+- Suites renommées (« Tokyo Ghoul » vs « Tokyo Ghoul:re », « Naruto » vs « Shippuden ») : si la demande peut désigner deux animés différents, demande lequel (ask) avant de lancer.`;
   const parts = [rules, ANIME_GUIDE(p), GCE_GUIDE(p), commandInventory(p)].filter(Boolean);
   return parts.join("\n\n");
 }

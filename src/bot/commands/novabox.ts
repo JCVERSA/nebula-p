@@ -14,10 +14,12 @@ import { isNakanimeUrl, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisode
 import {
   searchAnimeBySource,
   applyLanguagePolicy,
+  type SourceSearchResult,
   samaSubPathLanguage,
   languagesOf,
   DEFAULT_ANIME_SOURCE,
   otherFlagOf,
+  exactEntryForLanguage,
   searchEmptyMessage,
   vaDisabledMessage,
   VA_DISABLED_CODE,
@@ -111,6 +113,12 @@ export interface AnimeSession {
   forceCompress?: boolean;
   pipelineStartedAt?: number; // quick-flow total latency diagnostics
   pendingQuickParams?: QuickDownloadParams;
+  /** 8.95 : question « continuer en <langue> ? » en attente (langue demandée
+   *  absente des deux catalogues, pipeline rapide — cf. .a oui / .a non). */
+  pendingLanguageConfirm?: {
+    chosen: { title: string; url: string };
+    language: "VF" | "VOSTFR"; // la langue effectivement listée (l'autre)
+  };
   timer: any;
 }
 
@@ -532,16 +540,92 @@ export async function wireSessionSeasons(
   return result;
 }
 
+/**
+ * 8.95 (owner) — fallback croisé : la langue demandée manque sur le catalogue
+ * courant → chercher le MÊME animé (match EXACT uniquement, jamais de titre
+ * approximatif) sur l'autre catalogue et y vérifier la langue
+ * STRUCTURELLEMENT. Retourne de quoi relancer le wiring là-bas, ou null.
+ */
+async function crossCatalogLanguageLookup(
+  query: string,
+  currentSource: AnimeSourceId,
+  wantLang: "VF" | "VOSTFR"
+): Promise<{ source: AnimeSourceId; results: SourceSearchResult[]; chosen: { title: string; url: string } } | null> {
+  const other = otherFlagOf(currentSource);
+  try {
+    const results = await searchAnimeBySource(query, other);
+    const candidate = exactEntryForLanguage(query, results, wantLang, other);
+    if (!candidate) return null;
+    if (other === "as") {
+      // La langue d'une entrée as se vérifie sur sa page de saisons.
+      const parsed = await parseSeasons(candidate.url);
+      if (!parsed.some((x) => samaSubPathLanguage(x.subPath) === wantLang)) return null;
+    }
+    return { source: other, results, chosen: { title: candidate.title, url: candidate.url } };
+  } catch {
+    return null; // l'autre catalogue ne répond pas → comportement habituel
+  }
+}
+
+/** 8.95 : écran de choix de saison — partagé entre le chemin normal et le
+ * fallback croisé de catalogue (extrait à l'identique du select handler). */
+async function sendSeasonSelectScreen(
+  sock: any,
+  msg: any,
+  context: BotCommandContext,
+  session: AnimeSession,
+  chosenTitle: string,
+  wired: Extract<LanguagePolicyResult<PolicySeason>, { status: "ok" }>
+) {
+  session.step = "season";
+  const seasonsList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
+
+  // Jikan poster enrichment (audit 8.19) — best-effort MyAnimeList
+  // card (poster + score + episodes); never blocks or breaks the flow.
+  if (process.env.NEBULA_JIKAN_DISABLED !== "1") {
+    void (async () => {
+      try {
+        const info = await bestAnimeMatch(chosenTitle);
+        if (info?.posterUrl) {
+          await sock.sendMessage(
+            msg.key.remoteJid,
+            { image: { url: info.posterUrl }, caption: formatAnimeCard(info, true) },
+            { quoted: msg }
+          );
+        }
+      } catch {}
+    })();
+  }
+
+  await context.react("📂");
+  return context.reply(
+    `🎬 *Novabox - Choisissez la Saison* 🎬\n` +
+    `• *Anime:* ${chosenTitle}\n` +
+    `• *Langue:* 🇫🇷 *${wired.language}*\n` +
+    // ONE clear notice, never two: when the requested language is
+    // missing, the policy header replaces the switch hint (8.70).
+    (wired.header
+      ? wired.header + `\n\n`
+      : seasonScreenLanguageHint(wired.language, session.languages.includes("VF")) + `\n\n`) +
+    `*Saisons disponibles :*\n` +
+    `${seasonsList}\n\n` +
+    (wired.guideHint ? wired.guideHint + `\n\n` : ``) +
+    `👉 Réponds avec : \`.a s[numéro]\` (ex : \`.a s1\`)`
+  );
+}
+
 async function executeQuickDownloadPipeline(
   sock: any,
   msg: any,
   context: BotCommandContext,
   session: AnimeSession,
   chosenAnime: { title: string; subtitle?: string; url: string },
-  quickParams: QuickDownloadParams
+  quickParams: QuickDownloadParams,
+  skipCross = false
 ) {
   session.animeTitle = chosenAnime.title;
   session.animeUrl = chosenAnime.url;
+  session.pendingLanguageConfirm = undefined; // 8.95 : toute relance annule la question
   
   await context.react("⏳");
   const seasonStr = quickParams.seasonNumber ? `Saison ${quickParams.seasonNumber}` : "Saison 1";
@@ -564,13 +648,36 @@ async function executeQuickDownloadPipeline(
       }
     }
     const wired = await wireSessionSeasons(session, chosenAnime, effectiveWant);
-    if (wired.status === "missing") {
-      clearUserSession(context.sender);
-      return context.reply(wired.message);
-    }
-    if (wired.header) {
-      await context.reply(
-        `${wired.header}\n${wired.guideHint ? wired.guideHint + "\n" : ""}_→ Je continue en *${wired.language}*._`
+    if (wired.status === "missing" || wired.header) {
+      // 8.95 (owner) : la langue demandée manque sur CE catalogue — chercher
+      // le même animé sur l'autre catalogue AVANT toute autre chose.
+      if (!skipCross) {
+        const cross = await crossCatalogLanguageLookup(quickParams.animeQuery, session.source, effectiveWant);
+        if (cross) {
+          await context.reply(`🔄 *${effectiveWant} absente sur ce catalogue — mais je l'ai trouvée ailleurs !* _Je continue là-bas._`);
+          session.source = cross.source;
+          session.searchResults = cross.results;
+          session.sourceSeasons = [];
+          return await executeQuickDownloadPipeline(
+            sock, msg, context, session, cross.chosen,
+            { ...quickParams, language: effectiveWant }, true
+          );
+        }
+      }
+      if (wired.status === "missing") {
+        clearUserSession(context.sender);
+        return context.reply(wired.message + `\n\n_J'ai aussi vérifié l'autre catalogue sans succès._`);
+      }
+      // 8.95 (owner) : langue absente des DEUX catalogues → demander avant
+      // de continuer dans la langue listée (fini l'enchaînement automatique
+      // 8.69). wired.header est forcément défini ici, donc wired.language
+      // existe (la langue réellement disponible).
+      // Wording sans « aucune VF pour ce titre » ni « l'autre catalogue » :
+      // ces chaînes pilotent l'offre de bascule côté agent (agentBrain).
+      session.pendingLanguageConfirm = { chosen: chosenAnime, language: wired.language };
+      return context.reply(
+        `ℹ️ *Pas de ${effectiveWant} pour ce titre* — j'ai vérifié les deux catalogues.\n\n` +
+        `On continue en *${wired.language}* ?\n\n✅ \`.a oui\` — continuer en ${wired.language}\n❌ \`.a non\` — annuler`
       );
     }
 
@@ -942,6 +1049,30 @@ const animeCommand: BotCommand = {
       }
     }
 
+    // 8.95 : question en attente « continuer en <langue> ? » (langue demandée
+    // absente des deux catalogues, pipeline rapide). Fail-closed : seul
+    // `.a oui` continue ; `.a non` annule ; toute autre réponse rappelle la
+    // question — l'ancienne continuation automatique 8.69 n'existe plus.
+    if (sessions.has(sender) && sessions.get(sender)!.pendingLanguageConfirm) {
+      const session = sessions.get(sender)!;
+      refreshSessionTimer(session);
+      const answer = (firstArg || "").toLowerCase();
+      if (answer === "oui" || answer === "ok" || answer === "yes" || answer === "go") {
+        const pending = session.pendingLanguageConfirm!;
+        session.pendingLanguageConfirm = undefined;
+        if (session.pendingQuickParams && pending.chosen) {
+          return await executeQuickDownloadPipeline(
+            sock, msg, context, session, pending.chosen,
+            { ...session.pendingQuickParams, language: pending.language }, true
+          );
+        }
+      } else if (answer === "non" || answer === "annuler" || answer === "cancel") {
+        clearUserSession(sender);
+        return context.reply("👌 *Annulé.* Relance quand tu veux avec `.a <titre>`.");
+      }
+      return context.reply(`❓ *Continuer en ${session.pendingLanguageConfirm!.language} ?*\nRéponds \`.a oui\` pour continuer, ou \`.a non\` pour annuler.`);
+    }
+
     // Step-by-step handler if there's an active session and the user is responding to the step
     if (sessions.has(sender) && (isStepAction || args.length === 0)) {
       const session = sessions.get(sender)!;
@@ -989,46 +1120,30 @@ const animeCommand: BotCommand = {
             }
           }
           const wired = await wireSessionSeasons(session, chosen, wantLang);
+          if (wired.status === "missing" || wired.header) {
+            // 8.95 (owner) : fallback croisé — le même animé sur l'autre
+            // catalogue avec la langue demandée ?
+            const crossQuery = session.userSearchQuery || chosen.title;
+            const cross = await crossCatalogLanguageLookup(crossQuery, session.source, wantLang);
+            if (cross) {
+              await context.reply(`🔄 *${wantLang} absente sur ce catalogue — mais je l'ai trouvée ailleurs !* _Je continue là-bas._`);
+              session.source = cross.source;
+              session.searchResults = cross.results;
+              session.animeTitle = cross.chosen.title;
+              session.animeUrl = cross.chosen.url;
+              const rewired = await wireSessionSeasons(session, cross.chosen, wantLang);
+              if (rewired.status === "ok") {
+                return await sendSeasonSelectScreen(sock, msg, context, session, cross.chosen.title, rewired);
+              }
+              // Improbable (langue vérifiée avant le switch) : écran habituel.
+            }
+          }
           if (wired.status === "missing") {
             clearUserSession(sender);
             return context.reply(wired.message);
           }
 
-          session.step = "season";
-          const seasonsList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
-
-          // Jikan poster enrichment (audit 8.19) — best-effort MyAnimeList
-          // card (poster + score + episodes); never blocks or breaks the flow.
-          if (process.env.NEBULA_JIKAN_DISABLED !== "1") {
-            void (async () => {
-              try {
-                const info = await bestAnimeMatch(chosen.title);
-                if (info?.posterUrl) {
-                  await sock.sendMessage(
-                    msg.key.remoteJid,
-                    { image: { url: info.posterUrl }, caption: formatAnimeCard(info, true) },
-                    { quoted: msg }
-                  );
-                }
-              } catch {}
-            })();
-          }
-
-          await context.react("📂");
-          return context.reply(
-            `🎬 *Novabox - Choisissez la Saison* 🎬\n` +
-            `• *Anime:* ${chosen.title}\n` +
-            `• *Langue:* 🇫🇷 *${wired.language}*\n` +
-            // ONE clear notice, never two: when the requested language is
-            // missing, the policy header replaces the switch hint (8.70).
-            (wired.header
-              ? wired.header + `\n\n`
-              : seasonScreenLanguageHint(wired.language, session.languages.includes("VF")) + `\n\n`) +
-            `*Saisons disponibles :*\n` +
-            `${seasonsList}\n\n` +
-            (wired.guideHint ? wired.guideHint + `\n\n` : ``) +
-            `👉 Réponds avec : \`.a s[numéro]\` (ex : \`.a s1\`)`
-          );
+          return await sendSeasonSelectScreen(sock, msg, context, session, chosen.title, wired);
 
 
         } catch (err: any) {

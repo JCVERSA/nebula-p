@@ -18,6 +18,7 @@
  * them (VPS-side logs).
  */
 
+import { isExactAnimeMatch } from "../utils/quickAnimeParser.js";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { voiranimeSearch } from "./voiranimeClient.js";
@@ -180,6 +181,26 @@ export function applyLanguagePolicy<T extends { language?: SeasonLanguage }>(
     status: "missing",
     message: "❌ *Aucune saison trouvée pour cet anime sur ce catalogue.*",
   };
+}
+
+/**
+ * 8.95 — candidat du fallback croisé : entrée en match EXACT avec la requête.
+ * Pour "va" (les entrées de recherche SONT les saisons, langue structurelle),
+ * l'entrée doit en plus porter la langue demandée. Pour "as", la langue se
+ * vérifie ensuite via parseSeasons (réseau) — ici on ne fait que le match.
+ * Retourne null sans candidat sûr : JAMAIS de titre approximatif.
+ */
+export function exactEntryForLanguage(
+  query: string,
+  results: SourceSearchResult[],
+  wantLang: "VF" | "VOSTFR",
+  source: AnimeSourceId
+): SourceSearchResult | null {
+  const match = isExactAnimeMatch(query, results);
+  if (!match.isExact || match.exactMatchIndex == null || match.exactMatchIndex < 0) return null;
+  const entry = results[match.exactMatchIndex];
+  if (source === "va" && entry.language !== wantLang) return null;
+  return entry;
 }
 
 // ---------------------------------------------------------------------------

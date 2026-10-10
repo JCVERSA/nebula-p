@@ -176,6 +176,28 @@ export function isConfirmationAffirmative(text: string): boolean {
   return AFFIRMATIVES.has(t);
 }
 
+// ── Hint « autre catalogue » (politique langue anime, animeSources.ts) ─────
+
+/**
+ * Vrai quand une réponse de la commande signale qu'il manque la langue
+ * demandée sur le catalogue courant et suggère l'autre catalogue. Chaînes
+ * stables émises par applyLanguagePolicy (en-tête ℹ️ VF absente, échec
+ * VOSTFR, guideHint). L'agent peut alors proposer DÉTERMINISTEMENT le
+ * même one-liner sur l'autre catalogue (pas d'appel IA nécessaire).
+ */
+export function replySuggestsOtherCatalog(text: string): boolean {
+  return /aucune vf pour ce titre|aucun vostfr pour ce titre|l'autre catalogue/i.test(text || "");
+}
+
+/**
+ * Bascule le one-liner anime sur l'autre catalogue :
+ * [titre, s2, e1] → [va, titre, s2, e1] ; [va, titre, …] → [titre, …].
+ */
+export function toggleCatalogFlag(args: string[]): string[] {
+  if (args[0]?.toLowerCase() === "va") return args.slice(1);
+  return ["va", ...args];
+}
+
 // ── Rattrapage : réponse de l'IA après une commande en erreur ──────────────
 
 export interface AgentFix {

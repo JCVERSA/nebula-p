@@ -8,6 +8,8 @@ import {
   isHeavyAgentCommand,
   parseAgentDecision,
   parseAgentFix,
+  replySuggestsOtherCatalog,
+  toggleCatalogFlag,
   peekPendingConfirmation,
   recordAgentExecution,
   __resetAgentStateForTests,
@@ -139,6 +141,26 @@ describe("8.93 — isConfirmationAffirmative (seul un OK explicite exécute)", (
     for (const t of ["non", "peut-être", "ok mais attends", "pourquoi ?", "a bio 2023", "", "okkkk"]) {
       expect(isConfirmationAffirmative(t), t).toBe(false);
     }
+  });
+});
+
+describe("8.94 — hint « autre catalogue » (politique langue anime)", () => {
+  it("détecte les messages stables de applyLanguagePolicy", () => {
+    expect(replySuggestsOtherCatalog("ℹ️ *Aucune VF pour ce titre sur ce catalogue* — saisons VOSTFR disponibles :")).toBe(true);
+    expect(replySuggestsOtherCatalog("❌ *Aucun VOSTFR pour ce titre sur ce catalogue.*")).toBe(true);
+    expect(replySuggestsOtherCatalog("_(Tu peux aussi essayer l'autre catalogue : `.a va <titre>`)_")).toBe(true);
+  });
+
+  it("ignore les réponses normales", () => {
+    expect(replySuggestsOtherCatalog("🎬 Novabox - Choix de la Résolution")).toBe(false);
+    expect(replySuggestsOtherCatalog("✅ Téléchargement terminé")).toBe(false);
+    expect(replySuggestsOtherCatalog("")).toBe(false);
+  });
+
+  it("toggleCatalogFlag : ajoute va, ou le retire s'il est déjà là", () => {
+    expect(toggleCatalogFlag(["tokyo", "ghoul", "s2", "e1"])).toEqual(["va", "tokyo", "ghoul", "s2", "e1"]);
+    expect(toggleCatalogFlag(["va", "tokyo", "ghoul"])).toEqual(["tokyo", "ghoul"]);
+    expect(toggleCatalogFlag([])).toEqual(["va"]);
   });
 });
 

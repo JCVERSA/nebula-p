@@ -256,6 +256,7 @@ Built and battle-tested against real mirrors (every fix traced in
 [ANIME_DOWNLOAD_AUDIT.md](ANIME_DOWNLOAD_AUDIT.md), §8.1–8.18):
 
 - **VF by default** from `voir-anime.to` (VF guaranteed by URL structure), nakanime VOSTFR fallback, VidMoly-first mirror ranking with Voe/voembed support
+- **Cross-catalog language fallback (8.95)** — when the requested language is missing on the current catalog, the bot looks for the SAME anime (exact title match only, language verified structurally) on the other catalog and continues there with a `🔄` notice; if the language exists nowhere, it stops and asks (`.a oui` / `.a non`) instead of silently continuing in the other language
 - **Honest labels** — real HLS variant resolutions and sizes; a fat 403 MB "480P" is auto-downgraded to the lightest ≤480p variant (fast-lane size guard)
 - **Container-friendly** — sequential batches, disk-streamed segments with backpressure, capped V8 heap, streaming (STORE) ZIP writer instead of in-RAM archives, startup debris purge
 - **Resilience** — when every mirror of an episode fails (CDN-level 403), the bot retries it on the secondary anime catalog (VF lists first, then VOSTFR; honest language in the filename) — disable with `NEBULA_VOSTFR_FALLBACK=0`
