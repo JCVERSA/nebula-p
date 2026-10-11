@@ -838,7 +838,9 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           }
         }
 
-        // 9.13 : note vocale adressée au bot → transcription NIM, puis tour
+        // 9.13/9.15d : note vocale adressée au bot → transcription Gemini
+        // (audio natif — l'ASR NIM hébergé n'existe pas, cf. voiceTranscribe),
+        // puis tour
         // agent sur le texte obtenu. DM : toujours ; groupe : seulement si le
         // message s'adresse au bot (mention/reply — même porte que 9.11).
         // Échec = réponse honnête, jamais de tour IA sur un texte vide.
@@ -847,7 +849,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           if (voiceAddressed) {
             if (!isAsrEnabled()) {
               await sock.sendMessage(senderJid, {
-                text: "🎙️ Je ne peux pas encore écouter les notes vocales (transcription désactivée ou clé NVIDIA NIM absente) — écris-moi ton message."
+                text: "🎙️ Je ne peux pas encore écouter les notes vocales (transcription désactivée ou clé Gemini absente) — écris-moi ton message."
               }, { quoted: msg });
               continue;
             }

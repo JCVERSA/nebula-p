@@ -702,7 +702,7 @@ ENV_KEYS=(
   "NVIDIA_NIM_API_KEY|Clé NVIDIA NIM (nvapi-…) — IA de secours si Gemini absent/épuisé (gratuite sur build.nvidia.com)"
   "NEBULA_NIM_MODEL|Modèle NIM (défaut nvidia/nemotron-3-super-120b-a12b — l ancien llama-3.3-70b a été retiré par NVIDIA)"
   "NEBULA_ASR_ENABLED|Mettre 0 pour couper la transcription des notes vocales vers l agent (défaut: activé dès qu une clé NIM existe)"
-  "NEBULA_ASR_MODEL|Modèle ASR NIM pour les notes vocales (défaut whisper-large-v3 — copier l id exact depuis build.nvidia.com si besoin)"
+  "NEBULA_ASR_MODEL|Modèle GEMINI de transcription des notes vocales (défaut gemini-3.7-flash — l audio est natif chez Gemini, clé Gemini requise)"
   "NEBULA_REUSE_ENABLED|Mettre 0 pour couper le cache de réutilisation des médias déjà téléchargés (défaut: activé)"
   "NEBULA_REUSE_TTL_HOURS|Durée de vie (heures, glissante) du cache de réutilisation — défaut 24, borné 1-168"
   "NEBULA_REUSE_MAX_MB|Plafond disque (Mo) du cache de réutilisation, éviction LRU au-delà — défaut 1024, borné 64-4096"

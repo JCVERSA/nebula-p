@@ -1,53 +1,58 @@
 /**
- * 9.13 — Notes vocales → agent (décision owner, inspiré de free-claude-code).
+ * 9.13/9.15d — Notes vocales → agent (transcription GEMINI, audio natif).
+ *
+ * Historique honnête : 9.13 visait l'ASR NVIDIA NIM (endpoint OpenAI-
+ * compatible /audio/transcriptions). En prod : HTTP 404 quel que soit le nom
+ * de modèle — les modèles speech NIM sont des microservices Riva AUTO-HÉBERGÉS
+ * (gRPC :50051 / HTTP :9000 sur son propre conteneur GPU), PAS servis par
+ * integrate.api.nvidia.com. Pivot 9.15d : Gemini accepte l'AUDIO en entrée
+ * native (inlineData base64) — même clé, même client que l'IA existante,
+ * aucune nouvelle dépendance.
  *
  * L'utilisateur parle au bot : la note vocale est téléchargée, convertie en
- * wav 16 kHz mono par ffmpeg, puis transcrite par l'API NVIDIA NIM (endpoint
- * OpenAI-compatible /audio/transcriptions — la MÊME clé que le fallback IA,
- * aucune nouvelle dépendance). Le texte transcrit devient le message de
- * l'agent.
+ * wav 16 kHz mono par ffmpeg, puis envoyée à Gemini avec une instruction de
+ * transcription stricte (réponse = texte transcrit uniquement). Le texte
+ * devient le message de l'agent.
  *
  * Garde-fous :
- * - désactivable (NEBULA_ASR_ENABLED=0) et activé seulement si la clé NIM
- *   existe (l'ASR est NIM-only) ;
- * - modèle override (NEBULA_ASR_MODEL — copier l'id exact depuis
- *   build.nvidia.com ; défaut openai/whisper-large-v3) ;
- * - budget dédié : 10 transcriptions/heure/utilisateur (en mémoire — même
- *   école que les budgets IA/web) ;
- * - tailles plafonnées (16 Mo en entrée, 40 Mo en wav) et timeout 30 s ;
+ * - désactivable (NEBULA_ASR_ENABLED=0) et actif seulement si la clé GEMINI
+ *   existe (l'audio est Gemini-only : NIM ne voit ni image ni son) ;
+ * - modèle overridable (NEBULA_ASR_MODEL — défaut gemini-3.7-flash) ;
+ * - budget dédié : 10 transcriptions/heure/utilisateur (en mémoire) ;
+ * - tailles plafonnées (16 Mo en entrée, 12 Mo en wav ≈ 6 min — la limite
+ *   inline de Gemini est ~20 Mo requête, base64 inclus) ;
+ * - appel DIRECT (pas de repli NIM : il « hallucinerait » une transcription
+ *   sur le seul texte d'instruction) ;
  * - échec HONNÊTE : un message clair, jamais d'exception, jamais de tour IA
- *   sur un texte vide. Rien n'est stocké : la transcription sert au tour en
- *   cours, la mémoire longue ne la conserve que comme texte normal.
+ *   sur un texte vide. Rien n'est stocké au-delà du tour en cours.
  */
 
 import { execFile } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import axios from "axios";
-import { isNimConfigured, getNimApiKey } from "../nimClient.js";
+import { getAIClient } from "../geminiClient.js";
 
-const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
-const ASR_PATH = "/audio/transcriptions";
-
-// 9.15c (retour prod 404) : sur build.nvidia.com les modèles ASR vivent
-// avec des slugs SANS préfixe éditeur (whisper-large-v3, canary-1b-asr…),
-// contrairement aux modèles de chat (nvidia/nemotron-…). Le préfixe
-// openai/ provoquait un HTTP 404 sur la vraie clé.
-export const ASR_DEFAULT_MODEL = "whisper-large-v3";
+export const ASR_DEFAULT_MODEL = "gemini-3.7-flash";
 export const ASR_MAX_INPUT_BYTES = 16 * 1024 * 1024;
-export const ASR_MAX_WAV_BYTES = 40 * 1024 * 1024;
-export const ASR_TIMEOUT_MS = 30_000;
+/** 12 Mo wav ≈ 16 Mo en base64 — sous la limite inline (~20 Mo requête). */
+export const ASR_MAX_WAV_BYTES = 12 * 1024 * 1024;
 export const ASR_HOURLY_LIMIT = 10;
+
+const ASR_PROMPT = [
+  "Transcris ce message vocal.",
+  "Réponds UNIQUEMENT avec le texte transcrit — aucun commentaire, pas de guillemets, pas de préambule.",
+  "La langue parlée est probablement le français ; si c'est une autre langue, transcris dans cette langue."
+].join(" ");
 
 export function getAsrModel(): string {
   return (process.env.NEBULA_ASR_MODEL || "").trim() || ASR_DEFAULT_MODEL;
 }
 
-/** Activé par défaut dès qu'une clé NIM existe ; 0 = coupé. */
+/** Activé par défaut dès qu'une clé Gemini existe ; 0 = coupé. */
 export function isAsrEnabled(): boolean {
   if ((process.env.NEBULA_ASR_ENABLED || "").trim() === "0") return false;
-  return isNimConfigured();
+  return getAIClient() !== null;
 }
 
 // ── Budget : 10 transcriptions/heure/utilisateur (en mémoire) ──────────────
@@ -82,11 +87,9 @@ const defaultFfmpegRunner: FfmpegRunner = (bin, args) =>
     execFile(bin, args, { timeout: 120_000 }, (err) => (err ? reject(err) : resolve()));
   });
 
-/** Résolution partagée (audit 8.29) : FFMPEG_BIN > système > ffmpeg-static. */
 function ffmpegBin(): string {
   const override = (process.env.FFMPEG_BIN || "").trim();
   if (override) return override;
-  // même ordre que ffmpeg.ts, sans import direct (celui-ci résout au chargement)
   return "ffmpeg";
 }
 
@@ -103,40 +106,32 @@ async function convertToWav(input: Buffer, run: FfmpegRunner): Promise<Buffer> {
   }
 }
 
-// ── Corps multipart (PUR — testé) ──────────────────────────────────────────
-export function buildAsrMultipartBody(model: string, wav: Buffer, boundary: string): { body: Buffer; contentType: string } {
-  const parts: Buffer[] = [];
-  const crlf = Buffer.from("\r\n");
-  // champ model (texte)
-  parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n`));
-  // fichier audio
-  parts.push(
-    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="audio.wav"\r\nContent-Type: audio/wav\r\n\r\n`)
-  );
-  parts.push(wav);
-  parts.push(crlf);
-  // champ language (français par défaut — l'agent répond déjà dans la langue
-  // de l'utilisateur ; forcer fr évite les transcriptions phonétiques anglaises)
-  parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="language"\r\n\r\nfr\r\n`));
-  parts.push(Buffer.from(`--${boundary}--\r\n`));
-  return { body: Buffer.concat(parts), contentType: `multipart/form-data; boundary=${boundary}` };
-}
+// ── Transcription (appel Gemini direct et strict) ──────────────────────────
+export type AsrParts = Array<Record<string, unknown>>;
 
-// ── Transcription ──────────────────────────────────────────────────────────
 export interface AsrOptions {
-  /** Injection pour les tests : un post axios-like. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  post?: (url: string, body: unknown, config: any) => Promise<{ data: any }>;
+  /** Injection pour les tests : génère la transcription depuis les parts. */
+  generate?: (parts: AsrParts, model: string) => Promise<string | null>;
   /** Injection pour les tests : lanceur ffmpeg. */
   ffmpegRun?: FfmpegRunner;
-  boundary?: string;
 }
 
 export type AsrResult = { ok: true; text: string } | { ok: false; error: string };
 
+async function defaultGenerate(parts: AsrParts, model: string): Promise<string | null> {
+  const ai = getAIClient();
+  if (!ai) throw new Error("Gemini non configuré");
+  const response = await ai.models.generateContent({
+    model,
+    contents: parts,
+    config: { httpOptions: { timeout: 30_000 } }
+  });
+  return response?.text || null;
+}
+
 export async function transcribeVoiceNote(input: Buffer, options: AsrOptions = {}): Promise<AsrResult> {
   if (!isAsrEnabled()) {
-    return { ok: false, error: "ASR désactivé (NEBULA_ASR_ENABLED=0 ou clé NVIDIA NIM absente)" };
+    return { ok: false, error: "transcription désactivée (NEBULA_ASR_ENABLED=0) ou clé Gemini absente" };
   }
   if (!input.length) return { ok: false, error: "note vocale vide" };
   if (input.length > ASR_MAX_INPUT_BYTES) {
@@ -148,35 +143,22 @@ export async function transcribeVoiceNote(input: Buffer, options: AsrOptions = {
   } catch (err: any) {
     return { ok: false, error: `conversion ffmpeg impossible (${err?.message || err})` };
   }
-  if (!wav.length || wav.length > ASR_MAX_WAV_BYTES) {
-    return { ok: false, error: "conversion ffmpeg invalide" };
+  if (!wav.length) return { ok: false, error: "conversion ffmpeg invalide" };
+  if (wav.length > ASR_MAX_WAV_BYTES) {
+    return { ok: false, error: `note vocale trop longue (max ~${Math.floor(ASR_MAX_WAV_BYTES / 1024 / 1024 / 2)} min)` };
   }
-  const boundary = options.boundary || `nebula-asr-${Date.now().toString(16)}`;
-  const { body, contentType } = buildAsrMultipartBody(getAsrModel(), wav, boundary);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const post = options.post || ((url: string, b: unknown, cfg: any) => axios.post(url, b, cfg));
+  const parts: AsrParts = [
+    { inlineData: { mimeType: "audio/wav", data: wav.toString("base64") } },
+    { text: ASR_PROMPT }
+  ];
+  const generate = options.generate || defaultGenerate;
   try {
-    const res = await post(`${NIM_BASE_URL}${ASR_PATH}`, body, {
-      headers: {
-        Authorization: `Bearer ${getNimApiKey()}`,
-        "Content-Type": contentType,
-        Accept: "application/json"
-      },
-      timeout: ASR_TIMEOUT_MS,
-      maxBodyLength: ASR_MAX_WAV_BYTES + 1024
-    });
-    const text = res?.data?.text;
+    const text = await generate(parts, getAsrModel());
     if (typeof text === "string" && text.trim()) return { ok: true, text: text.trim() };
-    return { ok: false, error: "réponse ASR vide" };
+    return { ok: false, error: "réponse de transcription vide" };
   } catch (err: any) {
-    const status = err?.response?.status;
-    const detail = err?.response?.data?.error?.message || err?.message || String(err);
-    if (status === 404 || status === 410) {
-      return {
-        ok: false,
-        error: `modèle ASR indisponible sur cette clé (HTTP ${status}) — vérifie le nom exact sur build.nvidia.com et règle NEBULA_ASR_MODEL (${getAsrModel()})`
-      };
-    }
+    const status = err?.status || err?.code;
+    const detail = err?.message || String(err);
     return { ok: false, error: status ? `HTTP ${status} : ${detail}` : detail };
   }
 }

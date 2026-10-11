@@ -73,9 +73,9 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     type: "enum", group: "quotas", default: "gemini", choices: ["gemini", "nim"],
   },
   {
-    key: "NEBULA_ASR_MODEL", label: "Modèle ASR (notes vocales)",
-    description: "Slug EXACT depuis build.nvidia.com (défaut whisper-large-v3, sans préfixe — sinon HTTP 404). Candidats : whisper-large-v3, nvidia/canary-1b-asr.",
-    type: "string", group: "agent", default: "whisper-large-v3", hot: true,
+    key: "NEBULA_ASR_MODEL", label: "Modèle de transcription (notes vocales)",
+    description: "Modèle GEMINI pour transcrire les notes vocales (défaut gemini-3.7-flash). L'audio est natif chez Gemini — la clé Gemini est requise.",
+    type: "string", group: "agent", default: "gemini-3.7-flash", hot: true,
   },
   {
     key: "NEBULA_ASR_ENABLED", label: "Transcription des notes vocales",
