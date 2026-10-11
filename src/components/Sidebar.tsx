@@ -17,7 +17,6 @@ import {
   PanelLeftClose,
   PanelLeft,
   Sparkles,
-  Zap,
   Activity,
 } from "lucide-react";
 import { ConnectionStatus } from "../lib/types";
@@ -151,8 +150,8 @@ export default function Sidebar({
     >
       {/* Top Header / Branding */}
       <div className="flex h-14 items-center gap-2.5 border-b border-white/10 px-4">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-black font-black text-sm shadow-md transition-transform hover:rotate-12 duration-200">
-          <Zap className="h-4 w-4 fill-black text-black" />
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md transition-transform hover:rotate-12 duration-200">
+          <NebulaMark size={18} className="text-indigo-100" />
         </div>
         <AnimatePresence mode="wait">
           {!collapsed && (

@@ -131,7 +131,7 @@ export default function Topbar({
           onClick={() => setActiveTab("overview")}
           className="hidden sm:flex items-center gap-1.5 rounded-lg px-2 py-1 text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-all cursor-pointer"
         >
-          <Zap size={13} className="text-amber-400" />
+          <NebulaMark size={13} className="text-zinc-300" />
           <span className="font-semibold text-xs tracking-wide">
             <ShinyText text="NEBULA" speed={4} />
           </span>
@@ -364,13 +364,14 @@ export default function Topbar({
           )}
         </div>
 
-        {/* Profile Avatar / Bot Identity */}
+        {/* Profile Avatar / Bot Identity — 9.13d : Constellation N
+            (l'ancien rond ambre « NB » datait du template). */}
         <div
           onClick={() => setActiveTab("settings")}
-          className="h-8 w-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-black font-extrabold ring-2 ring-white/10 flex items-center justify-center text-xs cursor-pointer hover:ring-amber-400 transition"
+          className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 ring-2 ring-white/10 flex items-center justify-center cursor-pointer hover:ring-violet-400 transition"
           title="Bot Settings & Profile"
         >
-          NB
+          <NebulaMark size={18} className="text-indigo-100" />
         </div>
       </div>
 
