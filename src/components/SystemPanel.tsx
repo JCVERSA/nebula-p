@@ -52,7 +52,7 @@ interface EnvVarView {
   label: string;
   description: string;
   type: "number" | "boolean" | "enum" | "string" | "path" | "secret";
-  group: "quotas" | "digest" | "keys";
+  group: "quotas" | "agent" | "digest" | "keys";
   choices?: string[];
   default?: string;
   set: boolean;
@@ -62,6 +62,10 @@ interface EnvVarView {
 
 const ENV_GROUP_META: Record<EnvVarView["group"], { title: string; hint?: string }> = {
   quotas: { title: "Quotas & moteur IA" },
+  agent: {
+    title: "Agent & cache",
+    hint: "Notes vocales (ASR NIM) et cache de réutilisation — appliqués à chaud, sans redémarrage.",
+  },
   digest: { title: "Digest & veille" },
   keys: {
     title: "Clés & accès (écriture seule)",
@@ -524,7 +528,7 @@ export default function SystemPanel() {
         {!envVars ? (
           <p className="text-xs text-zinc-500">Chargement…</p>
         ) : (
-          (["quotas", "digest", "keys"] as const).map((group) => {
+          (["quotas", "agent", "digest", "keys"] as const).map((group) => {
             const vars = envVars.filter((v) => v.group === group);
             if (!vars.length) return null;
             return (

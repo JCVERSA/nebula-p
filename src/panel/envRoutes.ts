@@ -30,7 +30,7 @@ export interface EnvKeySpec {
   label: string;
   description: string;
   type: EnvEditType;
-  group: "quotas" | "digest" | "keys";
+  group: "quotas" | "agent" | "digest" | "keys";
   default?: string;
   min?: number;
   max?: number;
@@ -71,6 +71,31 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     key: "NEBULA_AI_PRIMARY", label: "Moteur IA primaire",
     description: "gemini (défaut) ou nim — les images vont toujours à Gemini.",
     type: "enum", group: "quotas", default: "gemini", choices: ["gemini", "nim"],
+  },
+  {
+    key: "NEBULA_ASR_MODEL", label: "Modèle ASR (notes vocales)",
+    description: "Slug EXACT depuis build.nvidia.com (défaut whisper-large-v3, sans préfixe — sinon HTTP 404). Candidats : whisper-large-v3, nvidia/canary-1b-asr.",
+    type: "string", group: "agent", default: "whisper-large-v3", hot: true,
+  },
+  {
+    key: "NEBULA_ASR_ENABLED", label: "Transcription des notes vocales",
+    description: "0 pour couper la transcription vers l'agent (défaut activé — nécessite la clé NIM).",
+    type: "boolean", group: "agent", default: "1", hot: true,
+  },
+  {
+    key: "NEBULA_REUSE_ENABLED", label: "Cache de réutilisation des médias",
+    description: "0 pour couper le cache 24 h (redemande = lien instantané sur le fichier existant).",
+    type: "boolean", group: "agent", default: "1", hot: true,
+  },
+  {
+    key: "NEBULA_REUSE_TTL_HOURS", label: "Durée du cache (heures)",
+    description: "Fenêtre glissante du cache de réutilisation (défaut 24, borné 1-168).",
+    type: "number", group: "agent", default: "24", min: 1, max: 168, hot: true,
+  },
+  {
+    key: "NEBULA_REUSE_MAX_MB", label: "Plafond disque du cache (Mo)",
+    description: "Au-delà, éviction LRU (défaut 1024, borné 64-4096).",
+    type: "number", group: "agent", default: "1024", min: 64, max: 4096, hot: true,
   },
   {
     key: "NEBULA_DIGEST", label: "Digest quotidien owner",

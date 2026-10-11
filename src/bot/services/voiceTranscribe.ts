@@ -30,7 +30,11 @@ import { isNimConfigured, getNimApiKey } from "../nimClient.js";
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const ASR_PATH = "/audio/transcriptions";
 
-export const ASR_DEFAULT_MODEL = "openai/whisper-large-v3";
+// 9.15c (retour prod 404) : sur build.nvidia.com les modèles ASR vivent
+// avec des slugs SANS préfixe éditeur (whisper-large-v3, canary-1b-asr…),
+// contrairement aux modèles de chat (nvidia/nemotron-…). Le préfixe
+// openai/ provoquait un HTTP 404 sur la vraie clé.
+export const ASR_DEFAULT_MODEL = "whisper-large-v3";
 export const ASR_MAX_INPUT_BYTES = 16 * 1024 * 1024;
 export const ASR_MAX_WAV_BYTES = 40 * 1024 * 1024;
 export const ASR_TIMEOUT_MS = 30_000;

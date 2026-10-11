@@ -47,11 +47,11 @@ describe("9.13 — voiceTranscribe (pur)", () => {
 
   it("buildAsrMultipartBody : model + fichier + language, wav INTACT, limite cohérente", () => {
     const wav = Buffer.from(Array.from({ length: 4096 }, (_, i) => i % 251));
-    const { body, contentType } = buildAsrMultipartBody("openai/whisper-large-v3", wav, "boundary-x");
+    const { body, contentType } = buildAsrMultipartBody("whisper-large-v3", wav, "boundary-x");
     expect(contentType).toBe("multipart/form-data; boundary=boundary-x");
     const s = body.toString("latin1");
     expect(s).toContain('name="model"');
-    expect(s).toContain("openai/whisper-large-v3");
+    expect(s).toContain("whisper-large-v3");
     expect(s).toContain('name="file"; filename="audio.wav"');
     expect(s).toContain('name="language"');
     expect(s).toContain("fr");
@@ -91,7 +91,7 @@ describe("9.13 — transcribeVoiceNote (injecté)", () => {
       expect(url).toBe("https://integrate.api.nvidia.com/v1/audio/transcriptions");
       expect(cfg.headers.Authorization).toBe(`Bearer ${KEY}`);
       expect(cfg.headers["Content-Type"]).toContain("multipart/form-data");
-      expect((body as Buffer).toString("latin1")).toContain("openai/whisper-large-v3");
+      expect((body as Buffer).toString("latin1")).toContain("whisper-large-v3");
       return { data: { text: "  télécharge l'épisode 5 de jjk en 480p  " } };
     });
     const res = await transcribeVoiceNote(Buffer.from("oggdata"), { post, ffmpegRun: fakeFfmpeg, boundary: "b-test" });

@@ -352,7 +352,7 @@ Copy `.env.example` to `.env` (or run `./manage.sh env`). Highlights:
 | `NEBULA_HEALTH_SWEEP_MS` / `NEBULA_HEALTH_FAILS` | no | Supervisor health sweep (8.78): probe interval (60 s) and consecutive failures before a frozen engine is force-restarted (3) |
 | `NEBULA_LOG_FILE` / `NEBULA_LOG_MAX_MB` | no | In-app log size guard (8.82): log path (set by `manage.sh`) and cap before truncation (150 MB) — the WhatsApp crypto layer dumps large session traces per message, and in Docker containers cron/logrotate often never runs |
 | `NEBULA_AI_DAILY_LIMIT` / `_MAX_CONCURRENT` | no | AI budget (40/day/user) and concurrency (3) |
-| `NEBULA_ASR_ENABLED` / `NEBULA_ASR_MODEL` | no | Voice-note transcription for the agent (9.13): `0` disables; model defaults to `openai/whisper-large-v3` — copy the exact audio model id from build.nvidia.com if it differs. Needs the NIM key; 10 transcriptions/hour/user |
+| `NEBULA_ASR_ENABLED` / `NEBULA_ASR_MODEL` | no | Voice-note transcription for the agent (9.13): `0` disables; model defaults to `whisper-large-v3` — copy the exact audio model id from build.nvidia.com if it differs. Needs the NIM key; 10 transcriptions/hour/user |
 | `NEBULA_REUSE_ENABLED` / `_TTL_HOURS` / `_MAX_MB` | no | Media reuse cache (9.15): `0` disables; sliding window (24 h, 1-168) and disk cap (1024 MB, 64-4096) with LRU eviction |
 | `NEBULA_PANEL_COMMANDS` | no | `off` disables sandboxed panel-created commands |
 | `NEBULA_ENABLE_LEGACY` | no | `1` re-enables the vendored legacy command corpus (quarantined by default) |
