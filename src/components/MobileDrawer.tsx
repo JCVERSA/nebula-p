@@ -21,6 +21,7 @@ import {
   Power,
   Zap,
 } from "lucide-react";
+import NebulaMark from "./NebulaMark";
 import { NavTab } from "./Sidebar";
 import { ConnectionStatus } from "../lib/types";
 
@@ -104,8 +105,8 @@ export default function MobileDrawer({
           <div className="w-12 h-1 rounded-full bg-white/15 mb-3.5" />
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 text-black shadow-md shadow-amber-500/10">
-                <Zap className="h-4.5 w-4.5 fill-black text-black" />
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-md shadow-violet-500/10">
+                <NebulaMark size={20} className="text-indigo-100" />
               </div>
               <div>
                 <h3 className="font-bold text-sm text-white tracking-wide">Nebula Navigation</h3>

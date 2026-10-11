@@ -21,6 +21,7 @@ import {
   Activity,
 } from "lucide-react";
 import { ConnectionStatus } from "../lib/types";
+import NebulaMark from "./NebulaMark";
 
 export type NavTab =
   | "overview"
@@ -163,6 +164,7 @@ export default function Sidebar({
               className="flex flex-col overflow-hidden"
             >
               <div className="flex items-center gap-1.5">
+                <NebulaMark size={16} className="text-zinc-300 shrink-0" />
                 <span className="font-bold text-sm text-white tracking-tight whitespace-nowrap">Nebula</span>
               </div>
               <p className="text-[11px] text-zinc-500 truncate whitespace-nowrap">WhatsApp Multi-Device Bot</p>

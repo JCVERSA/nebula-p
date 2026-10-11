@@ -4,6 +4,7 @@ import { ChevronDown, Zap, RotateCcw, Power, Activity, Palette, X as CloseIcon, 
 import { NavTab } from "./Sidebar";
 import { ConnectionStatus } from "../lib/types";
 import ShinyText from "./ShinyText";
+import NebulaMark from "./NebulaMark";
 
 interface TopbarProps {
   activeTab: NavTab;
@@ -114,21 +115,14 @@ export default function Topbar({
       {/* Left section: Brand/Breadcrumb & Preline-style Search */}
       <div className="flex items-center gap-4 text-sm text-zinc-300 min-w-0 flex-1">
         <div className="flex items-center px-1">
-          {/* Waveform SVG brand icon from reference template */}
-          <svg
+          {/* 9.13c : marque « Constellation N » (points = commandes,
+              étoile violette = l'agent) — remplace la waveform du template. */}
+          <NebulaMark
+            size={22}
+            className="text-zinc-200 cursor-pointer hover:text-white hover:scale-105 active:scale-95 transition-all duration-200"
+            title="About Nebula Project"
             onClick={() => setIsAboutOpen(true)}
-            viewBox="0 0 32 24"
-            className="h-5 w-8 text-amber-400 cursor-pointer hover:text-amber-300 hover:scale-105 active:scale-95 transition-all duration-200"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeLinecap="round"
-          >
-            <title>About Nebula Project</title>
-            <path d="M2 6 Q 10 2, 16 6 T 30 6" />
-            <path d="M2 12 Q 10 8, 16 12 T 30 12" />
-            <path d="M2 18 Q 10 14, 16 18 T 30 18" />
-          </svg>
+          />
         </div>
 
         {/* Separator & Breadcrumb */}
