@@ -7,6 +7,7 @@ import os from "os";
 import { spawn } from "child_process";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
+import { animeReuseKey, lookupMediaReuse, storeMediaReuse } from "../services/mediaReuseStore.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
 import { formatFailedEpisodes } from "../services/batchRecap.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
@@ -2319,6 +2320,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   const lang = session.selectedLanguage || "VOSTFR";
   const seasonNum = session.selectedSeason?.name.match(/\d+/)?.[0] || "01";
   const formattedSeason = `S${seasonNum.padStart(2, "0")}`;
+  // 9.15 : clé de réutilisation — anime, saison, épisode, langue, résolution.
+  // Une demande identique (même d'un autre utilisateur) renvoie un lien sur
+  // le fichier DÉJÀ téléchargé : instantané, zéro bande passante.
+  const reuseKeyFor = (ep: number) => animeReuseKey(session.animeTitle, seasonNum, ep, lang, resolution);
 
   // If multiple episodes or full season requested, run batch processor
   if (indices.length > 1 || session.isSeasonZipDownload) {
@@ -2389,6 +2394,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     }
 
     const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string; expiresAt: number }> = [];
+    let cacheHits = 0; // 9.15 : épisodes servis depuis le cache de réutilisation
     let failedEpisodeCount = 0;
     const downloadedFilePaths: string[] = [];
 
@@ -2416,6 +2422,19 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       const filenameBase = `${animeClean}_${lang}_${resolution}_${formattedSeason}_${formattedEpisode}`;
       const filename = sanitizeFilename(filenameBase) + ".mp4";
       const localPath = path.join(os.tmpdir(), `batch_${Date.now()}_${i}_${filename}`);
+
+      // 9.15 : épisode déjà présent dans le cache (quelqu'un l'a téléchargé
+      // dans les dernières 24 h) ? Lien instantané SANS re-téléchargement.
+      const cachedEp = lookupMediaReuse(reuseKeyFor(epNum));
+      if (cachedEp) {
+        try {
+          const rec = registerTempDownload(cachedEp.filePath, filename, { noCopy: true, jobId: batchJob.id });
+          generatedLinks.push({ epNum, downloadUrl: rec.downloadUrl, sizeMB: rec.sizeMB, filename, expiresAt: rec.expiresAt });
+          cacheHits++;
+          updateEpisodeProgress(batchJob.id, epNum, { status: "completed", progressPercent: 100, sizeMB: rec.sizeMB, downloadUrl: rec.downloadUrl });
+          return;
+        } catch {} // quota de records → tombons dans le chemin normal
+      }
 
       updateEpisodeProgress(batchJob.id, epNum, { status: "downloading", progressPercent: 35 });
 
@@ -2483,6 +2502,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           // Move file into managed temporary store — TTL glissant 8.83 :
           // 30 min par défaut (NEBULA_LINK_TTL_MIN), remises à zéro à chaque
           // téléchargement, vie totale plafonnée à 2 h.
+          // 9.15 : le fichier entre au cache de réutilisation (lien physique,
+          // zéro octet supplémentaire) — le prochain demandeur l'aura instantanément.
+          try { storeMediaReuse(reuseKeyFor(epNum), localPath, filename); } catch {}
+
           const tempDownload = registerTempDownload(localPath, filename, {
             moveFile: true,
             jobId: batchJob.id // 8.88 : la purge owner épargne ce batch tant que son claim est vivant
@@ -2662,6 +2685,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           indices.map(i => i + 1),
           generatedLinks.map(g => g.epNum)
         ) +
+        (cacheHits > 0
+          ? `⚡ *Cache:* ${cacheHits}/${indices.length} épisode(s) déjà présents — servis instantanément, sans re-téléchargement.\n`
+          : "") +
         (memoryDeferredCount > 0
           ? `🛡️ *Garde mémoire:* ${memoryDeferredCount} épisode(s) non lancé(s) pour protéger le bot (pression RAM critique). Les épisodes livrés ci-dessus sont intacts — redemande les épisodes manquants dans quelques minutes.\n`
           : "") +
@@ -2750,6 +2776,26 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   const filename = sanitizeFilename(filenameBase) + ".mp4";
 
   const vidmolyUrl = getVidMolyUrl(session.episodes, epIndex, session.episodeListLabels, session.selectedLanguage);
+
+  // 9.15 : déjà présent dans le cache (24 h glissantes) ? Livraison instantanée.
+  const cachedSingle = lookupMediaReuse(reuseKeyFor(epNum));
+  if (cachedSingle) {
+    try {
+      const rec = registerTempDownload(cachedSingle.filePath, filename, { noCopy: true });
+      clearUserSession(context.sender);
+      await context.react("⚡");
+      return void (await context.reply(
+        `⚡ *Déjà prêt — cache 24 h* (aucun re-téléchargement)\n\n` +
+        `🎬 *Anime:* ${session.animeTitle}\n` +
+        `🗣️ *Langue:* ${lang}\n` +
+        `🎞️ *Épisode:* Episode ${epNum}\n` +
+        `⚙️ *Résolution:* ${resolution}\n` +
+        `📦 *Taille:* ${rec.sizeMB} Mo\n\n` +
+        `🔗 *Lien:* ${rec.downloadUrl}\n\n` +
+        `⏳ Valable ${getLinkTtlMinutes()} min (remis à zéro à chaque téléchargement, max 2 h).`
+      ));
+    } catch {} // quota de records → chemin normal
+  }
 
   // React to let the user know we are downloading the video
   await context.react("⏳");
@@ -2995,6 +3041,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       // 30 min, reset à chaque téléchargement, 2 h de vie totale max).
       let tempDownload: any = null;
       try {
+        // 9.15 : entrée au cache de réutilisation (lien physique).
+        try { storeMediaReuse(reuseKeyFor(epNum), activeSendPath, deliveredFilename); } catch {}
         tempDownload = registerTempDownload(activeSendPath, deliveredFilename, {
           moveFile: true
         });

@@ -41,6 +41,37 @@ afterEach(() => {
   fs.rmSync(tmpDataDir, { recursive: true, force: true });
 });
 
+describe("getServerBaseUrl — schéma TOUJOURS présent (9.15b, retour owner)", () => {
+  it("APP_URL sans schéma → https:// ajouté ; slashes finaux retirés ; schéma existant → inchangé", () => {
+    delete process.env.APP_URL;
+    delete process.env.PUBLIC_URL;
+    process.env.APP_URL = "dash2.exemple.com";
+    expect(mod.getServerBaseUrl()).toBe("https://dash2.exemple.com");
+    process.env.APP_URL = "dash2.exemple.com///";
+    expect(mod.getServerBaseUrl()).toBe("https://dash2.exemple.com");
+    process.env.APP_URL = "https://ok.exemple.com/";
+    expect(mod.getServerBaseUrl()).toBe("https://ok.exemple.com");
+    process.env.APP_URL = "http://plain.exemple.com";
+    expect(mod.getServerBaseUrl()).toBe("http://plain.exemple.com");
+    process.env.APP_URL = "  dash2.exemple.com  ";
+    expect(mod.getServerBaseUrl()).toBe("https://dash2.exemple.com");
+  });
+
+  it("registerTempDownload : le lien généré est TOUJOURS absolu — cliquable depuis WhatsApp ET depuis la page HTML enregistrée", () => {
+    delete process.env.PUBLIC_URL;
+    process.env.APP_URL = "dash2.exemple.com"; // le bug terrain : pas de https://
+    const src = writeSourceFile("abs915b", 512);
+    const rec = mod.registerTempDownload(src, "abs.mp4", {});
+    expect(rec.downloadUrl).toMatch(/^https:\/\/dash2\.exemple\.com\/api\/media\/download\/[a-f0-9]+$/);
+    mod.purgeTempRecords([rec.token]);
+  });
+
+  it("wiring : la garde Host parse l'APP_URL normalisée (fin de la désactivation silencieuse)", () => {
+    const src = fs.readFileSync("src/panel/httpMiddleware.ts", "utf-8");
+    expect(src).toContain('new URL(normalizePublicBaseUrl(process.env.APP_URL || ""))');
+  });
+});
+
 describe("getLinkTtlMinutes — TTL glissant par défaut", () => {
   it("défaut 30 min, borné [5, 120]", () => {
     expect(mod.getLinkTtlMinutes()).toBe(30);

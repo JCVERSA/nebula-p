@@ -8,6 +8,7 @@ import { slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus, completeBatchJob } from "../batchDownloadManager.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
 import { registerTempDownload } from "../tempDownloadManager.js";
+import { lookupMediaReuse, storeMediaReuse, ytvReuseKey } from "../services/mediaReuseStore.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 
 /**
@@ -221,6 +222,18 @@ async function executePlaylistDownload(
     const url = `https://www.youtube.com/watch?v=${ids[i]}`;
     try {
       updateEpisodeProgress(batchJob.id, n, { status: "downloading", progressPercent: 30 });
+      // 9.15 : déjà téléchargée ? Lien instantané sur le fichier existant.
+      const rKey = ytvReuseKey(ids[i], quality, audioLang, null);
+      const rHit = rKey ? lookupMediaReuse(rKey) : null;
+      if (rHit) {
+        try {
+          const rec = registerTempDownload(rHit.filePath, rHit.filename, { noCopy: true, jobId: batchJob.id });
+          links.push({ label: rHit.filename.replace(/\.mp4$/, ""), url: rec.downloadUrl, sizeMB: rec.sizeMB, expiresAt: rec.expiresAt });
+          zipFiles.push({ filePath: rec.filePath, n, title: rHit.filename.replace(/\.mp4$/, "") });
+          updateEpisodeProgress(batchJob.id, n, { status: "completed", progressPercent: 100, sizeMB: rec.sizeMB, downloadUrl: rec.downloadUrl });
+          continue;
+        } catch {} // quota de records → téléchargement normal
+      }
       const local = await ytvViaYtDlp(url, quality, SLIM_SOURCE_CEILING, { audioLang });
       if (!local.ok) {
         failed.push(n);
@@ -234,6 +247,8 @@ async function executePlaylistDownload(
       const sizeBytes = fs.statSync(local.filePath).size;
       totalMB += sizeBytes / (1024 * 1024);
       const safeTitle = (local.title || `Vidéo ${n}`).replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) || `Vidéo ${n}`;
+      // 9.15 : entrée au cache de réutilisation (lien physique).
+      if (rKey) { try { storeMediaReuse(rKey, local.filePath, `${String(n).padStart(2, "0")} - ${safeTitle}.mp4`); } catch {} }
       const rec = registerTempDownload(local.filePath, `${String(n).padStart(2, "0")} - ${safeTitle}.mp4`, {
         moveFile: true,
         jobId: batchJob.id
@@ -378,6 +393,7 @@ const ytvideoCommand: BotCommand = {
   usage: ".ytv <nom ou lien> [360-1080] [vo] [playlist|video]",
   execute: async (sock, msg, context) => {
     let videoPath: string | null = null; // fichier local yt-dlp (8.86) — purgé en finally
+    let reusedHit: { filePath: string; filename: string; bytes: number } | null = null; // 9.15 : cache hit (hors try — visible du finally)
     try {
       const chatId = msg.key.remoteJid;
       const args = context.args || [];
@@ -474,7 +490,18 @@ const ytvideoCommand: BotCommand = {
         }
       } catch {}
 
-      const initialCaption = `*${videoTitle}*\n📺 Résolution : *${quality}p*\n\n⏳ Téléchargement en cours...`;
+      // 9.15 : déjà téléchargée (même vidéo, qualité, piste audio, sous-titres)
+      // par n'importe qui dans les dernières 24 h ? Fichier local instantané,
+      // on saute le téléchargement ET l'amincissement.
+      const ytIdForReuse = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1] || "";
+      const reuseKey = ytvReuseKey(ytIdForReuse, quality, audioLang, subs);
+      reusedHit = reuseKey ? lookupMediaReuse(reuseKey) : null;
+      if (reusedHit) {
+        videoPath = reusedHit.filePath;
+        console.log("[YTV] ⚡ Cache hit — fichier existant réutilisé (aucun téléchargement)");
+      }
+
+      const initialCaption = `*${videoTitle}*\n📺 Résolution : *${quality}p*\n\n${reusedHit ? "⚡ Déjà en cache — envoi immédiat…" : "⏳ Téléchargement en cours..."}`;
       try {
         const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
         const thumb = videoThumb || (ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : null);
@@ -489,7 +516,7 @@ const ytvideoCommand: BotCommand = {
       let finalTitle = videoTitle;
       // 8.86 : yt-dlp LOCAL en premier recours (API tierces mortes en prod,
       // cf. src/bot/services/ytDlp.ts). URL canonisée en interne.
-      try {
+      if (!reusedHit) try {
         console.log(`[YTV] Trying yt-dlp (local, ${quality}p)...`);
         const local = await ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING, { audioLang, subs });
         if (local.ok) {
@@ -533,7 +560,7 @@ const ytvideoCommand: BotCommand = {
 
       // 9.7 : amincissement même résolution pour passer sous le plafond
       // d'envoi — sinon refus honnête (comportement d'avant).
-      if (videoPath) {
+      if (videoPath && !reusedHit) {
         try {
           if (fs.statSync(videoPath).size > MAX_VIDEO_BYTES) {
             await context.reply("🗜️ Fichier lourd — compression intelligente en cours (même résolution)…");
@@ -545,6 +572,11 @@ const ytvideoCommand: BotCommand = {
         } catch {}
       }
 
+      // 9.15 : la vidéo entre au cache (lien physique, zéro octet de plus).
+      if (videoPath && reuseKey) {
+        try { storeMediaReuse(reuseKey, videoPath, `${(finalTitle || "video").replace(/[^\w\s-]/g, "").trim().slice(0, 60)}.mp4`); } catch {}
+      }
+
       const safeName = (finalTitle || "video").replace(/[^\w\s-]/g, "").trim().slice(0, 60);
       await sock.sendMessage(chatId, {
         video: { url: mediaUrl },
@@ -553,6 +585,7 @@ const ytvideoCommand: BotCommand = {
         caption: `*${finalTitle || searchQuery}*\n📺 Qualité : ${quality}p` +
           (audioLang ? `\n🎚️ Audio : ${langLabel(audioLang)}` : "") +
           (subs ? `\n💬 Sous-titres ${subs.auto ? "automatiques " : ""}${subs.lang.split("-")[0].toUpperCase()} intégrés` : "") +
+          (reusedHit ? `\n⚡ Servie depuis le cache — aucun re-téléchargement` : "") +
           `\n\n> *_Downloaded by ${getConfig().botName}_*`
       }, { quoted: msg });
     } catch (error: any) {
@@ -560,7 +593,9 @@ const ytvideoCommand: BotCommand = {
       await context.reply("❌ Le téléchargement a échoué.\n🔄 Réessaie dans un instant.");
     } finally {
       // 8.86 : purge du fichier local yt-dlp (répertoire temporaire dédié).
-      if (videoPath) {
+      // 9.15 : sur cache hit, videoPath pointe dans le dossier du cache —
+      // le rmSync du staging ne doit JAMAIS le toucher.
+      if (videoPath && !reusedHit) {
         try { fs.rmSync(path.dirname(videoPath), { recursive: true, force: true }); } catch {}
       }
     }

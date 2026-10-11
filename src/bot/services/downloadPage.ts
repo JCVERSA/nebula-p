@@ -61,6 +61,18 @@ function escapeAttr(value: string): string {
   return escapeHtml(value).replace(/`/g, "&#96;");
 }
 
+/**
+ * 9.15b : garantit un schéma — un lien nu (« dash2.exemple.com/... ») résolu
+ * depuis une page enregistrée localement (dossier transfers de WhatsApp
+ * Desktop) devient file:///C:/.../transfers/dash2.exemple.com/... et ne
+ * télécharge rien. Pur — testé via le HTML généré.
+ */
+function absoluteMediaUrl(url: string): string {
+  const u = String(url || "").trim();
+  if (!u) return u;
+  return /^[a-zA-Z][a-zA-Z0-9+.\-]*:\/\//.test(u) ? u : `https://${u}`;
+}
+
 function formatSize(sizeMB?: number): string {
   if (!sizeMB || sizeMB <= 0) return "";
   return `${sizeMB >= 1024 ? (sizeMB / 1024).toFixed(2) + " GB" : Math.round(sizeMB) + " MB"}`;
@@ -104,7 +116,7 @@ export function buildDownloadPage(options: {
           ${size ? `<span class="size">${escapeHtml(size)}</span>` : ""}
           <span class="state" data-state></span>
         </div>
-        <a class="btn small" href="${escapeAttr(e.url)}" target="_blank" download rel="noopener" data-dl="${i}">Télécharger</a>
+        <a class="btn small" href="${escapeAttr(absoluteMediaUrl(e.url))}" target="_blank" download rel="noopener" data-dl="${i}">Télécharger</a>
       </li>`;
     })
     .join("\n");
@@ -228,7 +240,7 @@ ${listItems}
 <script>
 (function () {
   "use strict";
-  var urls = ${jsonForScript(entries.map(e => e.url))};
+  var urls = ${jsonForScript(entries.map(e => absoluteMediaUrl(e.url)))};
   var expiresAt = ${expiresAt || 0};
   var cd = document.getElementById("countdown");
   var allBtn = document.getElementById("all");

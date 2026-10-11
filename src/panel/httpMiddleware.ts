@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { createPanelAuth } from "../bot/panelAuth.js";
+import { normalizePublicBaseUrl } from "../bot/tempDownloadManager.js";
 
 /**
  * 8.78 (session 3) — middleware HTTP PARTAGÉ entre l'app mono-bot (app.ts)
@@ -62,7 +63,9 @@ export function securityHeaders(): RequestHandler {
 export function hostHeaderGuard(): RequestHandler {
   const allowedHostname = (() => {
     try {
-      const u = new URL(process.env.APP_URL || "");
+      // 9.15b : APP_URL sans schéma → new URL() levait → garde silencieu-
+      // sement DÉSACTIVÉE. Normalisation avant parse : la garde revit.
+      const u = new URL(normalizePublicBaseUrl(process.env.APP_URL || ""));
       return u.hostname.toLowerCase();
     } catch {
       return "";

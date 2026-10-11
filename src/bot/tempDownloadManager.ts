@@ -62,11 +62,25 @@ const activeDownloads = new Map<string, TempDownloadRecord>();
 let detectedServerBaseUrl = process.env.APP_URL || process.env.PUBLIC_URL || "";
 
 /**
+ * 9.15b (retour owner) : un APP_URL/PUBLIC_URL sans schéma produisait des
+ * liens « dash2.exemple.com/api/... ». Ouverts depuis la page HTML livrée
+ * (que WhatsApp Desktop enregistre dans son dossier transfers), un lien
+ * sans schéma se résout en CHEMIN LOCAL — file:///C:/.../transfers/
+ * dash2.exemple.com/... — et ne télécharge rien. Normalisation : https://
+ * ajouté si absent, slashes finaux retirés, whitspace trimé. Pur — testé.
+ */
+export function normalizePublicBaseUrl(url: string): string {
+  const clean = String(url || "").trim().replace(/\/+$/, "");
+  if (!clean) return "";
+  return /^[a-zA-Z][a-zA-Z0-9+.\-]*:\/\//.test(clean) ? clean : `https://${clean}`;
+}
+
+/**
  * Update the runtime server base URL if detected from an incoming request.
  */
 export function updateServerBaseUrl(url: string) {
   if (!url) return;
-  const cleanUrl = url.replace(/\/+$/, "");
+  const cleanUrl = normalizePublicBaseUrl(url);
   const isLocal = cleanUrl.includes("localhost") || cleanUrl.includes("127.0.0.1") || cleanUrl.includes("0.0.0.0");
 
   // If we haven't set any URL, or if we currently have localhost but received a real external public host, update it
@@ -79,14 +93,16 @@ export function updateServerBaseUrl(url: string) {
  * Get current public base URL for generating absolute links.
  */
 export function getServerBaseUrl(): string {
+  // 9.15b : schéma TOUJOURS présent, quelle que soit la source (auto-guérison
+  // d'un APP_URL édité sans https:// — les liens restent cliquables).
   if (process.env.APP_URL) {
-    return process.env.APP_URL.replace(/\/+$/, "");
+    return normalizePublicBaseUrl(process.env.APP_URL);
   }
   if (process.env.PUBLIC_URL) {
-    return process.env.PUBLIC_URL.replace(/\/+$/, "");
+    return normalizePublicBaseUrl(process.env.PUBLIC_URL);
   }
   if (detectedServerBaseUrl) {
-    return detectedServerBaseUrl;
+    return normalizePublicBaseUrl(detectedServerBaseUrl);
   }
   return "";
 }
@@ -141,6 +157,8 @@ export function registerTempDownload(
     mimeType?: string;
     ttlMinutes?: number;
     moveFile?: boolean;
+    /** 9.15 : sert le fichier TEL QUEL (cache de réutilisation) — aucune copie. */
+    noCopy?: boolean;
     meta?: Record<string, any>;
     jobId?: string;
   }
@@ -180,16 +198,24 @@ export function registerTempDownload(
   if (activeDownloads.size >= TEMP_MAX_RECORDS) {
     throw new Error("Temporary download storage is full (record limit). Please try again later.");
   }
-  if (currentTotal + sizeBytes > getTempMaxTotalBytes()) {
+  // 9.15 : noCopy = le fichier vit dans le cache de réutilisation (cap dédié
+  // NEBULA_REUSE_MAX_MB) — il n'entre pas dans le quota du coffre temporaire.
+  if (!options?.noCopy && currentTotal + sizeBytes > getTempMaxTotalBytes()) {
     throw new Error("Temporary download storage quota reached. Please try again later.");
   }
 
   const token = crypto.randomBytes(24).toString("hex");
   const sanitizedName = filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const destinationPath = path.join(TEMP_DOWNLOAD_DIR, `${token}_${sanitizedName}`);
+  // noCopy : le token sert le fichier TEL QUEL (chemin du cache 9.15) — zéro
+  // copie disque, livraison instantanée.
+  const destinationPath = options?.noCopy
+    ? path.resolve(sourcePath)
+    : path.join(TEMP_DOWNLOAD_DIR, `${token}_${sanitizedName}`);
 
   // Move or copy file into dedicated temp store
-  if (options?.moveFile) {
+  if (options?.noCopy) {
+    // rien à déplacer — voir ci-dessus
+  } else if (options?.moveFile) {
     try {
       fs.renameSync(sourcePath, destinationPath);
     } catch {

@@ -1,5 +1,6 @@
 import { BotCommand } from "../types.js";
 import { executeDiskPurge } from "../services/diskPurge.js";
+import { purgeAllMediaReuse } from "../services/mediaReuseStore.js";
 
 /**
  * `.purge` / `.p` (8.88) — bouton d'urgence owner : libère immédiatement
@@ -23,6 +24,8 @@ const purgeCommand: BotCommand = {
     }
     await context.react("🧹");
     try {
+      // 9.15 : le cache de réutilisation fait partie de l'espace libérable.
+      purgeAllMediaReuse();
       const r = await executeDiskPurge();
       const fmt = (b: number | null): string => {
         if (b === null) return "?";

@@ -190,3 +190,25 @@ describe("downloadPage — 9.14 restyle (file-share)", () => {
     expect(html).toContain("ev.preventDefault()");
   });
 });
+
+// ── 9.15b — liens toujours absolus (retour owner : file:///C:/.../transfers) ─
+describe("downloadPage — 9.15b liens absolus", () => {
+  it("un lien d'entrée sans schéma est rendu ABSOLU (https://) dans le href ET la liste du moteur", () => {
+    const html = buildDownloadPage({
+      title: "Test schéma",
+      entries: [{ label: "Épisode 1", url: "dash2.exemple.com/api/media/download/tok1", sizeMB: 10 }]
+    });
+    expect(html).toContain('href="https://dash2.exemple.com/api/media/download/tok1"');
+    // href + liste JSON du « Tout télécharger » : l'URL absolutisée apparaît 2 fois
+    expect(html.match(/https:\/\/dash2\.exemple\.com\/api\/media\/download\/tok1/g)!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("un lien déjà absolu passe inchangé (aucune double négociation)", () => {
+    const html = buildDownloadPage({
+      title: "Test schéma 2",
+      entries: [{ label: "Épisode 1", url: "https://bot.example.com/api/dl/ok1" }]
+    });
+    expect(html).toContain('href="https://bot.example.com/api/dl/ok1"');
+    expect(html).not.toContain("https://https://");
+  });
+});
