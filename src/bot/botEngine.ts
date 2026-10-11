@@ -44,6 +44,8 @@ import { hasPendingLanguageConfirm, bareLanguageAnswer } from "./commands/novabo
 import { bareYtvChoiceAnswer, hasPendingYtvChoice } from "./commands/ytvideo.js";
 import { checkAsrBudget, chargeAsrBudget, isAsrEnabled, transcribeVoiceNote } from "./services/voiceTranscribe.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "./services/animeChoices.js";
+import { isBannedUser, touchGroup, touchUser } from "./userDirectory.js";
+import { setAnnounceSender } from "./services/announcementService.js";
 
 
 const groupMetadataCache = new Map<string, { data: any; timestamp: number }>();
@@ -576,6 +578,12 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           }
         });
         startDigestScheduler();
+
+        // 9.16 — annonces du dashboard : sender réinjecté à chaque
+        // (re)connexion, même pattern que le digest et le watcher.
+        setAnnounceSender(async (jid, text) => {
+          await sock.sendMessage(jid, { text });
+        });
       }
 
       if (connection === "close") {
@@ -790,7 +798,19 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
               const senderParticipant = groupMetadata.participants.find((p: any) => p.id.split("@")[0] === actualSenderNumber);
               isSenderAdmin = senderParticipant?.admin === "admin" || senderParticipant?.admin === "superadmin";
             }
+            // 9.16 — répertoire : le groupe est connu dès son premier message.
+            touchGroup(senderJid, { name: groupMetadata?.subject });
           } catch (e) {}
+        }
+
+        // 9.16 — répertoire utilisateurs : chaque message (hors échos du bot)
+        // rafraîchit fiche, compteurs et dernier contact. Un banni est
+        // ignoré par TOUT le moteur ; le propriétaire ne peut jamais l'être.
+        if (!isFromMe) {
+          touchUser(actualSenderJid, { name: msg.pushName || "" });
+          if (!isOwner && isBannedUser(actualSenderJid)) {
+            continue;
+          }
         }
 
         // Moderation hooks (antilink/antitag/antibot) were removed with the

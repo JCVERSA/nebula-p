@@ -19,6 +19,7 @@ import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import { getCommand, suggestClosestCommand } from "./commandRegistry.js";
 import { BotCommandContext, GroupMember } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
+import { recordCommandUse } from "./userDirectory.js";
 import { authorizeCommand, resolveRole } from "./accessControl.js";
 import { getGroupPolicy } from "./groupAccessStore.js";
 import { recordAudit } from "./auditTrail.js";
@@ -290,6 +291,9 @@ export async function dispatchBotCommand(
 
   try {
     incrementCommandStats(commandName);
+    // 9.16 — répertoire utilisateurs : compte les commandes exécutées
+    // (après RoleGuard — un refus n'est pas un usage).
+    recordCommandUse(info.actorJid, commandName);
     await command.execute(sock, msg, context);
     outcome.ok = true;
   } catch (err: any) {

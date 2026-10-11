@@ -37,8 +37,6 @@ import {
   ExternalLink,
   RotateCcw,
   Shield,
-  Package,
-  Radio,
 } from "lucide-react";
 
 import {
@@ -70,6 +68,8 @@ import AccessControlPanel from "./components/AccessControlPanel";
 import SecurityExtras from "./components/SecurityExtras";
 import BotsPanel from "./components/BotsPanel";
 import SystemPanel from "./components/SystemPanel";
+import UsersPanel from "./components/UsersPanel";
+import AnnouncementsPanel from "./components/AnnouncementsPanel";
 import { ActiveBotProvider } from "./lib/botContext";
 import { withBotParam } from "./lib/botSelection";
 import SpotlightCard from "./components/SpotlightCard";
@@ -472,49 +472,7 @@ export default function App() {
 
 
   // Group Tools
-  const [broadcastText, setBroadcastText] = useState<string>("");
-  const [isBroadcasting, setIsBroadcasting] = useState<boolean>(false);
-  const [broadcastStatus, setBroadcastStatus] = useState<string | null>(null);
 
-
-  // Project ZIP as text (for environments where file downloads are blocked)
-  const [zipB64, setZipB64] = useState<string>("");
-  const [zipB64Loading, setZipB64Loading] = useState(false);
-  const [zipB64Copied, setZipB64Copied] = useState(false);
-  const zipB64Ref = useRef<HTMLTextAreaElement | null>(null);
-
-  const loadZipAsBase64 = async () => {
-    setZipB64Loading(true);
-    try {
-      const res = await fetch("/nebula-bot-latest.zip");
-      if (!res.ok) throw new Error("Archive not available");
-      const buf = new Uint8Array(await res.arrayBuffer());
-      let binary = "";
-      const chunk = 0x8000;
-      for (let i = 0; i < buf.length; i += chunk) {
-        binary += String.fromCharCode(...buf.subarray(i, i + chunk));
-      }
-      setZipB64(btoa(binary));
-    } catch (e: any) {
-      setZipB64(`ERROR: ${e.message || e}`);
-    } finally {
-      setZipB64Loading(false);
-    }
-  };
-
-  const copyZipB64 = async () => {
-    const text = zipB64Ref.current?.value ?? zipB64;
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setZipB64Copied(true);
-    } catch {
-      zipB64Ref.current?.select();
-      document.execCommand("copy");
-      setZipB64Copied(true);
-    }
-    setTimeout(() => setZipB64Copied(false), 2000);
-  };
 
   // ------------------------------------------------------------- data fetch
   const [isSyncingSession, setIsSyncingSession] = useState(false);
@@ -1007,31 +965,6 @@ export default function App() {
       addSystemLog(`❌ Gemini error: ${err.message || err}`);
     } finally {
       setIsTestingGemini(false);
-    }
-  };
-
-  const sendGroupBroadcast = async () => {
-    if (!broadcastText.trim()) return;
-    setIsBroadcasting(true);
-    setBroadcastStatus(null);
-    addSystemLog(`📢 Dispatching broadcast message: "${broadcastText.slice(0, 30)}..."`);
-    try {
-      const res = await fetch(botUrl("/api/bot/chat"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: `.broadcast ${broadcastText.trim()}`,
-          sender: "Admin-Broadcaster",
-        }),
-      });
-      const data = await res.json();
-      setBroadcastStatus(data.reply || "✅ Broadcast successfully queued and dispatched to active group chats!");
-      setBroadcastText("");
-      addSystemLog("✅ Broadcast sent to all groups.");
-    } catch (err: any) {
-      setBroadcastStatus(`❌ Broadcast failed: ${err.message || "Network error"}`);
-    } finally {
-      setIsBroadcasting(false);
     }
   };
 
@@ -1888,7 +1821,33 @@ export default function App() {
                 {activeTab === "bots" && (
                   <BotsPanel activeBotId={activeBotId} onSelectBot={setActiveBotId} />
                 )}
-                {activeTab === "system" && <SystemPanel />}
+                {/* 9.16 : Système absorbe Diagnostics + Export (décision owner) */}
+                {activeTab === "system" && (
+                  <div className="space-y-6">
+                    <SystemPanel />
+                    <SystemDiagnostics />
+
+                    {/* Export — carte compacte (ancien onglet, 9.16) */}
+                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                          <FileDown className="w-4 h-4 text-amber-400" />
+                          Export du projet
+                        </h3>
+                        <p className="text-xs text-zinc-400 max-w-xl leading-relaxed">
+                          Archive ZIP complète du bot (source, tests, CI, README) — sauvegarde ou migration vers une autre machine.
+                        </p>
+                      </div>
+                      <a
+                        href="/nebula-bot-latest.zip"
+                        className="shrink-0 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-md cursor-pointer"
+                      >
+                        <FileDown className="w-4 h-4" />
+                        Télécharger le ZIP
+                      </a>
+                    </div>
+                  </div>
+                )}
 
                 {/* ============================================================ OVERVIEW */}
                 {activeTab === "overview" && (
@@ -3029,6 +2988,80 @@ export default function App() {
               {/* ============================================================ ANALYTICS */}
               {activeTab === "analytics" && (
                 <div className="space-y-6">
+                  {/* 9.16 : l'onglet Gemini AI est fusionné ici (décision owner) —
+                      statut des clés + playground de test en tête d'Analytics. */}
+                  <div className="bg-gradient-to-r from-[#141416] via-[#0e0e10] to-black border border-white/10 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                        <Sparkles className="w-7 h-7" />
+                      </div>
+                      <div className="space-y-1">
+                        <h2 className="text-xl font-bold text-white tracking-tight">Nebula AI Engine</h2>
+                        <p className="text-xs text-zinc-400 max-w-xl">
+                          Réponses en langage naturel, notes vocales et transcription pour WhatsApp.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                      <span className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                        secretStatus?.configured
+                          ? "bg-emerald-950/60 border-emerald-800/80 text-emerald-400"
+                          : "bg-zinc-900/60 border-zinc-700/80 text-zinc-400"
+                      }`}>
+                        <KeyRound className="w-3.5 h-3.5" />
+                        {secretStatus?.configured ? `Gemini ${secretStatus.masked || "configured"}` : "Gemini not set"}
+                      </span>
+                      <span className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                        nimSecretStatus?.configured
+                          ? "bg-emerald-950/60 border-emerald-800/80 text-emerald-400"
+                          : "bg-zinc-900/60 border-zinc-700/80 text-zinc-400"
+                      }`}>
+                        <KeyRound className="w-3.5 h-3.5" />
+                        {nimSecretStatus?.configured ? `NIM ${nimSecretStatus.masked || "configured"}` : "NIM not set"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <Card
+                    title="Test rapide de l'IA (playground)"
+                    icon={Sparkles}
+                    action={
+                      <button
+                        onClick={testGeminiPlayground}
+                        disabled={isTestingGemini || !geminiPlaygroundPrompt.trim()}
+                        className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                      >
+                        {isTestingGemini ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                        Exécuter
+                      </button>
+                    }
+                  >
+                    <div className="space-y-4">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={geminiPlaygroundPrompt}
+                          onChange={(e) => setGeminiPlaygroundPrompt(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && testGeminiPlayground()}
+                          placeholder="Ex. écris un haïku sur un bot WhatsApp…"
+                          className="flex-1 px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 font-medium"
+                        />
+                      </div>
+                      <div className="p-4 bg-black border border-white/10 rounded-xl min-h-[100px] max-h-[250px] overflow-y-auto font-mono text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap select-text">
+                        {isTestingGemini ? (
+                          <div className="flex items-center gap-2 text-amber-400 py-4 justify-center">
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            <span>Génération en cours…</span>
+                          </div>
+                        ) : geminiPlaygroundOutput ? (
+                          geminiPlaygroundOutput
+                        ) : (
+                          <span className="text-zinc-600 italic">La réponse de l'IA s'affichera ici.</span>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                     <Card title="Command Frequencies" icon={BarChart3} action={
                       <span className="px-2.5 py-1 bg-emerald-950/40 border border-emerald-800/80 rounded-lg text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
@@ -3170,318 +3203,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* ============================================================ SYSTEM DIAGNOSTICS */}
-              {activeTab === "diagnostics" && (
-                <SystemDiagnostics />
-              )}
-
-              {/* ============================================================ GEMINI COGNITIVE AI */}
-              {activeTab === "gemini" && (
-                <div className="space-y-6">
-                  {/* Hero AI Header */}
-                  <div className="bg-gradient-to-r from-[#141416] via-[#0e0e10] to-black border border-white/10 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
-                    <div className="flex items-center gap-4">
-                      <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-400">
-                        <Sparkles className="w-7 h-7" />
-                      </div>
-                      <div className="space-y-1">
-                        <h2 className="text-xl font-bold text-white tracking-tight">Nebula AI Engine</h2>
-                        <p className="text-xs text-zinc-400 max-w-xl">
-                          Autonomous natural language answering, voice conversations and live speech transcription for WhatsApp.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap justify-end">
-                      <span className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
-                        secretStatus?.configured
-                          ? "bg-emerald-950/60 border-emerald-800/80 text-emerald-400"
-                          : "bg-zinc-900/60 border-zinc-700/80 text-zinc-400"
-                      }`}>
-                        <KeyRound className="w-3.5 h-3.5" />
-                        {secretStatus?.configured ? `Gemini ${secretStatus.masked || "configured"}` : "Gemini not set"}
-                      </span>
-                      <span className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
-                        nimSecretStatus?.configured
-                          ? "bg-emerald-950/60 border-emerald-800/80 text-emerald-400"
-                          : "bg-zinc-900/60 border-zinc-700/80 text-zinc-400"
-                      }`}>
-                        <KeyRound className="w-3.5 h-3.5" />
-                        {nimSecretStatus?.configured ? `NIM ${nimSecretStatus.masked || "configured"}` : "NIM not set"}
-                      </span>
-                    </div>
-                  </div>
-
-                    {/* Interactive Prompt Playground */}
-                    <div className="space-y-6">
-                      <Card
-                        title="Interactive AI Prompt Playground"
-                        icon={Sparkles}
-                        action={
-                          <button
-                            onClick={testGeminiPlayground}
-                            disabled={isTestingGemini || !geminiPlaygroundPrompt.trim()}
-                            className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
-                          >
-                            {isTestingGemini ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                            Execute Prompt
-                          </button>
-                        }
-                      >
-                        <div className="space-y-4">
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-zinc-300">Test Prompt</label>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={geminiPlaygroundPrompt}
-                                onChange={(e) => setGeminiPlaygroundPrompt(e.target.value)}
-                                onKeyDown={(e) => e.key === "Enter" && testGeminiPlayground()}
-                                placeholder="e.g. Write a quick haiku about WhatsApp automation bots..."
-                                className="flex-1 px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 font-medium"
-                              />
-                            </div>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-zinc-300">Model Output Stream</label>
-                            <div className="p-4 bg-black border border-white/10 rounded-xl min-h-[180px] max-h-[300px] overflow-y-auto font-mono text-xs text-zinc-200 leading-relaxed whitespace-pre-wrap select-text">
-                              {isTestingGemini ? (
-                                <div className="flex items-center gap-2 text-amber-400 py-6 justify-center">
-                                  <RefreshCw className="w-4 h-4 animate-spin" />
-                                  <span>Generating AI response...</span>
-                                </div>
-                              ) : geminiPlaygroundOutput ? (
-                                geminiPlaygroundOutput
-                              ) : (
-                                <span className="text-zinc-600 italic">Output from Gemini inference will stream here in real-time.</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </Card>
-
-                    </div>
-                </div>
-              )}
-
-              {/* ============================================================ PLUGINS MATRIX */}
-              {activeTab === "plugins" && (
-                <div className="space-y-6">
-                  {/* 8.92 : cette page affichait 8 « plugins » simulés (latences,
-                      auteurs et toggles fictifs). Elle montre désormais l'état
-                      RÉEL du moteur, lu depuis les APIs existantes. */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-[#0b0b0c] border border-white/10 p-5 rounded-2xl">
-                    <div className="space-y-1">
-                      <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                        <Package className="w-5 h-5 text-amber-400" />
-                        Engine Capabilities
-                      </h2>
-                      <p className="text-xs text-zinc-400">
-                        Live state of the engine, read from the bot APIs — nothing simulated.
-                      </p>
-                    </div>
-                    <span className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
-                      status === "connected"
-                        ? "bg-emerald-950/60 border-emerald-800/80 text-emerald-400"
-                        : "bg-amber-950/60 border-amber-800/80 text-amber-400"
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${status === "connected" ? "bg-emerald-400" : "bg-amber-400"}`} />
-                      {status === "connected" ? "Engine Online" : "Engine Offline"}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {/* Socket WhatsApp */}
-                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                            <Bot className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-white text-sm tracking-tight">WhatsApp Socket</h4>
-                            <span className="text-[11px] text-zinc-500 font-mono">@whiskeysockets/baileys</span>
-                          </div>
-                        </div>
-                        <p className="text-xs text-zinc-400 leading-relaxed">
-                          Multi-device WebSocket transport with auto-reconnect and session persistence.
-                        </p>
-                      </div>
-                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span className="truncate">{config.botName}</span>
-                        <span className={`font-semibold ${status === "connected" ? "text-emerald-400" : "text-zinc-500"}`}>
-                          {status === "connected" ? "Connected" : status === "qr_ready" ? "QR ready" : status === "connecting" ? "Connecting" : "Offline"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Registre de commandes */}
-                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                            <Terminal className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-white text-sm tracking-tight">Command Registry</h4>
-                            <span className="text-[11px] text-zinc-500 font-mono">hot-reloadable</span>
-                          </div>
-                        </div>
-                        <p className="text-xs text-zinc-400 leading-relaxed">
-                          Registered commands, editable live from the Commands tab.
-                        </p>
-                      </div>
-                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span className="truncate">
-                          {CATEGORY_LIST.filter(c => c !== "All").map(c => `${commands.filter(cmd => commandMatchesCategory(cmd, c)).length} ${c}`).slice(0, 2).join(" · ")}
-                        </span>
-                        <span className="font-semibold text-amber-400">{commands.length} total</span>
-                      </div>
-                    </div>
-
-                    {/* Clé Gemini */}
-                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                            <Sparkles className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-white text-sm tracking-tight">Gemini AI</h4>
-                            <span className="text-[11px] text-zinc-500 font-mono">GEMINI_API_KEY</span>
-                          </div>
-                        </div>
-                        <p className="text-xs text-zinc-400 leading-relaxed">
-                          Conversational answers and voice features for WhatsApp.
-                        </p>
-                      </div>
-                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span className="truncate">{secretStatus?.configured ? secretStatus.masked || "configured" : "not configured"}</span>
-                        <span className={`font-semibold ${secretStatus?.configured ? "text-emerald-400" : "text-zinc-500"}`}>
-                          {secretStatus?.configured ? "Active" : "Off"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Clé NVIDIA NIM */}
-                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                            <Cpu className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-white text-sm tracking-tight">NVIDIA NIM AI</h4>
-                            <span className="text-[11px] text-zinc-500 font-mono">NVIDIA_NIM_API_KEY</span>
-                          </div>
-                        </div>
-                        <p className="text-xs text-zinc-400 leading-relaxed">
-                          AI fallback when Gemini is unavailable.
-                        </p>
-                      </div>
-                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span className="truncate">{nimSecretStatus?.configured ? nimSecretStatus.masked || "configured" : "not configured"}</span>
-                        <span className={`font-semibold ${nimSecretStatus?.configured ? "text-emerald-400" : "text-zinc-500"}`}>
-                          {nimSecretStatus?.configured ? "Active" : "Off"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Owner */}
-                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                            <Shield className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-white text-sm tracking-tight">Owner Access</h4>
-                            <span className="text-[11px] text-zinc-500 font-mono">OWNER_NUMBER</span>
-                          </div>
-                        </div>
-                        <p className="text-xs text-zinc-400 leading-relaxed">
-                          The only number authorized to run administrative commands.
-                        </p>
-                      </div>
-                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span className="truncate">{config.ownerNumber || "not configured"}</span>
-                        <span className={`font-semibold ${ownerSecretStatus?.configured ? "text-emerald-400" : "text-zinc-500"}`}>
-                          {ownerSecretStatus?.configured ? "Set" : "Off"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Voix & transcription */}
-                    <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5 space-y-3 flex flex-col justify-between">
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                            <Mic className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-white text-sm tracking-tight">Voice & Transcription</h4>
-                            <span className="text-[11px] text-zinc-500 font-mono">/api/gemini/*</span>
-                          </div>
-                        </div>
-                        <p className="text-xs text-zinc-400 leading-relaxed">
-                          Microphone transcription and voice replies, powered by the configured AI key.
-                        </p>
-                      </div>
-                      <div className="pt-3 border-t border-white/5 flex items-center justify-between text-[11px] text-zinc-500">
-                        <span>Requires an AI key</span>
-                        <span className={`font-semibold ${secretStatus?.configured || nimSecretStatus?.configured ? "text-emerald-400" : "text-zinc-500"}`}>
-                          {secretStatus?.configured || nimSecretStatus?.configured ? "Ready" : "Off"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ============================================================ GROUPS TOOL */}
-              {activeTab === "groups" && (
-                <div className="space-y-6">
-                  {/* Group Broadcast Card */}
-                  <Card title="Instant Group Broadcast System" icon={Radio}>
-                    <div className="space-y-4">
-                      <p className="text-xs text-zinc-400 leading-relaxed">
-                        Send an urgent announcement or newsletter update to all active WhatsApp groups where the bot is a member.
-                      </p>
-
-                      <div className="space-y-2">
-                        <textarea
-                          value={broadcastText}
-                          onChange={(e) => setBroadcastText(e.target.value)}
-                          rows={3}
-                          className="w-full px-3.5 py-2.5 bg-black border border-white/10 rounded-xl text-xs text-white focus:outline-none focus:border-amber-400 placeholder-zinc-600 resize-none font-sans"
-                          placeholder="Type announcement message to broadcast to all group chats..."
-                        />
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-zinc-500">
-                            {broadcastText.length} characters
-                          </span>
-                          <button
-                            onClick={sendGroupBroadcast}
-                            disabled={isBroadcasting || !broadcastText.trim()}
-                            className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition shadow-md flex items-center gap-2 cursor-pointer"
-                          >
-                            {isBroadcasting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                            Dispatch Broadcast
-                          </button>
-                        </div>
-                      </div>
-
-                      {broadcastStatus && (
-                        <div className="p-3 bg-white/5 border border-white/10 rounded-xl text-xs text-amber-300 font-medium">
-                          {broadcastStatus}
-                        </div>
-                      )}
-                    </div>
-                  </Card>
-
-                </div>
-              )}
-
               {/* ============================================================ SECURITY */}
               {activeTab === "security" && (
                 <div className="space-y-6">
@@ -3494,45 +3215,13 @@ export default function App() {
                 </div>
               )}
 
+              {/* ============================================================ UTILISATEURS (9.16) */}
+              {activeTab === "users" && <UsersPanel />}
+
+              {/* ============================================================ ANNONCES (9.16 — absorbe Group Tools) */}
+              {activeTab === "announcements" && <AnnouncementsPanel />}
+
               {/* ============================================================ SECRETS VAULT */}
-              {/* ============================================================ DOCS */}
-              {activeTab === "docs" && (
-                <div className="space-y-6">
-                  <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-6 shadow-xl space-y-4">
-                    <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                      <BookOpen className="w-5 h-5 text-amber-400" />
-                      Baileys Multi-Device REST &amp; Socket API Reference
-                    </h2>
-                    <p className="text-xs text-zinc-400 leading-relaxed">
-                      Complete endpoint specifications and architectural instructions for interacting with the Nebula WhatsApp Bot server.
-                    </p>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                      {[
-                        { method: "GET", path: "/api/bot/status", desc: "Retrieve active connection state, QR code status, and system logs." },
-                        { method: "POST", path: "/api/bot/pair-code", desc: "Request an 8-digit Baileys multi-device pairing code for a phone number." },
-                        { method: "POST", path: "/api/bot/chat", desc: "Dispatch simulated message or trigger automated command pipelines." },
-                        { method: "POST", path: "/api/bot/clear-auth", desc: "Purge session directory to resolve authentication and socket conflicts." },
-                        { method: "GET", path: "/api/bot/commands", desc: "Enumerate all active command definitions and usage metadata." },
-                        { method: "POST", path: "/api/bot/config", desc: "Update bot prefix, owner number, bot name, and newsletter preferences." },
-                      ].map((ep) => (
-                        <div key={ep.path} className="p-4 bg-black/40 border border-white/10 rounded-xl space-y-1.5">
-                          <div className="flex items-center gap-2 font-mono text-xs">
-                            <span className={`px-2 py-0.5 rounded font-bold text-[11px] ${
-                              ep.method === "POST" ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                            }`}>
-                              {ep.method}
-                            </span>
-                            <span className="text-white font-semibold">{ep.path}</span>
-                          </div>
-                          <p className="text-xs text-zinc-400">{ep.desc}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* ============================================================ LOGS */}
               {activeTab === "logs" && (() => {
                 const getLogCategory = (log: string): string => {
@@ -3658,124 +3347,6 @@ export default function App() {
                   </Card>
                 );
               })()}
-
-              {/* ============================================================ EXPORT */}
-              {activeTab === "export" && (
-                <div className="space-y-6">
-                  <div className="bg-gradient-to-r from-zinc-900 via-[#141416] to-black border border-amber-500/30 rounded-2xl p-8 text-white shadow-xl shadow-amber-500/5 flex flex-col md:flex-row items-center justify-between gap-6">
-                    <div className="space-y-2 text-center md:text-left max-w-lg">
-                      <div className="flex items-center gap-2 justify-center md:justify-start">
-                        <span className="px-2.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-[11px] font-bold text-amber-400 uppercase tracking-wider">Production Standalone</span>
-                      </div>
-                      <h3 className="font-extrabold text-xl text-white">Run Nebula Bot Locally</h3>
-                      <p className="text-xs text-zinc-300 leading-relaxed">
-                        Export your current configuration, commands and runtime into a self-contained Node package — with automatic QR output, session handling, and all dependencies listed.
-                      </p>
-                    </div>
-                    <a
-                      href={botUrl("/api/bot/download-zip")}
-                      className="px-6 py-3 bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-sm rounded-xl flex items-center gap-2 transition shadow-lg shadow-amber-500/10 whitespace-nowrap cursor-pointer"
-                    >
-                      <FileDown className="w-4 h-4" />
-                      Download Complete ZIP
-                    </a>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {[
-                      { n: "01", t: "Extract & Install", d: "Unzip the package, run npm install in the folder." },
-                      { n: "02", t: "Set API Keys", d: "Edit the generated .env with your GEMINI_API_KEY (never shared automatically)." },
-                      { n: "03", t: "Launch & Link", d: "npm start prints a QR code — scan it with Linked Devices on your phone." },
-                    ].map((step) => (
-                      <div key={step.n} className="bg-[#0b0b0c] border border-white/10 rounded-xl p-5 shadow-sm space-y-2 hover:border-white/20 transition-all">
-                        <div className="text-2xl font-extrabold text-amber-400 font-mono">{step.n}</div>
-                        <h5 className="font-bold text-white text-sm">{step.t}</h5>
-                        <p className="text-xs text-zinc-400 leading-relaxed">{step.d}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <Card title="Download Full Project Source" icon={FileDown}>
-                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                      <p className="text-xs text-zinc-400 leading-relaxed max-w-xl">
-                        Grab the complete Nebula Bot project as a ZIP — full source code, tests, configs, CI workflow and
-                        README, ready to run with <code className="bg-black text-amber-300 px-1.5 py-0.5 rounded border border-white/10 font-mono">npm install</code>. Ideal
-                        for backups or moving the project to another machine.
-                      </p>
-                      <a
-                        href="/nebula-bot-latest.zip"
-                        className="shrink-0 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-md cursor-pointer"
-                      >
-                        <FileDown className="w-4 h-4" />
-                        Download Project ZIP
-                      </a>
-                    </div>
-                  </Card>
-
-                  <Card title="Downloads blocked? Copy the project as text" icon={Copy}>
-                    <div className="space-y-3">
-                      <p className="text-xs text-zinc-400 leading-relaxed">
-                        If your browser blocks the file download (some preview environments do), encode the ZIP as
-                        base64 text, copy it, then decode it locally:
-                      </p>
-                      <ol className="text-xs text-zinc-400 list-decimal list-inside space-y-1.5">
-                        <li>Click <b>Encode as Base64</b> below</li>
-                        <li>Click <b>Copy</b>, then paste into a new file named <code className="bg-black text-amber-300 px-1.5 py-0.5 rounded border border-white/10 font-mono">nebula.txt</code></li>
-                        <li>Run <code className="bg-black text-amber-300 px-1.5 py-0.5 rounded border border-white/10 font-mono text-[11px]">python3 -c "import base64;open('nebula-bot-latest.zip','wb').write(base64.b64decode(open('nebula.txt').read()))"</code></li>
-                      </ol>
-                      <div className="flex gap-2 flex-wrap pt-1">
-                        <button
-                          onClick={loadZipAsBase64}
-                          disabled={zipB64Loading}
-                          className="px-4 py-2 bg-white/10 hover:bg-white/20 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-                        >
-                          {zipB64Loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Code2 className="w-3.5 h-3.5 text-amber-400" />}
-                          {zipB64 ? "Re-encode" : "Encode as Base64"}
-                        </button>
-                        {zipB64 && !zipB64.startsWith("ERROR") && (
-                          <button
-                            onClick={copyZipB64}
-                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
-                          >
-                            {zipB64Copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                            {zipB64Copied ? "Copied!" : "Copy"}
-                          </button>
-                        )}
-                      </div>
-                      {zipB64 && (
-                        <textarea
-                          ref={zipB64Ref}
-                          readOnly
-                          value={zipB64}
-                          rows={7}
-                          onFocus={(e) => e.currentTarget.select()}
-                          className="w-full p-3 font-mono text-[11px] bg-black text-zinc-200 rounded-xl border border-white/10 leading-relaxed resize-y focus:outline-none focus:border-amber-400"
-                        />
-                      )}
-                      {zipB64.startsWith("ERROR") && (
-                        <p className="text-xs font-semibold text-rose-400">{zipB64}</p>
-                      )}
-                    </div>
-                  </Card>
-
-                  <Card title="What's included" icon={CheckCircle}>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {[
-                        `${commands.length} built-in commands (transpiled to CommonJS)`,
-                        "Shared runtime modules (AI client, group database)",
-                        "config.json with your current settings",
-                        "Auto-reconnect & session management",
-                        "Environment template with placeholders only",
-                        "README with quick-start instructions",
-                      ].map((item, i) => (
-                        <div key={i} className="flex items-start gap-2.5 text-xs text-zinc-300">
-                          <Check className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" /> {item}
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                </div>
-              )}
 
               {/* ============================================================ SETTINGS */}
               {activeTab === "settings" && (

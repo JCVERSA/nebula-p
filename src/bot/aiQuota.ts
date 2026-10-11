@@ -106,6 +106,15 @@ export function consumeAIQuota(sender: string): AIQuotaDecision {
   return { allowed: true, usedToday: rec.count, limit: DAILY_LIMIT };
 }
 
+/** 9.16 — remet à zéro le quota IA du jour pour un utilisateur (dashboard). */
+export function resetAIQuota(sender: string): boolean {
+  const key = sender.replace(/[^0-9a-zA-Z@.:\-_]/g, "");
+  if (!usage[key]) return false;
+  delete usage[key];
+  scheduleSave();
+  return true;
+}
+
 /** Global concurrency gate (in-house semaphore, no extra dependency). */
 let active = 0;
 const waiters: Array<() => void> = [];

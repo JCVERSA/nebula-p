@@ -6,16 +6,13 @@ import {
   QrCode,
   Terminal,
   Cpu,
-  Sparkles,
-  Package,
   Users,
+  Megaphone,
   ShieldAlert,
   Server,
   BarChart2,
   Settings,
   FileText,
-  BookOpen,
-  FileDown,
   Activity,
   RotateCcw,
   Power,
@@ -53,22 +50,19 @@ const ITEMS: DrawerItem[] = [
   { id: "connect", label: "WhatsApp Connect", icon: <QrCode size={18} />, category: "start" },
   { id: "simulator", label: "Simulator", icon: <Terminal size={18} />, category: "start" },
 
-  // Manage
+  // Manage (9.16 : Utilisateurs + Annonces remplacent Gemini/Plugins)
   { id: "commands", label: "Commands Registry", icon: <Cpu size={18} />, category: "manage" },
-  { id: "gemini", label: "Gemini AI Engine", icon: <Sparkles size={18} />, category: "manage" },
-  { id: "plugins", label: "Plugins & Scrapers", icon: <Package size={18} />, category: "manage" },
+  { id: "users", label: "Utilisateurs", icon: <Users size={18} />, category: "manage" },
+  { id: "announcements", label: "Annonces", icon: <Megaphone size={18} />, category: "manage" },
 
-  // Admin
-  { id: "groups", label: "Group Tools", icon: <Users size={18} />, category: "admin" },
+  // Admin (9.16 : Diagnostics/Group Tools absorbés — Système/Annonces)
   { id: "security", label: "Security & Antilink", icon: <ShieldAlert size={18} />, category: "admin" },
   { id: "system", label: "Système", icon: <Server size={18} />, category: "admin" },
   { id: "analytics", label: "Analytics & Usage", icon: <BarChart2 size={18} />, category: "admin" },
   { id: "settings", label: "Bot Settings", icon: <Settings size={18} />, category: "admin" },
 
-  // Developer
+  // Developer (9.16 : Documentation/Export retirés)
   { id: "logs", label: "Console Logs", icon: <FileText size={18} />, category: "dev" },
-  { id: "docs", label: "Documentation", icon: <BookOpen size={18} />, category: "dev" },
-  { id: "export", label: "Export Codebase", icon: <FileDown size={18} />, category: "dev" },
 ];
 
 export default function MobileDrawer({

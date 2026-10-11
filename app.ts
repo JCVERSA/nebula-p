@@ -39,7 +39,17 @@ import { getTempDownload, touchTempDownload, updateServerBaseUrl, cleanupExpired
 import { getGroupPolicy, setGroupPolicy, listGroupPolicies } from "./src/bot/groupAccessStore.js";
 import { DEFAULT_GROUP_POLICY } from "./src/bot/accessControl.js";
 import { getAuditEvents, clearAudit, recordAudit } from "./src/bot/auditTrail.js";
-import { getAIUsageSummary } from "./src/bot/aiQuota.js";
+import { getAIUsageSummary, resetAIQuota } from "./src/bot/aiQuota.js";
+import { resetWebQuota } from "./src/bot/webQuota.js";
+import { resetAsrBudget } from "./src/bot/services/voiceTranscribe.js";
+import { listUsers, listGroups, setUserBanned } from "./src/bot/userDirectory.js";
+import {
+  draftAnnouncement,
+  getAnnouncementHistory,
+  getAnnouncementStatus,
+  sendDirectMessage,
+  startAnnouncement,
+} from "./src/bot/services/announcementService.js";
 import { loadSubscriptions, saveSubscriptions, sanitizeWatchSubscriptions } from "./src/bot/services/episodeWatchService.js";
 import {
   getAllBatchJobs,
@@ -506,6 +516,95 @@ export function createApp(): express.Express {
   // ---------------------------------------------------------------------------
   app.get("/api/bot/analytics", (req, res) => {
     res.json({ stats: getCommandStats(), aiUsage: getAIUsageSummary() });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 9.16 — Répertoire utilisateurs + annonces (gestionnaire users, sélection
+  // DM/groupes, envoi progressif anti-ban, brouillon IA, historique).
+  // ---------------------------------------------------------------------------
+  app.get("/api/bot/users", rateLimit(30, 60_000), (_req, res) => {
+    res.json({ users: listUsers(), groups: listGroups() });
+  });
+
+  app.post("/api/bot/users/action", rateLimit(20, 60_000), async (req, res) => {
+    const jid = String(req.body?.jid || "").trim();
+    const action = String(req.body?.action || "").trim();
+    if (!jid || !/^[0-9a-zA-Z@.:_-]+$/.test(jid)) {
+      res.status(400).json({ error: "jid invalide" });
+      return;
+    }
+    // Garde propriétaire : OWNER_NUMBER ne peut jamais être banni (par jid
+    // téléphone — la porte moteur bypass en plus tout ban pour l'owner).
+    const ownerDigits = String(process.env.OWNER_NUMBER || getConfig().ownerNumber || "").replace(/[^0-9]/g, "");
+    const jidDigits = jid.split("@")[0].replace(/[^0-9]/g, "");
+    if (ownerDigits && ownerDigits === jidDigits) {
+      res.status(400).json({ error: "le propriétaire ne peut pas être banni" });
+      return;
+    }
+    if (action === "ban" || action === "unban") {
+      const ok = setUserBanned(jid, action === "ban");
+      if (!ok) {
+        res.status(404).json({ error: "utilisateur inconnu du répertoire" });
+        return;
+      }
+      recordAudit("panel", action === "ban" ? "user.ban" : "user.unban", jid, action === "ban" ? "banni depuis le dashboard" : "réhabilité depuis le dashboard");
+      res.json({ ok: true, banned: action === "ban" });
+      return;
+    }
+    if (action === "reset-quota") {
+      const resetAI = resetAIQuota(jid);
+      const resetWeb = resetWebQuota(jid);
+      const resetASR = resetAsrBudget(jid);
+      recordAudit("panel", "user.reset-quota", jid, "quotas IA/web/vocal remis à zéro");
+      res.json({ ok: true, reset: { ai: resetAI, web: resetWeb, asr: resetASR } });
+      return;
+    }
+    if (action === "dm") {
+      const text = String(req.body?.text || "").trim();
+      if (!text || text.length > 4000) {
+        res.status(400).json({ error: "message vide ou trop long (max 4000)" });
+        return;
+      }
+      try {
+        await sendDirectMessage(jid, text);
+        recordAudit("panel", "user.dm", jid, "DM envoyé depuis le dashboard");
+        res.json({ ok: true });
+      } catch (err: any) {
+        res.status(503).json({ error: err?.message || "envoi impossible" });
+      }
+      return;
+    }
+    res.status(400).json({ error: "action inconnue (ban|unban|reset-quota|dm)" });
+  });
+
+  app.post("/api/bot/announce", rateLimit(5, 60_000), (req, res) => {
+    const text = String(req.body?.text || "");
+    const targets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+    const result = startAnnouncement(text, targets);
+    if (!result.ok) {
+      res.status(result.error.includes("en cours") ? 409 : 400).json({ error: result.error });
+      return;
+    }
+    recordAudit("panel", "announce.start", result.id, `${result.total} destinataire(s)`);
+    res.json({ ok: true, id: result.id, total: result.total });
+  });
+
+  app.get("/api/bot/announce/status", rateLimit(30, 60_000), (_req, res) => {
+    res.json({ job: getAnnouncementStatus(), history: getAnnouncementHistory() });
+  });
+
+  app.post("/api/bot/announce/draft", rateLimit(10, 60_000), async (req, res) => {
+    const idea = String(req.body?.idea || "");
+    if (!isAIEngineConfigured()) {
+      res.status(503).json({ error: "aucune clé IA configurée (Gemini ou NIM)" });
+      return;
+    }
+    const result = await draftAnnouncement(idea, (prompt) => generateTextWithFallback(prompt));
+    if (!result.ok) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json({ ok: true, text: result.text });
   });
 
   // ---------------------------------------------------------------------------

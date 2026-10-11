@@ -33,17 +33,13 @@ const TAB_TITLES: Record<NavTab, string> = {
   connect: "WhatsApp Connect",
   commands: "Commands Registry",
   simulator: "Bot Simulator",
-  gemini: "Gemini AI",
-  plugins: "Plugins",
-  groups: "Group Tools",
+  users: "Utilisateurs",
+  announcements: "Annonces",
   security: "Security & Antilink",
   system: "Système",
   analytics: "Usage & Analytics",
-  diagnostics: "System Diagnostics",
   logs: "System Logs",
   settings: "Settings",
-  docs: "Documentation",
-  export: "Export Package",
 };
 
 export default function Topbar({

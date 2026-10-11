@@ -203,3 +203,10 @@ export async function transcribeVoiceNote(input: Buffer, options: AsrOptions = {
 export function chargeAsrBudget(user: string): void {
   recordAsrUse(user);
 }
+
+/** 9.16 — remet à zéro le budget ASR d'un utilisateur (dashboard). */
+export function resetAsrBudget(user: string): boolean {
+  if (!asrUse.has(user)) return false;
+  asrUse.delete(user);
+  return true;
+}

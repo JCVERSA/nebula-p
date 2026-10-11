@@ -93,3 +93,11 @@ export function consumeWebQuota(sender: string): void {
   recordFor(sender).count += 1;
   scheduleSave();
 }
+
+/** 9.16 — remet à zéro le quota web du jour pour un utilisateur (dashboard). */
+export function resetWebQuota(sender: string): boolean {
+  if (!usage[sender]) return false;
+  delete usage[sender];
+  scheduleSave();
+  return true;
+}

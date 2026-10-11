@@ -23,6 +23,15 @@ const NORMAL_RESPONSES: Record<string, unknown> = {
     { name: "help", category: "General", description: "Help", usage: "help <cmd>", aliases: ["h"] },
   ],
   "/api/bot/analytics": { stats: { menu: 5, ping: 3 } },
+  "/api/bot/users": {
+    users: [
+      { jid: "237600000001@s.whatsapp.net", name: "Test User", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 12, commandCount: 3, lastCommand: "menu", banned: false },
+    ],
+    groups: [
+      { jid: "120363000000000000@g.us", name: "Groupe Test", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 40 },
+    ],
+  },
+  "/api/bot/announce/status": { job: null, history: [] },
   "/api/bot/secrets": { secrets: [{ name: "GEMINI_API_KEY", configured: false, masked: null }] },
   "/api/auth/me": { authenticated: true },
   "/api/bot/access": {
@@ -93,8 +102,14 @@ describe("Nebula dashboard UI", () => {
     await clickNav("Console Logs");
     await waitFor(() => expect(screen.getByText("Engine Console Output")).toBeTruthy());
 
-    await clickNav("Export");
-    await waitFor(() => expect(screen.getByText(/Run Nebula Bot Locally/)).toBeTruthy());
+    await clickNav("Utilisateurs");
+    await waitFor(() => expect(screen.getByText("Utilisateurs connus")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+    expect(screen.getAllByText(/237600000001/).length).toBeGreaterThan(0);
+
+    await clickNav("Annonces");
+    await waitFor(() => expect(screen.getByText("Rédiger l'annonce")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Groupe Test")).toBeTruthy());
 
     await clickNav("Settings");
     await waitFor(() => expect(screen.getByText("Bot Parameters")).toBeTruthy());

@@ -5,40 +5,38 @@ import {
   QrCode,
   Terminal,
   Cpu,
-  Package,
   Users,
+  Megaphone,
   ShieldAlert,
   Server,
   BarChart2,
   Settings,
   FileText,
-  BookOpen,
-  FileDown,
   PanelLeftClose,
   PanelLeft,
-  Sparkles,
-  Activity,
 } from "lucide-react";
 import { ConnectionStatus } from "../lib/types";
 import NebulaMark from "./NebulaMark";
 
+/**
+ * 9.16 — sidebar épurée sur décision owner : Plugins, Gemini AI (→ fusionné
+ * dans Analytics), Documentation, Export (→ bouton dans Système), Group
+ * Tools (→ absorbé par Annonces) et System Diagnostics (→ fusionné dans
+ * Système) retirés ; Utilisateurs et Annonces ajoutés. 16 → 11 onglets.
+ */
 export type NavTab =
   | "overview"
   | "bots"
   | "connect"
-  | "commands"
   | "simulator"
-  | "gemini"
-  | "plugins"
-  | "groups"
+  | "commands"
+  | "users"
+  | "announcements"
   | "security"
   | "system"
   | "analytics"
-  | "diagnostics"
   | "logs"
-  | "settings"
-  | "docs"
-  | "export";
+  | "settings";
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -220,18 +218,18 @@ export default function Sidebar({
               onClick={() => setActiveTab("commands")}
             />
             <NavItem
-              icon={<Sparkles size={16} />}
-              label="Gemini AI"
-              active={activeTab === "gemini"}
+              icon={<Users size={16} />}
+              label="Utilisateurs"
+              active={activeTab === "users"}
               collapsed={collapsed}
-              onClick={() => setActiveTab("gemini")}
+              onClick={() => setActiveTab("users")}
             />
             <NavItem
-              icon={<Package size={16} />}
-              label="Plugins"
-              active={activeTab === "plugins"}
+              icon={<Megaphone size={16} />}
+              label="Annonces"
+              active={activeTab === "announcements"}
               collapsed={collapsed}
-              onClick={() => setActiveTab("plugins")}
+              onClick={() => setActiveTab("announcements")}
             />
           </div>
         </div>
@@ -239,13 +237,6 @@ export default function Sidebar({
         <div>
           <SectionLabel collapsed={collapsed}>Admin</SectionLabel>
           <div className="space-y-1">
-            <NavItem
-              icon={<Users size={16} />}
-              label="Group Tools"
-              active={activeTab === "groups"}
-              collapsed={collapsed}
-              onClick={() => setActiveTab("groups")}
-            />
             <NavItem
               icon={<ShieldAlert size={16} />}
               label="Security & Antilink"
@@ -268,13 +259,6 @@ export default function Sidebar({
               onClick={() => setActiveTab("analytics")}
             />
             <NavItem
-              icon={<Activity size={16} />}
-              label="System Diagnostics"
-              active={activeTab === "diagnostics"}
-              collapsed={collapsed}
-              onClick={() => setActiveTab("diagnostics")}
-            />
-            <NavItem
               icon={<Settings size={16} />}
               label="Settings"
               active={activeTab === "settings"}
@@ -293,20 +277,6 @@ export default function Sidebar({
               active={activeTab === "logs"}
               collapsed={collapsed}
               onClick={() => setActiveTab("logs")}
-            />
-            <NavItem
-              icon={<BookOpen size={16} />}
-              label="Documentation"
-              active={activeTab === "docs"}
-              collapsed={collapsed}
-              onClick={() => setActiveTab("docs")}
-            />
-            <NavItem
-              icon={<FileDown size={16} />}
-              label="Export"
-              active={activeTab === "export"}
-              collapsed={collapsed}
-              onClick={() => setActiveTab("export")}
             />
           </div>
         </div>
