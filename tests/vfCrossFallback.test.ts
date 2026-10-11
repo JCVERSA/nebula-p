@@ -128,9 +128,12 @@ describe("8.95b — « oui » nu routé vers la question novabox (pas l'agent)",
     expect(engine).toContain("hasPendingLanguageConfirm(senderJid)");
     expect(engine).toContain("!peekPendingConfirmation(actualSenderJid)");
     // Le routage doit précéder handleAgentMessage (le « oui » nu ne doit pas
-    // partir dans une nouvelle conversation agent).
+    // partir dans une nouvelle conversation agent). 9.13 : la branche note
+    // vocale (texte VIDE uniquement — un « oui » nu ne la franchit jamais)
+    // contient elle aussi un appel agent ; on ancre donc sur l'appel agent
+    // du chemin TEXTE, situé après la porte de langue.
     const gatePos = engine.indexOf("const bareAnswer = bareLanguageAnswer(text);");
-    const agentPos = engine.indexOf("await handleAgentMessage(");
+    const agentPos = engine.indexOf("await handleAgentMessage(", gatePos);
     expect(gatePos).toBeGreaterThan(-1);
     expect(agentPos).toBeGreaterThan(-1);
     expect(gatePos).toBeLessThan(agentPos);

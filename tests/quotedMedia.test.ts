@@ -4,7 +4,7 @@
  * seule est exposée (pas de contenu, pas de nom de fichier).
  */
 import { describe, expect, it } from "vitest";
-import { describeMessageMedia, extractQuotedMediaContent } from "../src/bot/utils/quotedMedia.js";
+import { describeMessageMedia, extractQuotedMediaContent, extractQuotedText } from "../src/bot/utils/quotedMedia.js";
 
 describe("describeMessageMedia (pur, 9.6b)", () => {
   it("média joint (caption) → how=joint avec la bonne nature", () => {
@@ -63,5 +63,24 @@ describe("describeMessageMedia (pur, 9.6b)", () => {
       },
     };
     expect(describeMessageMedia(wrappedQuoted)).toEqual({ what: "un document", how: "reply" });
+  });
+});
+
+describe("extractQuotedText (pur, 9.11 audit B4)", () => {
+  it("texte cité : conversation, texte long, légende de média", () => {
+    expect(extractQuotedText({ conversation: "https://youtu.be/x regarde ça" })).toContain("youtu.be/x");
+    expect(extractQuotedText({ extendedTextMessage: { text: "un lien https://example.com" } })).toContain("example.com");
+    expect(extractQuotedText({ imageMessage: { caption: "la vidéo dont je parle" } })).toContain("la vidéo");
+  });
+
+  it("extrait borné à 200 chars et déplie les enveloppes", () => {
+    expect(extractQuotedText({ conversation: "x".repeat(500) })!.length).toBeLessThanOrEqual(200);
+    expect(extractQuotedText({ ephemeralMessage: { message: { conversation: "enveloppé" } } })).toBe("enveloppé");
+  });
+
+  it("sans texte → null (media sans légende, vide, objets inconnus)", () => {
+    expect(extractQuotedText({ imageMessage: { mimetype: "image/jpeg" } })).toBeNull();
+    expect(extractQuotedText({})).toBeNull();
+    expect(extractQuotedText(null)).toBeNull();
   });
 });

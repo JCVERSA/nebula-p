@@ -75,6 +75,10 @@ describe("8.93 — table de risque (léger direct, lourd confirmé)", () => {
   it("purge et watch sont toujours lourdes", () => {
     expect(isHeavyAgentCommand({ name: "purge" }, [])).toBe(true);
     expect(isHeavyAgentCommand({ name: "watch" }, ["jjk"])).toBe(true);
+    // 9.11 (audit B2) : playlist YouTube = lourde (25 vidéos possibles)
+    expect(isHeavyAgentCommand({ name: "ytvideo" }, ["https://youtu.be/x?list=PL1", "playlist"])).toBe(true);
+    expect(isHeavyAgentCommand({ name: "ytvideo" }, ["<lien>", "pl"])).toBe(true);
+    expect(isHeavyAgentCommand({ name: "ytvideo" }, ["https://youtu.be/x"])).toBe(false);
   });
 
   it("commandes owner-only/admin-only = lourdes", () => {

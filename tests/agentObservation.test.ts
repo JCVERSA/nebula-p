@@ -9,6 +9,7 @@ import {
   outputLooksInteractive,
   observationContext,
   __resetObservationsForTests,
+  compactObservationTexts
 } from "../src/bot/services/agentObservation.js";
 
 const JID = "237999111222@s.whatsapp.net";
@@ -64,5 +65,39 @@ describe("mémoire par chat (TTL, cap)", () => {
 
   it("sans observation récente → null (pas de bruit dans le prompt)", () => {
     expect(observationContext(JID)).toBeNull();
+  });
+});
+
+// ── 9.13 : éco tokens — compactage des sorties répétitives ────────────────
+describe("9.13 — compactObservationTexts (éco tokens)", () => {
+  it("une progression répétitive est compactée en 5 lignes honnêtes", () => {
+    const progress = Array.from({ length: 12 }, (_, i) => `⏳ Épisode ${i + 1}/12 — 42.1 Mo · 480P · 88%`);
+    const out = compactObservationTexts([progress.join("\n")])[0];
+    const lines = out.split("\n");
+    expect(lines.length).toBe(5);
+    expect(lines[2]).toContain("lignes similaires compactées");
+    expect(lines[0]).toContain("Épisode 1/12");
+    expect(lines[4]).toContain("Épisode 12/12");
+  });
+
+  it("les écrans interactifs (courts ou non répétitifs) passent INTACTS", () => {
+    const screen = "🎬 Novabox - Sélection\n1. Jujutsu Kaisen S2\n2. One Piece\n3. Demon Slayer";
+    expect(compactObservationTexts([screen])[0]).toBe(screen);
+    // 10 lignes aux formes réellement différentes → intact (les listes de
+    // sélection ont des titres distincts, pas seulement un numéro qui change)
+    const titles = ["Jujutsu Kaisen", "One Piece", "Demon Slayer", "Spy x Family", "Vinland Saga",
+      "Mob Psycho", "Blue Lock", "Frieren", "Cyberpunk", "Dandadan"];
+    const varied = titles.map((t, i) => `${i + 1}. ${t}`);
+    expect(compactObservationTexts([varied.join("\n")])[0]).toBe(varied.join("\n"));
+  });
+
+  it("setLastObservation stocke la version compactée (intégration)", () => {
+    __resetObservationsForTests();
+    const progress = Array.from({ length: 15 }, (_, i) => `⏳ Épisode ${i + 1}/15 — 40 Mo`);
+    setLastObservation("c@g.us", "a", [progress.join("\n")]);
+    const obs = getLastObservation("c@g.us");
+    expect(obs).not.toBeNull();
+    expect(obs!.texts[0].split("\n").length).toBe(5);
+    expect(obs!.texts[0]).toContain("compactées");
   });
 });

@@ -701,6 +701,8 @@ ENV_KEYS=(
   "GEMINI_API_KEY|Clé Gemini pour l'IA (texte/image/transcription)"
   "NVIDIA_NIM_API_KEY|Clé NVIDIA NIM (nvapi-…) — IA de secours si Gemini absent/épuisé (gratuite sur build.nvidia.com)"
   "NEBULA_NIM_MODEL|Modèle NIM (défaut nvidia/nemotron-3-super-120b-a12b — l ancien llama-3.3-70b a été retiré par NVIDIA)"
+  "NEBULA_ASR_ENABLED|Mettre 0 pour couper la transcription des notes vocales vers l agent (défaut: activé dès qu une clé NIM existe)"
+  "NEBULA_ASR_MODEL|Modèle ASR NIM pour les notes vocales (défaut openai/whisper-large-v3 — copier l id exact depuis build.nvidia.com si besoin)"
   "NEBULA_AI_GEMINI_BUDGET_MS|Budget max (ms) pour les essais Gemini avant bascule vers NIM (défaut 25000)"
   "NEBULA_AI_PRIMARY|Moteur IA primaire pour le texte : gemini (défaut) ou nim — les images vont toujours à Gemini (NIM ne voit pas les images)"
   "NEBULA_AI_PERSONALITY|Remplace TOUTE la personnalité IA (system prompt) — vide = persona Nebula intégrée"

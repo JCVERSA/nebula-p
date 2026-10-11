@@ -38,6 +38,7 @@ import { effectiveDefaultSource } from "./animeSources.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "./animeChoices.js";
 import { recordAgentTurn } from "./agentMetrics.js";
 import { setLastObservation, outputLooksInteractive, observationContext } from "./agentObservation.js";
+import { suggestClosestCommand } from "../commandRegistry.js";
 import { getPrimaryAIEngine } from "../geminiClient.js";
 import type { AgentCommandOutcome } from "../commandDispatch.js";
 import {
@@ -67,6 +68,10 @@ export interface AgentMessageInfo {
   prefix: string;
   /** 9.6b — média joint/cité par l'utilisateur (indice de contexte, jamais le contenu). */
   mediaHint?: { what: string; how: "joint" | "reply" } | null;
+  /** 9.11 (audit B4) — extrait du message cité (lien, titre…) si l'utilisateur a répondu en reply. */
+  quotedTextExcerpt?: string | null;
+  /** 9.13 — le message est la transcription d'une note vocale. */
+  voiceNote?: boolean;
 }
 
 export type AgentExecutor = (
@@ -74,6 +79,33 @@ export type AgentExecutor = (
   args: string[],
   source: "agent"
 ) => Promise<AgentCommandOutcome>;
+
+/**
+ * 9.11 (audit M1, décision owner) : le message S'ADRESSE-T-IL au bot ?
+ * En groupe, l'agent ne doit réagir qu'à une mention @ du bot ou à une
+ * réponse (reply) à un message du bot — JAMAIS à la conversation générale
+ * (sinon chaque message du groupe partirait en tour IA). Pur — testé.
+ */
+export function messageAddressesBot(msg: any, botJid: string | null | undefined): boolean {
+  if (!botJid) return false;
+  const num = (j: unknown) => String(j ?? "").split(":")[0].split("@")[0].replace(/\D/g, "");
+  const me = num(botJid);
+  if (!me) return false;
+  const m = msg?.message || {};
+  const ctxs: any[] = [
+    m.extendedTextMessage?.contextInfo,
+    m.contextInfo,
+    m.imageMessage?.contextInfo,
+    m.videoMessage?.contextInfo,
+    m.documentMessage?.contextInfo,
+  ];
+  for (const ctx of ctxs) {
+    if (!ctx) continue;
+    if (Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.some((j: any) => num(j) === me)) return true;
+    if (ctx.participant && num(ctx.participant) === me) return true;
+  }
+  return false;
+}
 
 /** Message honnête identique au chemin DM actuel quand l'IA est down. */
 const AI_DOWN_NOTICE =
@@ -166,12 +198,24 @@ export async function handleAgentMessage(
     const mediaBlock = info.mediaHint
       ? `## Média en contexte\nLe message de l'utilisateur ${info.mediaHint.how === "joint" ? "a joint" : "répond (reply) à"} ${info.mediaHint.what} — « ça », « ce fichier », « un lien pour ça » désignent CE média (\`${info.prefix}up\` génère un lien temporaire, commande légère exécutable directement).`
       : null;
+    // 9.13 : le message vient d'une transcription de note vocale — l'agent
+    // le sait (ton, et pas de questions sur des pièces jointes fantômes).
+    const voiceBlock = info.voiceNote
+      ? `## Note vocale\nLe message de l'utilisateur est la transcription d'une note vocale — traite-le comme une demande normale et réponds en texte.`
+      : null;
+    // 9.11 (audit B4) : le TEXTE du message cité (lien, titre…) — sans ça,
+    // « télécharge ça » en reply d'un lien restait aveugle pour l'agent.
+    const quoteBlock = info.quotedTextExcerpt
+      ? `## Message cité\nL'utilisateur répond à ce message : « ${info.quotedTextExcerpt} » — si sa demande s'y rapporte, utilise ce contenu (lien, titre…).`
+      : null;
     const persona =
       getPersonaPrompt("dm", info.botName) +
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
       (choiceBlock ? `\n\n${choiceBlock}` : "") +
       (obsBlock ? `\n\n${obsBlock}` : "") +
-      (mediaBlock ? `\n\n${mediaBlock}` : "");
+      (mediaBlock ? `\n\n${mediaBlock}` : "") +
+      (quoteBlock ? `\n\n${quoteBlock}` : "") +
+      (voiceBlock ? `\n\n${voiceBlock}` : "");
     const agentSystem = `${persona}\n\n${buildAgentKnowledge(info.prefix)}`;
 
     let decision = null as ReturnType<typeof parseAgentDecision>;
@@ -255,10 +299,13 @@ export async function handleAgentMessage(
           current.command,
           canonical ? "denylist" : "unknown-command"
         );
+        const close = suggestClosestCommand(current.command);
         const honest =
           canonical && isAgentDeniedCommand(canonical.name)
             ? `🤖 Je ne peux pas exécuter \`${info.prefix}${canonical.name}\` moi-même — utilise-la directement.`
-            : `🤖 Je n'ai pas de commande pour cette demande — tape \`${info.prefix}menu\` pour voir ce que je sais faire.`;
+            : close
+              ? `🤖 Je n'ai pas \`${info.prefix}${current.command}\` — voulais-tu dire \`${info.prefix}${close}\` ?`
+              : `🤖 Je n'ai pas de commande pour cette demande — tape \`${info.prefix}menu\` pour voir ce que je sais faire.`;
         await sendText(honest);
         recordExchange(info.senderJid, text, honest);
         return true;

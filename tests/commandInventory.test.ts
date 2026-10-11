@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initRegistry, getCommands, getCommand } from "../src/bot/commandRegistry.js";
+import { initRegistry, getCommands, getCommand, suggestClosestCommand } from "../src/bot/commandRegistry.js";
 
 /**
  * Inventaire DÉFINITIF des commandes (curation owner, 8.59 ; .image retirée en 8.73).
@@ -82,5 +82,17 @@ describe("inventaire définitif des commandes (8.59)", () => {
     const nova = getCommand("anime");
     expect(nova).toBeDefined();
     expect(nova!.aliases).toContain("novabox");
+  });
+});
+
+// ── 9.11 (audit B1) : suggestion sur typo de commande ──────────────────────
+describe("9.11 — suggestClosestCommand (typo → commande la plus proche)", () => {
+  it("typo proche → suggestion ; alias exact → canonique ; trop loin → rien", async () => {
+    await initRegistry();
+    expect(suggestClosestCommand("uv")).toBe("upload");   // .uv → .up (alias de upload)
+    expect(suggestClosestCommand("ytv")).toBe("ytvideo"); // alias exact
+    expect(suggestClosestCommand("menue")).toBe("menu");
+    expect(suggestClosestCommand("a")).toBeNull();        // trop court
+    expect(suggestClosestCommand("zzzzzzzz")).toBeNull(); // trop loin de tout
   });
 });

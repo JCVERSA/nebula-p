@@ -18,9 +18,13 @@ import {
 } from "../src/bot/services/ytDlp.js";
 import {
   __resetYtvPendingForTests,
+  __setPendingYtvChoiceForTests,
+  bareYtvChoiceAnswer,
   defaultAudioLanguage,
+  hasPendingYtvChoice,
   parseYtvArgs,
-  pickSubtitles
+  pickSubtitles,
+  ytvChoiceKey
 } from "../src/bot/commands/ytvideo.js";
 
 /**
@@ -502,11 +506,11 @@ describe("wiring 9.10 (ytvideo)", () => {
     expect(src).toContain("Cette vidéo seule");
   });
 
-  it("choix en attente : écrans 1/2 (mode) et n° de piste (audio), TTL 3 min", () => {
+  it("choix en attente : écrans 1/2 (mode) et n° de piste (audio), TTL 10 min (9.11 B3 — aligné observation)", () => {
     const src = readSrc("src/bot/commands/ytvideo.ts");
     expect(src).toContain('kind: "mode"');
     expect(src).toContain('kind: "audio"');
-    expect(src).toContain("PENDING_TTL_MS = 3 * 60 * 1000");
+    expect(src).toContain("PENDING_TTL_MS = 10 * 60 * 1000");
   });
 
   it("fiche agent : la ligne .ytv documente playlists + piste audio + sous-titres (8.42)", () => {
@@ -555,5 +559,47 @@ describe("8.86 — branchement : yt-dlp en PREMIER, API tierces en secours", () 
     expect(src).toContain("let videoPath: string | null = null");
     expect(src).toContain("video: { url: mediaUrl }");
     expect(src).toMatch(/finally\s*\{[\s\S]*rmSync\(path\.dirname\(videoPath\)/);
+  });
+});
+
+// ── 9.12 (audit B5) : choix .ytv scopés par (chat, utilisateur) ────────────
+describe("9.12 (B5) — choix .ytv par (chat, utilisateur)", () => {
+  const readSrc = (rel: string) => fs.readFileSync(path.resolve(process.cwd(), rel), "utf-8");
+
+  it("ytvChoiceKey : composite chat|user ; sans user (DM) la clé retombe sur le chat", () => {
+    expect(ytvChoiceKey("g@g.us", "a@s.whatsapp.net")).toBe("g@g.us|a@s.whatsapp.net");
+    expect(ytvChoiceKey("dm@s.whatsapp.net", undefined)).toBe("dm@s.whatsapp.net|dm@s.whatsapp.net");
+    expect(ytvChoiceKey("dm@s.whatsapp.net", "dm@s.whatsapp.net")).toBe("dm@s.whatsapp.net|dm@s.whatsapp.net");
+  });
+
+  it("bareYtvChoiceAnswer : les réponses nues à un écran de choix, et rien d'autre", () => {
+    expect(bareYtvChoiceAnswer("1")).toBe("1");
+    expect(bareYtvChoiceAnswer("  2 ")).toBe("2");
+    expect(bareYtvChoiceAnswer("12")).toBe("12");
+    expect(bareYtvChoiceAnswer("Playlist")).toBe("playlist");
+    expect(bareYtvChoiceAnswer("VID")).toBe("vid");
+    expect(bareYtvChoiceAnswer("la 1re")).toBeNull();
+    expect(bareYtvChoiceAnswer("720")).toBeNull();
+    expect(bareYtvChoiceAnswer("")).toBeNull();
+    expect(bareYtvChoiceAnswer("télécharge ça")).toBeNull();
+  });
+
+  it("hasPendingYtvChoice : scopé par utilisateur — B ne voit pas le choix de A", () => {
+    __setPendingYtvChoiceForTests("g@g.us", "a@s.whatsapp.net", "mode");
+    expect(hasPendingYtvChoice("g@g.us", "a@s.whatsapp.net")).toBe(true);
+    expect(hasPendingYtvChoice("g@g.us", "b@s.whatsapp.net")).toBe(false);
+    expect(hasPendingYtvChoice("autre@g.us", "a@s.whatsapp.net")).toBe(false);
+  });
+
+  it("hasPendingYtvChoice : TTL 10 min — expiré → false", () => {
+    __setPendingYtvChoiceForTests("g@g.us", "a@s.whatsapp.net", "audio", 11 * 60 * 1000);
+    expect(hasPendingYtvChoice("g@g.us", "a@s.whatsapp.net")).toBe(false);
+  });
+
+  it("wiring : set ET consume passent par la clé composite ; garde honnête sur réponse orpheline", () => {
+    const src = readSrc("src/bot/commands/ytvideo.ts");
+    expect(src).toContain("consumePendingYtvChoice(ytvChoiceKey(context.sender, context.senderUser), args)");
+    expect(src).not.toContain("pendingYtvChoices.set(context.sender,");
+    expect(src).toContain("Aucun choix en attente pour toi");
   });
 });

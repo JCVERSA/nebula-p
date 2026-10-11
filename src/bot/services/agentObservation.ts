@@ -37,8 +37,36 @@ function prune(): void {
   }
 }
 
+/**
+ * 9.13 (éco tokens, inspiré de free-claude-code) : compacte les sorties
+ * répétitives AVANT stockage — une progression « ⏳ Épisode 4/12… » sur 12
+ * lignes ne vaut pas 12 lignes de contexte agent. Pur — testé.
+ *
+ * Règle : dans un texte de plus de 8 lignes, si >60 % des lignes partagent
+ * la même forme (chiffres/pourcentages neutralisés), on garde les 2
+ * premières + un marqueur honnête + les 2 dernières. Les écrans de choix
+ * interactifs (courts, non répétitifs) passent INTACTS.
+ */
+export function compactObservationTexts(texts: string[]): string[] {
+  return texts.map((t) => {
+    const lines = t.split("\n");
+    if (lines.length <= 8) return t;
+    const shape = (l: string) => l.replace(/\d+(?:[.,]\d+)?%?/g, "#").trim();
+    const counts = new Map<string, number>();
+    for (const l of lines) {
+      const s = shape(l);
+      if (s.length > 2) counts.set(s, (counts.get(s) || 0) + 1);
+    }
+    let best = 0;
+    for (const n of counts.values()) if (n > best) best = n;
+    if (best / lines.length <= 0.6) return t;
+    return [...lines.slice(0, 2), `[… ${lines.length - 4} lignes similaires compactées …]`, ...lines.slice(-2)].join("\n");
+  });
+}
+
 export function setLastObservation(chatJid: string, command: string, texts: string[]): void {
   if (!texts.length) return;
+  texts = compactObservationTexts(texts);
   let total = 0;
   const kept: string[] = [];
   // On garde les DERNIERS textes (le choix en attente est en fin de flow).

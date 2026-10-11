@@ -264,6 +264,54 @@ export function getCommands(): BotCommand[] {
   return uniqueCommands();
 }
 
+/**
+ * 9.11 (audit B1) : suggestion la plus proche d'une commande inconnue
+ * (typo « .uv » → « .up »). Distance de Levenshtein ≤ 2 sur le nom
+ * canonique ET les alias ; l'alias exact gagne toujours. Pur — testé.
+ */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length || !b.length) return Math.max(a.length, b.length);
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+export function suggestClosestCommand(input: string): string | null {
+  const q = (input || "").toLowerCase().trim();
+  if (q.length < 2) return null;
+  let commands: BotCommand[] = [];
+  try {
+    commands = getCommands();
+  } catch {
+    return null;
+  }
+  let best: string | null = null;
+  let bestDist = 3; // > 2 = pas de suggestion
+  for (const cmd of commands) {
+    const candidates = [cmd.name, ...(cmd.aliases || [])];
+    for (const cand of candidates) {
+      const d = levenshtein(q, cand);
+      if (d === 0) return cmd.name; // alias exact → canonique
+      if (d < bestDist) {
+        bestDist = d;
+        best = cmd.name;
+      }
+    }
+  }
+  return best;
+}
+
 export function getCommand(name: string): BotCommand | undefined {
   return commandsMap.get(name.toLowerCase());
 }

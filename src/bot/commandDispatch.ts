@@ -16,7 +16,7 @@
 // PAS une méthode du sock (l'appel sock.downloadContentFromMessage
 // échouait : "not a function" — constaté en prod avec .up, 9.5b).
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
-import { getCommand } from "./commandRegistry.js";
+import { getCommand, suggestClosestCommand } from "./commandRegistry.js";
 import { BotCommandContext, GroupMember } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
 import { authorizeCommand, resolveRole } from "./accessControl.js";
@@ -32,6 +32,8 @@ import { addLog, bufferFromDataUri, getCachedGroupMetadata, maskLogNumber } from
 
 export interface DispatchInfo {
   senderJid: string;
+  /** 9.12 (B5) : JID de l'auteur réel (participant en groupe, = senderJid en DM). */
+  actorJid: string;
   senderName: string;
   senderNumber: string;
   isOwner: boolean;
@@ -71,12 +73,24 @@ export async function dispatchBotCommand(
   args: string[],
   source: "prefix" | "agent" = "prefix"
 ): Promise<AgentCommandOutcome> {
-  const { senderJid, senderName, messageContent } = info;
+  const { senderJid, senderName, messageContent, prefix } = info;
   const outcome: AgentCommandOutcome = { ok: false, denied: false, hadError: false, lastText: "", vfFallbackHint: false, texts: [] };
 
   const command = getCommand(commandName);
   if (!command) {
     addLog(`⚠️ Unknown or dynamically excluded command: "${commandName}"`);
+    // 9.11 (audit B1) : plus de silence sur une typo — suggestion de la
+    // commande la plus proche (uniquement en préfixe : le chemin agent a
+    // déjà sa réponse honnête).
+    if (source === "prefix") {
+      const close = suggestClosestCommand(commandName);
+      const hint = close
+        ? ` — voulais-tu dire \`${prefix}${close}\` ?`
+        : ` — \`${prefix}menu\` pour la liste des commandes.`;
+      try {
+        await sock.sendMessage(senderJid, { text: `❓ Commande inconnue : \`${prefix}${commandName}\`${hint}` }, { quoted: msg });
+      } catch {}
+    }
     return outcome;
   }
 
@@ -190,6 +204,7 @@ export async function dispatchBotCommand(
 
   const context: BotCommandContext = {
     sender: senderJid,
+    senderUser: info.actorJid || senderJid,
     senderName,
     isOwner: info.isOwner,
     isAdmin: info.isAdmin,

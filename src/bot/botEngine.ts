@@ -9,7 +9,8 @@ import {
   DisconnectReason,
   useMultiFileAuthState,
   makeCacheableSignalKeyStore,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  downloadContentFromMessage
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 // 9.0c (SEC) : avant toute connexion — libsignal console.info des sessions
@@ -35,11 +36,13 @@ import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
 import { setWatchSender, startWatchScheduler } from "./services/episodeWatchService.js";
 import { setDigestSender, startDigestScheduler } from "./services/digestService.js";
 import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
-import { handleAgentMessage } from "./services/agentRunner.js";
-import { describeMessageMedia } from "./utils/quotedMedia.js";
+import { handleAgentMessage, messageAddressesBot } from "./services/agentRunner.js";
+import { describeMessageMedia, extractQuotedText } from "./utils/quotedMedia.js";
 import { getRecentMessage, recordRecentMessage } from "./services/recentMessages.js";
 import { peekPendingConfirmation } from "./services/agentBrain.js";
 import { hasPendingLanguageConfirm, bareLanguageAnswer } from "./commands/novabox.js";
+import { bareYtvChoiceAnswer, hasPendingYtvChoice } from "./commands/ytvideo.js";
+import { checkAsrBudget, chargeAsrBudget, isAsrEnabled, transcribeVoiceNote } from "./services/voiceTranscribe.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "./services/animeChoices.js";
 
 
@@ -800,6 +803,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         // 8.93 : infos de dispatch partagées entre le chemin préfixe et l'agent.
         const dispatchInfo: DispatchInfo = {
           senderJid,
+          actorJid: actualSenderJid,
           senderName,
           senderNumber,
           isOwner,
@@ -809,6 +813,105 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           text,
           messageContent,
         };
+
+        // 9.6b/9.11 : contexte de reply pour l'agent — nature du média cité
+        // (+ repli registre stanzaId 9.8) et extrait du TEXTE cité (lien,
+        // titre — audit B4). Calculés une fois, utilisés en DM ET en groupe.
+        let mediaHint = describeMessageMedia(messageContent);
+        let quotedTextExcerpt: string | null = null;
+        {
+          const ctxInfo = messageContent?.extendedTextMessage?.contextInfo;
+          const quotedRaw = ctxInfo?.quotedMessage;
+          quotedTextExcerpt = extractQuotedText(quotedRaw);
+          if (!mediaHint || !quotedTextExcerpt) {
+            const stanzaId = ctxInfo?.stanzaId;
+            if (stanzaId) {
+              const stored = getRecentMessage(senderJid, String(stanzaId));
+              if (stored) {
+                if (!mediaHint) {
+                  const q = describeMessageMedia(stored);
+                  if (q) mediaHint = { what: q.what, how: "reply" };
+                }
+                if (!quotedTextExcerpt) quotedTextExcerpt = extractQuotedText(stored);
+              }
+            }
+          }
+        }
+
+        // 9.13 : note vocale adressée au bot → transcription NIM, puis tour
+        // agent sur le texte obtenu. DM : toujours ; groupe : seulement si le
+        // message s'adresse au bot (mention/reply — même porte que 9.11).
+        // Échec = réponse honnête, jamais de tour IA sur un texte vide.
+        if (!isFromMe && !text.trim() && messageContent.audioMessage) {
+          const voiceAddressed = !isGroup || messageAddressesBot(msg, sock?.user?.id);
+          if (voiceAddressed) {
+            if (!isAsrEnabled()) {
+              await sock.sendMessage(senderJid, {
+                text: "🎙️ Je ne peux pas encore écouter les notes vocales (transcription désactivée ou clé NVIDIA NIM absente) — écris-moi ton message."
+              }, { quoted: msg });
+              continue;
+            }
+            const budget = checkAsrBudget(actualSenderJid);
+            if (!budget.allowed) {
+              await sock.sendMessage(senderJid, {
+                text: `⏳ Budget transcription atteint (10 notes vocales/heure) — réessaie dans ${budget.retryAfterMin} min ou écris-moi.`
+              }, { quoted: msg });
+              continue;
+            }
+            await sock.sendPresenceUpdate("recording", senderJid).catch(() => {});
+            try {
+              const stream = await downloadContentFromMessage(messageContent.audioMessage, "audio");
+              let buffer = Buffer.alloc(0);
+              for await (const chunk of stream) {
+                buffer = Buffer.concat([buffer, chunk]);
+                if (buffer.length > 16 * 1024 * 1024) break;
+              }
+              const asr = await transcribeVoiceNote(buffer);
+              if (!asr.ok) {
+                addLog(`[ASR] Échec transcription : ${asr.error}`);
+                await sock.sendMessage(senderJid, {
+                  text: `🎙️ Je n'ai pas réussi à transcrire cette note vocale (${asr.error}).`
+                }, { quoted: msg });
+                continue;
+              }
+              chargeAsrBudget(actualSenderJid);
+              addLog(`[ASR] Note vocale transcrite (${asr.text.length} caractères) de ${maskLogNumber(actualSenderNumber)}`);
+              if (isAIConfigured()) {
+                const handled = await handleAgentMessage(
+                  sock,
+                  msg,
+                  {
+                    senderJid,
+                    actorJid: actualSenderJid,
+                    actorNumber: actualSenderNumber,
+                    senderName,
+                    isOwner,
+                    text: asr.text,
+                    voiceNote: true,
+                    botName: config.botName,
+                    prefix,
+                    mediaHint: null,
+                    quotedTextExcerpt: null
+                  },
+                  (commandName, args) =>
+                    dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
+                );
+                if (handled) continue;
+              } else {
+                await sock.sendMessage(senderJid, {
+                  text: `🎙️ (transcription) « ${asr.text.slice(0, 800)} »\n\n_L'agent IA est désactivé — la transcription brute ci-dessus._`
+                }, { quoted: msg });
+                continue;
+              }
+            } catch (err: any) {
+              addLog(`[ASR] Erreur inattendue : ${err?.message || err}`);
+              await sock.sendMessage(senderJid, {
+                text: "🎙️ Erreur inattendue pendant la transcription — réessaie ou écris-moi."
+              }, { quoted: msg });
+              continue;
+            }
+          }
+        }
 
         // Direct AI response in private chat when not starting with prefix
         if (!isGroup && !isFromMe && !text.startsWith(prefix)) {
@@ -826,23 +929,23 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
             await dispatchBotCommand(sock, msg, dispatchInfo, "a", [bareAnswer], "agent");
             continue;
           }
+          // 9.12 (B5, décision owner) : « 1 »/« 2 » nu alors qu'un choix .ytv
+          // de CET utilisateur est en attente → consommé SANS tour IA (éco
+          // tokens — même logique que la confirmation de langue ci-dessus).
+          const bareYtv = bareYtvChoiceAnswer(text);
+          if (
+            bareYtv &&
+            hasPendingYtvChoice(senderJid, actualSenderJid) &&
+            !peekPendingConfirmation(actualSenderJid)
+          ) {
+            await dispatchBotCommand(sock, msg, dispatchInfo, "ytvideo", [bareYtv], "agent");
+            continue;
+          }
           if (isAIConfigured()) {
             // 8.93 agent beta (privé uniquement) : l'IA traduit la demande
             // naturelle en commande existante et l'exécute aux droits de
             // l'utilisateur (RoleGuard inchangé). Renvoie false → l'IA
             // n'est pas configurée : laisser le chemin normal répondre.
-            // 9.6b : l'agent sait qu'un média est en jeu (nature seule,
-            // jamais le contenu) — « un lien pour ça » → .up direct.
-            // 9.8 : citation épurée → repli sur le registre (stanzaId).
-            let mediaHint = describeMessageMedia(messageContent);
-            if (!mediaHint) {
-              const stanzaId = messageContent?.extendedTextMessage?.contextInfo?.stanzaId;
-              if (stanzaId) {
-                const stored = getRecentMessage(senderJid, String(stanzaId));
-                const q = stored && describeMessageMedia(stored);
-                if (q) mediaHint = { what: q.what, how: "reply" };
-              }
-            }
             const handledByAgent = await handleAgentMessage(
               sock,
               msg,
@@ -856,6 +959,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 botName: config.botName,
                 prefix,
                 mediaHint,
+                quotedTextExcerpt,
               },
               (commandName, args) =>
                 dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
@@ -927,6 +1031,47 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
             );
             continue;
           }
+        }
+
+        // 9.11 (audit M1, décision owner) : l'agent répond AUSSI en groupe,
+        // mais uniquement si le message S'ADRESSE au bot (mention @ ou reply
+        // à un message du bot) — jamais sur la conversation générale.
+        if (isGroup && !isFromMe && !text.startsWith(prefix)) {
+          // 9.12 (B5, décision owner) : « 1 »/« 2 »/« video »/« playlist » nu
+          // d'un utilisateur ayant un choix .ytv en attente → consommé SANS
+          // tour IA (l'écran a été déclenché PAR cet utilisateur — sans ça,
+          // la consigne « Réponds avec 1 ou 2 » serait mensongère en groupe).
+          const bareYtv = bareYtvChoiceAnswer(text);
+          if (
+            bareYtv &&
+            hasPendingYtvChoice(senderJid, actualSenderJid) &&
+            !peekPendingConfirmation(actualSenderJid)
+          ) {
+            await dispatchBotCommand(sock, msg, dispatchInfo, "ytvideo", [bareYtv], "agent");
+            continue;
+          }
+          if (isAIConfigured() && messageAddressesBot(msg, sock?.user?.id)) {
+            const handledByAgent = await handleAgentMessage(
+              sock,
+              msg,
+              {
+                senderJid,
+                actorJid: actualSenderJid,
+                actorNumber: actualSenderNumber,
+                senderName,
+                isOwner,
+                text,
+                botName: config.botName,
+                prefix,
+                mediaHint,
+                quotedTextExcerpt,
+              },
+              (commandName, args) =>
+                dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
+            );
+            if (handledByAgent) continue;
+          }
+          continue;
         }
 
         if (!text.startsWith(prefix)) continue;

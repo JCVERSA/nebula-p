@@ -100,11 +100,50 @@ type PendingYtv =
   | { kind: "mode"; url: string; quality: string; audioToken?: string; ts: number }
   | { kind: "audio"; url: string; quality: string; tracks: string[]; ts: number };
 const pendingYtvChoices = new Map<string, PendingYtv>();
-const PENDING_TTL_MS = 3 * 60 * 1000;
+// 9.11 (audit B3) : aligné sur la mémoire d'observation de l'agent (10 min) —
+// entre 3 et 10 min l'agent croyait le choix encore en attente et exécutait
+// `.ytv 1` comme une recherche du mot « 1 ».
+const PENDING_TTL_MS = 10 * 60 * 1000;
 
 /** Tests uniquement. */
 export function __resetYtvPendingForTests(): void {
   pendingYtvChoices.clear();
+}
+
+/** 9.12 (audit B5) : clé d'un choix en attente — (chat, auteur réel). Pur. */
+export function ytvChoiceKey(chat: string, user?: string): string {
+  const c = String(chat || "");
+  return `${c}|${String(user || "").trim() || c}`;
+}
+
+/**
+ * 9.12 (B5, décision owner) : « 1 »/« 2 »/« 12 »/« video »/« playlist » nu —
+ * la réponse attendue à un écran de choix. Pur — utilisé par botEngine pour
+ * router ces réponses directement vers .ytv SANS tour IA (éco tokens).
+ */
+export function bareYtvChoiceAnswer(text: string): string | null {
+  const t = String(text || "").trim().toLowerCase();
+  return /^(?:\d{1,2}|video|vid|playlist|pl)$/.test(t) ? t : null;
+}
+
+/** 9.12 (B5) : cet utilisateur a-t-il un choix frais en attente ? (sans consommer) */
+export function hasPendingYtvChoice(chat: string, user?: string): boolean {
+  const stored = pendingYtvChoices.get(ytvChoiceKey(chat, user));
+  return !!stored && Date.now() - stored.ts <= PENDING_TTL_MS;
+}
+
+/** Tests uniquement : installe un choix en attente (âge contrôlable). */
+export function __setPendingYtvChoiceForTests(
+  chat: string,
+  user: string | undefined,
+  kind: "mode" | "audio",
+  ageMs = 0
+): void {
+  const base = { url: "https://www.youtube.com/watch?v=aaaaaaaaaaa", quality: "720", ts: Date.now() - ageMs };
+  pendingYtvChoices.set(
+    ytvChoiceKey(chat, user),
+    kind === "mode" ? { kind, ...base } : { kind, ...base, tracks: ["en", "fr"] }
+  );
 }
 
 /** Résout un choix en attente ; purge l'entrée si la réponse est hors-sujet. */
@@ -343,10 +382,20 @@ const ytvideoCommand: BotCommand = {
       const chatId = msg.key.remoteJid;
       const args = context.args || [];
       // 9.10 : un choix est-il en attente ? (1/2 vidéo-playlist, n° de piste)
-      const resolved = consumePendingYtvChoice(context.sender, args);
+      // 9.12 (B5) : scopé par (chat, utilisateur) — en groupe, le choix de
+      // chacun est le sien : plus d'écrasement entre membres.
+      const resolved = consumePendingYtvChoice(ytvChoiceKey(context.sender, context.senderUser), args);
       if (!args[0] && !resolved) {
         return void (await context.reply(
           "🎬 *Usage:* `.ytv <nom ou lien YouTube> [résolution]`\n\nEx: `.ytv Ronaldo best goals 720`\nRésolutions : 360, 480, 720, 1080\n\nExtras : `.ytv <lien> vo` (piste audio au choix) · `.ytv <lien playlist>` (télécharge la playlist, max 25)"
+        ));
+      }
+      // 9.12 (B5) : réponse à un écran de choix alors qu'aucun choix de CET
+      // utilisateur n'est en attente (autre membre du groupe, TTL expiré…) —
+      // honnête, au lieu de chercher « 1 » sur YouTube (symptôme B3).
+      if (!resolved && args.length === 1 && bareYtvChoiceAnswer(args[0])) {
+        return void (await context.reply(
+          "❓ Aucun choix en attente pour toi — relance `.ytv <lien>` (un écran de choix expire au bout de 10 min)."
         ));
       }
 
@@ -394,7 +443,7 @@ const ytvideoCommand: BotCommand = {
         }
         const plProbe = await probeYoutubeEntry(videoUrl);
         if (plProbe.ok && plProbe.isPlaylist && plProbe.entryIds.length > 0) {
-          pendingYtvChoices.set(context.sender, { kind: "mode", url: videoUrl, quality, audioToken, ts: Date.now() });
+          pendingYtvChoices.set(ytvChoiceKey(context.sender, context.senderUser), { kind: "mode", url: videoUrl, quality, audioToken, ts: Date.now() });
           return void (await context.reply(
             `📋 *Lien de playlist détecté* — « ${plProbe.playlistTitle || "Playlist"} » (${plProbe.playlistCount} vidéos)\n\n` +
             `*1.* Cette vidéo seule\n*2.* La playlist entière (max ${MAX_PLAYLIST_VIDEOS} vidéos)\n\n` +
@@ -414,7 +463,7 @@ const ytvideoCommand: BotCommand = {
           subs = pickSubtitles(probe.subtitleLanguages);
           if (!audioLang) {
             if (audioToken === "vo" && probe.audioLanguages.length > 1) {
-              pendingYtvChoices.set(context.sender, { kind: "audio", url: videoUrl, quality, tracks: probe.audioLanguages, ts: Date.now() });
+              pendingYtvChoices.set(ytvChoiceKey(context.sender, context.senderUser), { kind: "audio", url: videoUrl, quality, tracks: probe.audioLanguages, ts: Date.now() });
               const list = probe.audioLanguages.map((l, i) => `*${i + 1}.* ${langLabel(l)} (${l})`).join("\n");
               return void (await context.reply(
                 `🎚️ *Plusieurs pistes audio disponibles :*\n\n${list}\n\n👉 Réponds avec : \`.ytv 1\``

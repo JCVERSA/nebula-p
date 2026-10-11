@@ -76,7 +76,9 @@ const HEAVY_NAMES: ReadonlySet<string> = new Set(["purge", "watch"]);
  * Une demande est LOURDE si :
  *  - la commande est purge/watch (actions système ou récurrentes) ;
  *  - la commande est owner-only/admin-only (puissance élevée) ;
- *  - anime multi-épisodes (all, plage 1-5, liste 2,5, saison entière d-).
+ *  - anime multi-épisodes (all, plage 1-5, liste 2,5, saison entière d-) ;
+ *  - playlist YouTube (9.11 audit B2 : jusqu'à 25 vidéos, ~75 min de yt-dlp
+ *    et 2 Go — le même ordre de grandeur qu'une saison animée confirmée).
  */
 export function isHeavyAgentCommand(
   command: { name: string; ownerOnly?: boolean; adminOnly?: boolean },
@@ -91,6 +93,7 @@ export function isHeavyAgentCommand(
     if (/\d+\s*-\s*\d+/.test(a)) return true;
     if (/\d+,\d+/.test(a)) return true;
   }
+  if (name === "ytvideo" && /(^|\s)(playlist|pl)(\s|$)/.test(args.join(" ").toLowerCase())) return true;
   return false;
 }
 

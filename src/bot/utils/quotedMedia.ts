@@ -43,6 +43,27 @@ export function extractQuotedMediaContent(messageContent: MediaContent | undefin
   return type ? unwrapped : null;
 }
 
+/**
+ * 9.11 (audit B4) : texte du message cité (reply) — conversation, texte,
+ * légende de média — pour le contexte de l'agent (« télécharge ça » en
+ * réponse à un message contenant un LIEN). Extrait 200 chars max, déplie
+ * les enveloppes. Pur — jamais d'IO.
+ */
+export function extractQuotedText(messageContent: MediaContent | undefined | null): string | null {
+  if (!messageContent || typeof messageContent !== "object") return null;
+  const c = unwrapLayers(messageContent) || messageContent;
+  const t =
+    c.conversation ||
+    c.extendedTextMessage?.text ||
+    c.imageMessage?.caption ||
+    c.videoMessage?.caption ||
+    c.documentMessage?.caption ||
+    null;
+  if (typeof t !== "string") return null;
+  const trimmed = t.replace(/\s+/g, " ").trim();
+  return trimmed ? trimmed.slice(0, 200) : null;
+}
+
 const MEDIA_LABELS: Record<string, string> = {
   imageMessage: "une image",
   videoMessage: "une vidéo",

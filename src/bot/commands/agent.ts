@@ -44,6 +44,7 @@ const agentCommand: BotCommand = {
     const senderNumber = context.sender.split("@")[0].replace(/[^0-9]/g, "");
     const dispatchInfo: DispatchInfo = {
       senderJid: context.sender,
+      actorJid: msg.key.participant || context.sender,
       senderName: context.senderName,
       senderNumber,
       isOwner: context.isOwner,
