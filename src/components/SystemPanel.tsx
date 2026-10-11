@@ -11,6 +11,7 @@ import {
   Play,
   KeyRound,
   Settings2,
+  Cookie,
 } from "lucide-react";
 
 /**
@@ -33,6 +34,15 @@ interface SystemInfoData {
   branch?: string;
   uptimeSeconds?: number;
   updating?: boolean;
+}
+
+interface YtCookiesStatusData {
+  configured?: boolean;
+  envSet?: boolean;
+  cookieCount?: number;
+  domains?: string[];
+  maxExpiry?: string | null;
+  updatedAt?: string | null;
 }
 
 interface EnvVarView {
@@ -118,6 +128,13 @@ export default function SystemPanel() {
   const [envDraft, setEnvDraft] = useState("");
   const [envFeedback, setEnvFeedback] = useState<string | null>(null);
   const [envError, setEnvError] = useState<string | null>(null);
+  // 9.4 — cookies YouTube
+  const [ytStatus, setYtStatus] = useState<YtCookiesStatusData | null>(null);
+  const [ytContent, setYtContent] = useState("");
+  const [ytFeedback, setYtFeedback] = useState<string | null>(null);
+  const [ytError, setYtError] = useState<string | null>(null);
+  const [ytBusy, setYtBusy] = useState(false);
+  const [ytConfirmDelete, setYtConfirmDelete] = useState(false);
 
   const fetchJson = async (url: string): Promise<any | null> => {
     try {
@@ -177,6 +194,60 @@ export default function SystemPanel() {
     }
   };
 
+  const refreshYtCookies = useCallback(async () => {
+    const data = await fetchJson("/api/system/yt-cookies");
+    if (data) setYtStatus(data);
+  }, []);
+
+  const saveYtCookies = async () => {
+    setYtBusy(true);
+    setYtError(null);
+    setYtFeedback(null);
+    try {
+      const res = await fetch("/api/system/yt-cookies", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: ytContent }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setYtError(data?.error || `HTTP ${res.status}`);
+        return;
+      }
+      const expiry = data?.maxExpiry
+        ? new Date(data.maxExpiry).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+        : null;
+      setYtFeedback(
+        `✓ ${data.cookieCount} cookies enregistrés (${(data.domains || []).join(", ")})` +
+          `${expiry ? ` — valides jusqu'au ${expiry}` : ""}` +
+          (data.restartRequired ? " — redémarrage requis pour activer" : " — actif à chaud")
+      );
+      setYtContent("");
+      refreshYtCookies();
+    } catch {
+      setYtError("Panneau injoignable — réessaie.");
+    } finally {
+      setYtBusy(false);
+    }
+  };
+
+  const deleteYtCookies = async () => {
+    setYtBusy(true);
+    setYtError(null);
+    setYtFeedback(null);
+    try {
+      await fetch("/api/system/yt-cookies", { method: "DELETE", credentials: "same-origin" });
+      setYtConfirmDelete(false);
+      setYtFeedback("Cookies supprimés — mode anonyme (redémarrage requis pour l'appliquer).");
+      refreshYtCookies();
+    } catch {
+      setYtError("Panneau injoignable — réessaie.");
+    } finally {
+      setYtBusy(false);
+    }
+  };
+
   // ── Polling de fond (info + journal) ─────────────────────────────────────
   useEffect(() => {
     refreshInfo();
@@ -187,7 +258,8 @@ export default function SystemPanel() {
   // 9.3 — configuration .env (chargée une fois, rechargée après édition)
   useEffect(() => {
     refreshEnv();
-  }, [refreshEnv]);
+    refreshYtCookies();
+  }, [refreshEnv, refreshYtCookies]);
 
   useEffect(() => {
     if (logsPaused || phase === "stopping") return;
@@ -478,6 +550,74 @@ export default function SystemPanel() {
             );
           })
         )}
+      </div>
+
+      {/* ── Cookies YouTube (9.4) ───────────────────────────────────────── */}
+      <div className="bg-white/5 border border-white/10 rounded-2xl p-5" data-testid="yt-cookies-card">
+        <div className="flex items-center gap-2 mb-1">
+          <Cookie size={16} className="text-zinc-300" />
+          <h3 className="text-sm font-semibold text-zinc-100">Cookies YouTube</h3>
+          {ytStatus?.configured && (
+            <span className="ml-1 text-[11px] px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+              ✓ configuré
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-zinc-500 mb-3">
+          Débloque .ytv/.ytm quand YouTube exige une session. Sur ton PC : extension « Get cookies.txt
+          LOCALLY » sur youtube.com connecté → Export → colle le contenu ci-dessous. Le contenu ne
+          s'affiche jamais et n'est jamais renvoyé.
+        </p>
+
+        {ytStatus?.configured && (
+          <p className="text-[11px] text-zinc-400 mb-3" data-testid="yt-cookies-status">
+            {ytStatus.cookieCount} cookies ({(ytStatus.domains || []).slice(0, 3).join(", ")})
+            {ytStatus.maxExpiry
+              ? ` — valides jusqu'au ${new Date(ytStatus.maxExpiry).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}`
+              : ""}
+          </p>
+        )}
+
+        {ytFeedback && (
+          <p className="mb-3 text-xs text-emerald-300" data-testid="yt-cookies-feedback">{ytFeedback}</p>
+        )}
+        {ytError && (
+          <p className="mb-3 text-xs text-rose-300" data-testid="yt-cookies-error">{ytError}</p>
+        )}
+
+        <textarea
+          value={ytContent}
+          onChange={(e) => setYtContent(e.target.value)}
+          rows={4}
+          placeholder={"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t1893456000\tVISITOR_INFO1_LIVE\t…"}
+          className="w-full mb-2 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-[11px] font-mono text-zinc-200 focus:outline-none focus:border-sky-500/50"
+          data-testid="yt-cookies-input"
+        />
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={saveYtCookies}
+            disabled={ytBusy || !ytContent.trim()}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-sky-950 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+            data-testid="yt-cookies-save"
+          >
+            Enregistrer les cookies
+          </button>
+          {ytStatus?.configured && (
+            <button
+              onClick={() => (ytConfirmDelete ? deleteYtCookies() : setYtConfirmDelete(true))}
+              disabled={ytBusy}
+              onBlur={() => setYtConfirmDelete(false)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition cursor-pointer disabled:opacity-40 ${
+                ytConfirmDelete
+                  ? "bg-rose-500 hover:bg-rose-400 text-rose-50"
+                  : "bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300"
+              }`}
+              data-testid="yt-cookies-delete"
+            >
+              {ytConfirmDelete ? "Confirmer la suppression ?" : "Supprimer"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Journal en direct ──────────────────────────────────────────── */}

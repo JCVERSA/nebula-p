@@ -84,7 +84,10 @@ réponse du bot.
 ## 4bis. Guardrail d'arguments (8.99)
 
 Même après validation de la commande, les arguments produits par l'IA sont
-**nettoyés avant exécution** : URLs retirées, backticks/quotes écorchés,
+**nettoyés avant exécution** : URLs retirées (SAUF pour les commandes qui
+déclarent `acceptsUrlArgs` — ytv/ytm/sweb/fetch/tiktok/instagram, où l'URL
+est la cible légitime ; cap dédié 500 chars, hors budget texte — 9.3b),
+backticks/quotes écorchés,
 flags shell (`--x`) supprimés, tokens plafonnés (80 chars) et budget total
 (200 chars). Un nettoyage actif est audité (`agent.args.sanitized`) et
 l'exécution utilise les arguments nettoyés — la commande revalide ses
@@ -113,6 +116,16 @@ et `stop`. Règles :
 - les SECRETS ne sont jamais renvoyés en clair (masqués — écriture seule) ;
 - la réponse indique si la variable s'applique à chaud (quota web, Tavily)
   ou nécessite un redémarrage ;
+
+Cookies YouTube collés (9.4) — mêmes principes :
+- validation stricte AVANT écriture : format Netscape (7 champs tabulés),
+  au moins un cookie du domaine youtube.com, aucun fichier entièrement
+  expiré, 512 Ko max ;
+- le CONTENU (session YouTube) n'est JAMAIS renvoyé par l'API — le GET
+  ne retourne que des métadonnées (nombre, domaines, expiration) ;
+- écriture atomique 0600 à côté du .env ; chemin NEBULA_YTDLP_COOKIES
+  configuré automatiquement ; remplacement à chaud, suppression propre
+  (fichier + variable).
 - « Arrêter » affiche un avertissement explicite : rien ne redémarre
   tout seul, seule une relance SSH `nebula start` est possible.
 

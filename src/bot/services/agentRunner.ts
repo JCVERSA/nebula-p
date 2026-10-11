@@ -259,7 +259,10 @@ export async function handleAgentMessage(
       // peut pas glisser URL/backticks/flags dans les args d'une commande
       // autorisée. Exécution avec les args NETTOYÉS (la commande revalide).
       const rawArgs = current.args.split(/\s+/).filter(Boolean);
-      const sanitized = sanitizeAgentArgs(rawArgs);
+      // 9.3b — les commandes qui déclarent prendre des URLs (ytv, sweb,
+      // fetch…) gardent leurs URLs : sans ça « .ytv <url> 360p » devenait
+      // « .ytv 360p » et le bot cherchait « 360p » comme titre.
+      const sanitized = sanitizeAgentArgs(rawArgs, { allowUrls: canonical.acceptsUrlArgs === true });
       if (sanitized.changed) {
         recordAudit(`wa:${info.actorNumber}`, "agent.args.sanitized", canonical.name, "");
       }

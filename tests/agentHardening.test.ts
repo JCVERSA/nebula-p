@@ -62,6 +62,34 @@ describe("sanitizeAgentArgs — guardrail d'arguments (8.99)", () => {
     expect(r.args).toEqual([]);
     expect(r.changed).toBe(false);
   });
+
+  it("9.3b — allowUrls : l'URL est PRÉSERVÉE en place (ytv, sweb, fetch…)", () => {
+    const url = "https://youtu.be/X28-dapCbSs?si=EkgHx3ZCBeu4T04g";
+    const r = sanitizeAgentArgs([url, "360p"], { allowUrls: true });
+    expect(r.args).toEqual([url, "360p"]); // ordre et URL intacts
+    expect(r.changed).toBe(false);
+  });
+
+  it("9.3b — allowUrls : URL longue (>80) préservée, hors budget texte", () => {
+    const longUrl = "https://www.youtube.com/watch?v=X28-dapCbSs&si=" + "a".repeat(90);
+    const r = sanitizeAgentArgs([longUrl], { allowUrls: true });
+    expect(r.args[0]).toBe(longUrl); // pas coupée à 80
+    // Une URL de 500+ chars reste coupée au cap dédié.
+    const huge = "https://example.com/" + "b".repeat(600);
+    expect(sanitizeAgentArgs([huge], { allowUrls: true }).args[0].length).toBe(500);
+  });
+
+  it("9.3b — SANS allowUrls : le comportement 8.99 est inchangé (URL supprimée)", () => {
+    const r = sanitizeAgentArgs(["https://youtu.be/x", "360p"]);
+    expect(r.args).toEqual(["360p"]);
+    expect(r.changed).toBe(true);
+  });
+
+  it("9.3b — ytvideo accepte la qualité écrite « 360p » (en plus de « 360 »)", () => {
+    const src = readFileSync(join(__dirname, "../src/bot/commands/ytvideo.ts"), "utf-8");
+    expect(src).toContain('lastArg?.replace(/p$/i, "")');
+    expect(src).toContain("acceptsUrlArgs: true");
+  });
 });
 
 describe("messageSuggestsAnimeHistory — injection sélective (8.99)", () => {
@@ -123,7 +151,7 @@ describe("Mode JSON natif + wiring (8.99)", () => {
 
   it("guardrail branché sur le chemin execute + audité", () => {
     const src = read("../src/bot/services/agentRunner.ts");
-    expect(src).toContain("sanitizeAgentArgs(rawArgs)");
+    expect(src).toContain("sanitizeAgentArgs(rawArgs"); // 9.3b : + { allowUrls } selon la commande
     expect(src).toContain("agent.args.sanitized");
   });
 });

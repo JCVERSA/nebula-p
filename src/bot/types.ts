@@ -32,6 +32,13 @@ export interface BotCommand {
   description: string;
   usage?: string;
   aliases?: string[];
+  /**
+   * 9.3b — la commande attend des URLs dans ses arguments (ytv, sweb,
+   * fetch, tiktok, instagram…). Le guardrail d'args de l'agent (8.99)
+   * supprime les URLs par défaut ; si cette propriété est vraie, les
+   * tokens URL sont préservés (cap dédié 500 chars).
+   */
+  acceptsUrlArgs?: boolean;
   execute: (sock: any, msg: any, context: BotCommandContext) => Promise<void> | void;
 }
 

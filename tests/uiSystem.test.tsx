@@ -12,11 +12,14 @@ let calls: string[] = [];
 
 function stubFetch(responses: Record<string, unknown>) {
   const handler = (url: string, init?: any) => {
-    calls.push(init?.method === "POST" ? `POST ${url}` : url);
-    if (init?.method === "POST") {
+    const method = init?.method || "GET";
+    calls.push(method === "GET" ? url : `${method} ${url}`);
+    if (method !== "GET") {
       const body = url.endsWith("/api/system/env")
         ? { ok: true, restartRequired: true }
-        : { started: true };
+        : url.endsWith("/api/system/yt-cookies")
+          ? { ok: true, restartRequired: true, cookieCount: 42, domains: ["youtube.com", "google.com"], maxExpiry: "2027-01-12T00:00:00.000Z" }
+          : { started: true };
       return Promise.resolve({ ok: true, status: 200, json: async () => body });
     }
     const body = responses[url] ?? {};
@@ -58,6 +61,16 @@ function makeResponses(): Record<string, unknown> {
     },
     "/api/system/update-status": { updating: true, logTail: "" },
     "/api/system/logs?lines=100": { lines: "[bot:nebula] moteur prêt\n[WATCH] planifié" },
+    "/api/system/yt-cookies": {
+      configured: false,
+      envSet: false,
+      fileExists: false,
+      cookieCount: 0,
+      domains: [],
+      maxExpiry: null,
+      updatedAt: null,
+      valid: false,
+    },
     "/api/system/env": {
       vars: [
         { key: "NEBULA_AI_DAILY_LIMIT", label: "Quota IA / jour / utilisateur", description: "Budget de requêtes IA par utilisateur et par jour.", type: "number", group: "quotas", default: "40", set: true, value: "40", restartRequired: true },
@@ -144,6 +157,27 @@ describe("Section Système (9.2)", () => {
     await waitFor(() =>
       expect(screen.getByTestId("env-feedback").textContent).toContain("redémarrage requis")
     );
+  });
+
+  it("9.4 — cookies YouTube : collage → POST + diagnostic + feedback redémarrage", async () => {
+    render(<App />);
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
+    await clickNav("Système");
+    await waitFor(() => expect(screen.getByTestId("yt-cookies-card")).toBeTruthy());
+
+    // Statut initial : non configuré → pas de badge, pas de bouton supprimer
+    expect(screen.queryByTestId("yt-cookies-delete")).toBeNull();
+
+    // Colle le contenu exporté puis enregistre
+    fireEvent.change(screen.getByTestId("yt-cookies-input"), {
+      target: { value: "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t1893456000\tK\tv" },
+    });
+    fireEvent.click(screen.getByTestId("yt-cookies-save"));
+    await waitFor(() => expect(calls).toContain("POST /api/system/yt-cookies"));
+    await waitFor(() =>
+      expect(screen.getByTestId("yt-cookies-feedback").textContent).toContain("42 cookies")
+    );
+    expect(screen.getByTestId("yt-cookies-feedback").textContent).toContain("redémarrage requis");
   });
 
   it("journal en direct : les lignes de bot.log sont affichées", async () => {

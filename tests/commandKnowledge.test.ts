@@ -56,7 +56,7 @@ describe("commandKnowledge — fiche .a (statique)", () => {
   // 9.3 — leçons du retour terrain (hallucination d'actualité, cible
   // absente des args, titres français vs internationaux)
   expect(k).toContain("ACTUALITÉ (règle absolue)");
-  expect(k).toContain("ne prétends JAMAIS avoir fait une recherche");
+  expect(k).toContain("ne prétends jamais avoir cherché");
   expect(k).toContain("CIBLE DANS LES ARGS");
   expect(k).toContain("INTERNATIONAUX");
     expect(k).toContain("Détecte l'intention");

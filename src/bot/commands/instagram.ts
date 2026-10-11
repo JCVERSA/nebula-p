@@ -28,6 +28,7 @@ function extractUniqueMedia(mediaData: IgdlMedia[]): IgdlMedia[] {
 
 const instagramCommand: BotCommand = {
   name: "instagram",
+  acceptsUrlArgs: true, // 9.3b — le guardrail agent préserve les URLs ici
   aliases: ["ig", "insta", "igdl", "reels"],
   category: "Media",
   description: "Télécharger photos / vidéos / reels Instagram.",

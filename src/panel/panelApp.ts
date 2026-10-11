@@ -15,6 +15,7 @@ import {
   type SystemActions,
 } from "./systemRoutes.js";
 import { registerEnvRoutes, createEnvEditor, type EnvEditor } from "./envRoutes.js";
+import { registerYtCookiesRoutes, createYtCookiesHandler, type YtCookiesHandler } from "./ytCookiesRoutes.js";
 
 /**
  * Multi-bots (8.75) — application panneau du process SUPERVISEUR.
@@ -47,7 +48,8 @@ export interface PanelSupervisor {
 export function createPanelApp(
   supervisor: PanelSupervisor,
   systemActions?: SystemActions,
-  envEditor?: EnvEditor
+  envEditor?: EnvEditor,
+  ytCookiesHandler?: YtCookiesHandler
 ): express.Express {
   const app = express();
   app.set("trust proxy", true);
@@ -122,6 +124,13 @@ export function createPanelApp(
   registerEnvRoutes(app, {
     editor: envEditor || createEnvEditor(),
     limiter: rateLimit(20, 60_000, "sysenv"),
+  });
+
+  // 9.4 — cookies YouTube collés depuis le panneau : validation Netscape
+  // stricte, contenu JAMAIS renvoyé, écriture 0600 + .env automatique.
+  registerYtCookiesRoutes(app, {
+    handler: ytCookiesHandler || createYtCookiesHandler(),
+    limiter: rateLimit(10, 60_000, "syscookies"),
   });
 
   // ---------------------------------------------------------------------------

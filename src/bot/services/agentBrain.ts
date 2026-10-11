@@ -204,28 +204,50 @@ export function replySuggestsOtherCatalog(text: string): boolean {
  * (l'appelant audite l'événement — exécution avec les args nettoyés,
  * la commande revalide ses arguments de toute façon).
  */
-export function sanitizeAgentArgs(args: string[]): { args: string[]; changed: boolean } {
+export function sanitizeAgentArgs(
+  args: string[],
+  opts: { allowUrls?: boolean } = {}
+): { args: string[]; changed: boolean } {
   const MAX_TOTAL = 200;
   const MAX_TOKEN = 80;
+  // 9.3b : les commandes qui DÉCLARENT prendre des URLs (acceptsUrlArgs —
+  // ytv, sweb, fetch, tiktok, instagram) les préservent, avec leur propre
+  // cap (une URL légitime dépasse souvent 80 chars) et hors budget total.
+  // Retour terrain 9.3 : « .ytv <url> 360p » devenait « .ytv 360p » → le
+  // bot cherchait « 360p » comme titre de vidéo.
+  const MAX_URL_TOKEN = 500;
   const URL_RE = /^(?:https?:\/\/|www\.)\S+$/i;
   const cleaned: string[] = [];
   let changed = false;
   for (const raw of args) {
     let token = String(raw ?? "");
     const before = token;
-    if (URL_RE.test(token)) token = "";
+    if (URL_RE.test(token)) {
+      if (opts.allowUrls) {
+        // URL légitime pour CETTE commande : préservée en place (cap
+        // dédié) — l'ordre des arguments compte (url puis qualité).
+        if (token.length > MAX_URL_TOKEN) token = token.slice(0, MAX_URL_TOKEN);
+        if (token !== before) changed = true;
+        cleaned.push(token);
+        continue;
+      }
+      token = "";
+    }
     token = token.replace(/[`*'"]+/g, "");
     if (/^--\w+/.test(token)) token = "";
     if (token.length > MAX_TOKEN) token = token.slice(0, MAX_TOKEN);
     if (token !== before) changed = true;
     if (token) cleaned.push(token);
   }
-  const total = cleaned.join(" ");
+  // Les tokens URL préservés ne comptent pas dans le budget « texte ».
+  const total = cleaned.filter((t) => !URL_RE.test(t)).join(" ");
   if (total.length > MAX_TOTAL) {
-    // Coupe au dernier token complet qui tient dans le budget.
+    // Coupe au dernier token TEXTE complet qui tient dans le budget —
+    // les URLs restent quoi qu'il arrive (elles sont la cible).
     const kept: string[] = [];
     let len = 0;
     for (const t of cleaned) {
+      if (URL_RE.test(t)) { kept.push(t); continue; }
       if (len + t.length + 1 > MAX_TOTAL) break;
       kept.push(t);
       len += t.length + 1;

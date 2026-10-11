@@ -67,6 +67,7 @@ const COMMANDS: Record<string, any> = {
   ai: { name: "ai" },
   menu: { name: "menu" },
   sweb: { name: "sweb" }, // 9.3 — test anti-placeholder example.com
+  ytvideo: { name: "ytvideo", acceptsUrlArgs: true }, // 9.3b — URLs autorisées
 };
 
 const JID = "237999111222@s.whatsapp.net";
@@ -406,6 +407,28 @@ describe("9.1 — boucle d'observation (pilotage autonome)", () => {
     const systemPrompt = mAI.mock.calls[mAI.mock.calls.length - 1][1];
     expect(systemPrompt).toContain("Écran en attente dans ce chat");
     expect(exec.mock.calls[exec.mock.calls.length - 1][1]).toEqual(["2"]);
+  });
+});
+
+describe("9.3b — URLs préservées pour les commandes qui les déclarent", () => {
+  it("« download cette vidéo <url> 360p » → .ytv avec le LIEN intact + qualité", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"ytvideo","args":"https://youtu.be/X28-dapCbSs?si=EkgHx3ZCBeu4T04g 360p"}');
+    const exec = mkExec();
+    const ctx = mk("download this video https://youtu.be/X28-dapCbSs?si=EkgHx3ZCBeu4T04g 360p");
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(1);
+    const call = exec.mock.calls[0] as unknown as [string, string[]];
+    expect(call[0]).toBe("ytvideo");
+    // L'URL doit être INTACTE dans les args (le guardrail 8.99 la retirait).
+    expect(call[1]).toEqual(["https://youtu.be/X28-dapCbSs?si=EkgHx3ZCBeu4T04g", "360p"]);
+  });
+
+  it("une commande SANS acceptsUrlArgs perd toujours ses URLs (gce, a, …)", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"gce","args":"https://evil.example a bio 2023 2"}');
+    const exec = mkExec();
+    const ctx = mk("les annales https://evil.example");
+    await run(ctx, exec);
+    expect((exec.mock.calls[0] as unknown as [string, string[]])[1]).toEqual(["a", "bio", "2023", "2"]);
   });
 });
 

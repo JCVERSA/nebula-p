@@ -2,6 +2,7 @@ import { BotCommand } from "../types.js";
 
 const swebCommand: BotCommand = {
   name: "sweb",
+  acceptsUrlArgs: true, // 9.3b — le guardrail agent préserve les URLs ici
   aliases: ["ssweb", "screenshot", "ss", "webss"],
   category: "General",
   description: "Take a high-quality screenshot of a website",

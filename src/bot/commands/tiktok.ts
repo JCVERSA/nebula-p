@@ -10,6 +10,7 @@ import { getConfig } from "../config.js";
 
 const tiktokCommand: BotCommand = {
   name: "tiktok",
+  acceptsUrlArgs: true, // 9.3b — le guardrail agent préserve les URLs ici
   aliases: ["tt", "ttdl", "tiktokdl"],
   category: "Media",
   description: "Télécharger une vidéo TikTok sans watermark.",

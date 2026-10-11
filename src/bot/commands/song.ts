@@ -108,6 +108,7 @@ async function ytsSearch(query: string): Promise<{ videos: Array<{ title?: strin
 
 const songCommand: BotCommand = {
   name: "song",
+  acceptsUrlArgs: true, // 9.3b — le guardrail agent préserve les URLs ici
   aliases: ["play", "music", "yta", "mp3", "ytm"],
   category: "Media",
   description: "Télécharger l'audio d'une chanson YouTube (MP3).",

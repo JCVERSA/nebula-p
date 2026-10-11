@@ -34,6 +34,7 @@ function isReadableContentType(ctype: string): boolean {
 
 const fetchCommand: BotCommand = {
   name: "fetch",
+  acceptsUrlArgs: true, // 9.3b — le guardrail agent préserve les URLs ici
   aliases: ["read", "lire"],
   category: "General",
   description: "Lire une page web en texte (article, documentation, JSON)",

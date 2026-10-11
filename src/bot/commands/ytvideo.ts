@@ -74,6 +74,7 @@ async function ytsSearch(query: string): Promise<{ videos: Array<{ title?: strin
 
 const ytvideoCommand: BotCommand = {
   name: "ytvideo",
+  acceptsUrlArgs: true, // 9.3b — le guardrail agent préserve les URLs ici
   aliases: ["ytv", "ytmp4", "ytvid", "video"],
   category: "Media",
   description: "Télécharger une vidéo YouTube avec option de résolution.",
@@ -92,8 +93,11 @@ const ytvideoCommand: BotCommand = {
       let quality = "720";
       let searchQuery = args.join(" ");
       const lastArg = args[args.length - 1];
-      if (["360", "480", "720", "1080"].includes(lastArg)) {
-        quality = lastArg;
+      // 9.3b : « 360p »/« 480P » acceptés en plus de « 360 » (retour
+      // terrain : l'agent et les humains écrivent naturellement « 360p »).
+      const lastQuality = lastArg?.replace(/p$/i, "");
+      if (["360", "480", "720", "1080"].includes(lastQuality)) {
+        quality = lastQuality;
         searchQuery = args.slice(0, -1).join(" ");
       }
 
