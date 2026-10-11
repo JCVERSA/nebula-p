@@ -137,7 +137,9 @@ Partage de fichiers via `.up` (9.5) :
 - TAILLE contrôlée AVANT traitement (`NEBULA_UPLOAD_MAX_MB`, défaut
   500 Mo, bornes 10-4096 via l'éditeur .env du panneau) ;
 - nom de fichier assaini (caractères de chemin interdits → `_`, 120
-  caractères max) : aucune traversée de chemin possible.
+  caractères max) : aucune traversée de chemin possible ;
+- téléchargement EN STREAMING vers le disque, coupé net dès que la limite
+  est dépassée (jamais tamponné en RAM : heap 192 Mo < limite 500 Mo).
 
 ## 5. Budgets et quotas
 

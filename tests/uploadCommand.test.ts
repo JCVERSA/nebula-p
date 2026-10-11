@@ -1,12 +1,22 @@
 /**
- * 9.5 — .up/.upload : lien temporaire (2 h) pour un média envoyé ou cité.
- * tempDownloadManager mocké (aucune écriture réelle) — les pures
- * (findMediaNode, mediaMeta, quota) testées à plat.
+ * 9.5/9.5b — .up/.upload : lien temporaire (2 h) pour un média envoyé ou cité.
+ * Baileys + tempDownloadManager mockés (aucun réseau, aucune écriture réelle
+ * dans le dépôt temp) — les pures (findMediaNode, mediaMeta, quota,
+ * streamMediaToFile) testées à plat.
+ *
+ * 9.5b : le média est téléchargé EN STREAMING vers le disque (le downloader
+ * du contexte tamponnait tout en RAM — heap 192 Mo contre 500 Mo de limite).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, rmSync, readdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+
+// 9.5b : Baileys 7.x exporte downloadContentFromMessage (ce n'est PAS une
+// méthode du sock) — le mock fournit un flux asynchrone de chunks.
+vi.mock("@whiskeysockets/baileys", () => ({
+  downloadContentFromMessage: vi.fn(),
+}));
 
 vi.mock("../src/bot/tempDownloadManager.js", () => ({
   registerTempDownload: vi.fn(() => ({
@@ -23,11 +33,19 @@ import uploadCommand, {
   getMaxUploadBytes,
   checkUploadQuota,
   recordUpload,
+  streamMediaToFile,
   __resetUploadQuotaForTests,
 } from "../src/bot/commands/upload.js";
 import { registerTempDownload } from "../src/bot/tempDownloadManager.js";
+import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 
 const mRegister = vi.mocked(registerTempDownload);
+const mDownload = vi.mocked(downloadContentFromMessage);
+
+/** Flux asynchrone de chunks, comme le vrai downloadContentFromMessage. */
+async function* fakeStream(chunks: Buffer[]) {
+  for (const c of chunks) yield c;
+}
 
 const SENDER = "237999000111@s.whatsapp.net";
 let dir: string;
@@ -42,7 +60,6 @@ function mkContext(over: Record<string, unknown> = {}) {
     fullMessage: "",
     reply: async (t: string) => { replies.push(t); return {}; },
     react: async () => ({}),
-    downloadMedia: async () => Buffer.from("fichier"),
     ...over,
     _replies: replies,
   } as any;
@@ -67,6 +84,7 @@ beforeEach(() => {
     expiresAt: 0, ttlMinutes: 120, sizeMB: 1, sizeBytes: 1,
     filename: "", filePath: "",
   })) as any);
+  mDownload.mockImplementation((async () => fakeStream([Buffer.from("fichier")])) as any);
   dir = mkdtempSync(join(tmpdir(), "upcmd-"));
   delete process.env.NEBULA_UPLOAD_MAX_MB;
 });
@@ -108,9 +126,14 @@ describe(".up — exécution", () => {
     expect(mRegister).not.toHaveBeenCalled();
   });
 
-  it("document joint → lien 2 h avec nom, taille et TTL", async () => {
+  it("document joint → lien 2 h avec nom, taille et TTL (streaming disque)", async () => {
     const ctx = mkContext();
     await uploadCommand.execute!({} as any, DOC_MSG, ctx);
+    expect(mDownload).toHaveBeenCalledTimes(1);
+    // le nœud média ET le type Baileys ("document", pas "documentMessage")
+    const [nodeArg, typeArg] = mDownload.mock.calls[0] as any[];
+    expect(nodeArg.fileName).toBe("rapport 2026.pdf");
+    expect(typeArg).toBe("document");
     expect(mRegister).toHaveBeenCalledTimes(1);
     const [pathArg, nameArg, optsArg] = mRegister.mock.calls[0];
     expect(nameArg).toBe("rapport 2026.pdf");
@@ -122,15 +145,35 @@ describe(".up — exécution", () => {
     expect(ctx._replies[0]).toContain("rapport 2026.pdf");
   });
 
+  it("flux vide → aucun lien, message honnête", async () => {
+    mDownload.mockImplementation((async () => fakeStream([])) as any);
+    const ctx = mkContext();
+    await uploadCommand.execute!({} as any, DOC_MSG, ctx);
+    expect(ctx._replies[0]).toContain("Impossible de récupérer le média");
+    expect(mRegister).not.toHaveBeenCalled();
+  });
+
+  it("échec du téléchargement → erreur honnête (le catch global parle)", async () => {
+    mDownload.mockImplementation(async () => {
+      throw new Error("sock.downloadContentFromMessage is not a function");
+    });
+    const ctx = mkContext();
+    await uploadCommand.execute!({} as any, DOC_MSG, ctx);
+    expect(ctx._replies[0]).toContain("Erreur pendant le traitement");
+    expect(mRegister).not.toHaveBeenCalled();
+  });
+
   it("reply sur une vidéo → le média cité est utilisé", async () => {
     const ctx = mkContext();
     await uploadCommand.execute!({} as any, REPLY_MSG, ctx);
     expect(mRegister.mock.calls[0][1]).toMatch(/^video-\d+\.mp4$/);
   });
 
-  it("fichier trop lourd → refus selon NEBULA_UPLOAD_MAX_MB (aucun enregistrement)", async () => {
+  it("fichier trop lourd → refus en cours de streaming, fichier parti supprimé", async () => {
     process.env.NEBULA_UPLOAD_MAX_MB = "1";
-    const ctx = mkContext({ downloadMedia: async () => Buffer.alloc(2 * 1024 * 1024) });
+    mDownload.mockImplementation((async () =>
+      fakeStream([Buffer.alloc(1024 * 1024), Buffer.alloc(1024 * 1024)])) as any);
+    const ctx = mkContext();
     await uploadCommand.execute!({} as any, DOC_MSG, ctx);
     expect(ctx._replies[0]).toContain("trop lourd");
     expect(mRegister).not.toHaveBeenCalled();
@@ -153,6 +196,31 @@ describe(".up — exécution", () => {
   });
 });
 
+describe("streamMediaToFile (pur, 9.5b)", () => {
+  it("écrit les chunks sur disque et rend le total d'octets", async () => {
+    const dest = join(dir, "s.bin");
+    const res = await streamMediaToFile({}, "documentMessage", dest, 1000, async () =>
+      fakeStream([Buffer.from("abc"), Buffer.from("def")]));
+    expect(res).toEqual({ ok: true, bytes: 6 });
+    expect((await import("fs")).readFileSync(dest, "utf-8")).toBe("abcdef");
+  });
+
+  it("coupe net au-delà de maxBytes et supprime le fichier partiel", async () => {
+    const dest = join(dir, "big.bin");
+    const res = await streamMediaToFile({}, "videoMessage", dest, 3, async () =>
+      fakeStream([Buffer.from("abc"), Buffer.from("def")]));
+    expect(res).toEqual({ ok: false, reason: "tooBig", bytes: 6 });
+    expect(readdirSync(dir).length).toBe(0); // rien de laissé sur le disque
+  });
+
+  it("flux vide → empty, aucun fichier", async () => {
+    const dest = join(dir, "e.bin");
+    const res = await streamMediaToFile({}, "imageMessage", dest, 100, async () => fakeStream([]));
+    expect(res).toEqual({ ok: false, reason: "empty", bytes: 0 });
+    expect(readdirSync(dir).length).toBe(0);
+  });
+});
+
 describe("wiring 9.5", () => {
   it("alias du owner enregistrés, commande légère pour l'agent", async () => {
     const fs = await import("fs");
@@ -161,5 +229,15 @@ describe("wiring 9.5", () => {
     const brain = fs.readFileSync(join(__dirname, "../src/bot/services/agentBrain.ts"), "utf-8");
     const heavy = brain.match(/HEAVY_NAMES[^;]*;/)?.[0] ?? "";
     expect(heavy).not.toContain('"upload"');
+  });
+
+  it("9.5b — le downloader partagé utilise l'export Baileys, pas sock.*", async () => {
+    const fs = await import("fs");
+    const dispatch = fs.readFileSync(join(__dirname, "../src/bot/commandDispatch.ts"), "utf-8");
+    expect(dispatch).toContain('import { downloadContentFromMessage } from "@whiskeysockets/baileys"');
+    expect(dispatch).not.toContain("sock as any).downloadContentFromMessage");
+    // .trace dépend de ce downloader : le correctif le répare aussi.
+    const trace = fs.readFileSync(join(__dirname, "../src/bot/commands/trace.ts"), "utf-8");
+    expect(trace).toContain("context.downloadMedia");
   });
 });

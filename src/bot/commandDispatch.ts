@@ -11,6 +11,11 @@
  * les réponses sont CAPTURÉES pour détecter les erreurs (rattrapage 8.93).
  */
 
+// Named import uniquement (package ESM-only — voir note botEngine.ts) :
+// en Baileys 7.x downloadContentFromMessage est un EXPORT du module,
+// PAS une méthode du sock (l'appel sock.downloadContentFromMessage
+// échouait : "not a function" — constaté en prod avec .up, 9.5b).
+import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import { getCommand } from "./commandRegistry.js";
 import { BotCommandContext, GroupMember } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
@@ -155,9 +160,9 @@ export async function dispatchBotCommand(
       }
 
       addLog(`Downloading media content of type: ${messageType}`);
-      const stream = await (sock as any).downloadContentFromMessage(
+      const stream = await downloadContentFromMessage(
         mediaContent[messageType],
-        messageType.replace("Message", "")
+        messageType.replace("Message", "") as any
       );
 
       let buffer = Buffer.alloc(0);

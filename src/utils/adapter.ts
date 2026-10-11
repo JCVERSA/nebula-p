@@ -1,3 +1,4 @@
+import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import { BotCommandContext } from "../bot/types.js";
 import { getConfig } from "../bot/config.js";
 
@@ -143,9 +144,9 @@ export function buildAdapterContext(
       if (!["imageMessage", "videoMessage", "documentMessage", "audioMessage"].includes(messageType)) {
         return null;
       }
-      const stream = await sock.downloadContentFromMessage(
-        messageContent[messageType as keyof typeof messageContent],
-        messageType.replace("Message", "")
+      const stream = await downloadContentFromMessage(
+        messageContent[messageType as keyof typeof messageContent] as any,
+        messageType.replace("Message", "") as any
       );
       let buffer = Buffer.alloc(0);
       for await (const chunk of stream) {

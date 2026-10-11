@@ -1,5 +1,8 @@
 import fs from "fs";
 import path from "path";
+// Named import uniquement (le bundle CJS esbuild casse les default imports
+// de ce package ESM-only — voir la note en tête de botEngine.ts).
+import { downloadContentFromMessage } from "@whiskeysockets/baileys";
 import { BotCommand } from "../types.js";
 import { extractQuotedMediaContent } from "../utils/quotedMedia.js";
 import { registerTempDownload, getTempDownloadDir } from "../tempDownloadManager.js";
@@ -97,6 +100,84 @@ export function __resetUploadQuotaForTests(): void {
   uploads.clear();
 }
 
+// ── Téléchargement en streaming (9.5b) ────────────────────────────────────
+// Jamais en RAM : le heap du moteur est 192 Mo alors que la limite .up monte
+// à 500 Mo (NEBULA_UPLOAD_MAX_MB). Le flux Baileys est écrit directement
+// sur disque, avec coupe nette dès que maxBytes est dépassé.
+
+export type OpenMediaStream = (node: any, mediaType: string) => Promise<AsyncIterable<Buffer>>;
+
+const baileysOpenStream: OpenMediaStream = (node, mediaType) =>
+  downloadContentFromMessage(node, mediaType as any);
+
+export type StreamResult =
+  | { ok: true; bytes: number }
+  | { ok: false; reason: "tooBig" | "empty"; bytes: number };
+
+/**
+ * Écrit le média dans destPath en streaming ; pur vis-à-vis de Baileys.
+ *
+ * Race 9.5b (constatée en CI) : l'open d'un fs.WriteStream est asynchrone
+ * (threadpool). Détruire le flux puis unlink de suite fait aboutir l'open
+ * APRÈS la suppression → ENOENT émis sur le flux → exception non gérée.
+ * On attend donc TOUJOURS la fermeture réelle (callback de destroy/end)
+ * avant de supprimer, et toute erreur d'écriture est capturée.
+ */
+export async function streamMediaToFile(
+  node: any,
+  kind: string,
+  destPath: string,
+  maxBytes: number,
+  openStream: OpenMediaStream = baileysOpenStream,
+): Promise<StreamResult> {
+  const stream = await openStream(node, kind.replace("Message", ""));
+  const out = fs.createWriteStream(destPath);
+  let writeError: Error | null = null;
+  out.on("error", (e) => { writeError = e; }); // jamais d'erreur non gérée
+  let bytes = 0;
+  let tooBig = false;
+
+  // 'close' (autoClose) = fd réellement fermé — y compris si l'open
+  // asynchrone était encore en vol au moment du destroy.
+  const settle = (destroy: boolean) =>
+    new Promise<void>((resolve) => {
+      if (out.closed) return resolve();
+      out.once("close", () => resolve());
+      if (destroy) out.destroy();
+      else out.end();
+    });
+  const cleanup = () => {
+    try { fs.unlinkSync(destPath); } catch { /* déjà parti */ }
+  };
+
+  try {
+    for await (const chunk of stream) {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        tooBig = true;
+        break;
+      }
+      if (!out.write(chunk)) {
+        await new Promise<void>((resolve) => out.once("drain", () => resolve()));
+      }
+    }
+  } catch (err) {
+    await settle(true); // ferme le flux AVANT de supprimer
+    cleanup();
+    throw err; // téléchargement échoué → remonte au catch de execute
+  }
+  await settle(tooBig || out.destroyed);
+  if (writeError) {
+    cleanup();
+    throw writeError; // disque plein, etc. → message honnête de execute
+  }
+  if (tooBig || bytes === 0) {
+    cleanup();
+    return { ok: false, reason: tooBig ? "tooBig" : "empty", bytes };
+  }
+  return { ok: true, bytes };
+}
+
 const USAGE = (p: string) =>
   `📤 *Aucun fichier détecté.*\n\n` +
   `Envoie la commande AVEC le fichier, ou réponds (reply) à un message qui contient le média :\n\n` +
@@ -115,9 +196,6 @@ const uploadCommand: BotCommand = {
     if (!media) {
       return void (await context.reply(USAGE(context.prefix)));
     }
-    if (!context.downloadMedia) {
-      return void (await context.reply("❌ *Téléchargement indisponible dans ce contexte.*"));
-    }
     if (!checkUploadQuota(context.sender)) {
       return void (await context.reply(
         `⏳ *Limite d'uploads atteinte* (${UPLOADS_PER_HOUR}/heure) — réessaie dans un instant.`,
@@ -126,33 +204,34 @@ const uploadCommand: BotCommand = {
 
     await context.react("📤");
     try {
-      const buf = await context.downloadMedia();
-      if (!buf || buf.length === 0) {
-        return void (await context.reply("❌ *Impossible de récupérer le média* — réessaie."));
-      }
       const maxBytes = getMaxUploadBytes();
-      if (buf.length > maxBytes) {
-        return void (await context.reply(
-          `⚠️ *Fichier trop lourd* (${(buf.length / 1048576).toFixed(1)} Mo) — maximum ${Math.round(
-            maxBytes / 1048576,
-          )} Mo par fichier (réglable par l'owner).`,
-        ));
-      }
-
-      recordUpload(context.sender);
       const meta = mediaMeta(media.node, media.kind);
       fs.mkdirSync(getTempDownloadDir(), { recursive: true });
       const unique = `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${meta.filename}`;
       const tmpPath = path.join(getTempDownloadDir(), unique);
-      fs.writeFileSync(tmpPath, buf);
 
+      // 9.5b : streaming direct disque (heap 192 Mo < limite 500 Mo —
+      // l'ancien tampon RAM complet OOM-ait le moteur sur un gros fichier).
+      const res = await streamMediaToFile(media.node, media.kind, tmpPath, maxBytes);
+      if (!res.ok) {
+        if (res.reason === "tooBig") {
+          return void (await context.reply(
+            `⚠️ *Fichier trop lourd* (${(res.bytes / 1048576).toFixed(1)} Mo) — maximum ${Math.round(
+              maxBytes / 1048576,
+            )} Mo par fichier (réglable par l'owner).`,
+          ));
+        }
+        return void (await context.reply("❌ *Impossible de récupérer le média* — réessaie."));
+      }
+
+      recordUpload(context.sender);
       const rec = registerTempDownload(tmpPath, meta.filename, {
         mimeType: meta.mimeType,
         ttlMinutes: 120, // décision owner : 2 h glissantes
         meta: { origin: "upload", by: context.sender },
       });
 
-      const sizeMB = (buf.length / 1048576).toFixed(buf.length < 10 * 1048576 ? 1 : 0);
+      const sizeMB = (res.bytes / 1048576).toFixed(res.bytes < 10 * 1048576 ? 1 : 0);
       await context.reply(
         `🔗 *Lien de téléchargement généré*\n\n` +
           `📄 ${meta.filename} · ${sizeMB} Mo\n\n` +
