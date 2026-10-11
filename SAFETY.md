@@ -129,12 +129,23 @@ Cookies YouTube collés (9.4) — mêmes principes :
 - « Arrêter » affiche un avertissement explicite : rien ne redémarre
   tout seul, seule une relance SSH `nebula start` est possible.
 
+Partage de fichiers via `.up` (9.5) :
+- même mécanique que les liens d'épisodes : route publique `/d/<token>`,
+  TTL 2 h GLISSANT (chaque téléchargement relance le délai, vie totale
+  plafonnée à 2 h), fichier posé dans le dépôt temporaire purgé ;
+- QUOTA : 50 uploads / heure / utilisateur (refus honnête au-delà) ;
+- TAILLE contrôlée AVANT traitement (`NEBULA_UPLOAD_MAX_MB`, défaut
+  500 Mo, bornes 10-4096 via l'éditeur .env du panneau) ;
+- nom de fichier assaini (caractères de chemin interdits → `_`, 120
+  caractères max) : aucune traversée de chemin possible.
+
 ## 5. Budgets et quotas
 
 | Ressource | Plafond |
 |---|---|
 | Appels IA (chat + agent) | 40 / jour / utilisateur |
 | Exécutions agent | 10 / heure / utilisateur |
+| Fichiers partagés (`.up`) | 50 / heure / utilisateur · 500 Mo max (`NEBULA_UPLOAD_MAX_MB`) |
 | Concurrence IA | globale, file d'attente |
 | Fiche agent (contexte) | < 6 000 caractères (test CI `agentContextBudget`) |
 | Historique anime dans le prompt | uniquement si le message parle d'anime (8.99, leçon Mastra) |

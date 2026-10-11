@@ -64,6 +64,7 @@ export const MENU_SECTIONS: MenuSection[] = [
     title: "TOOLS & UTILITY",
     entries: [
       ["sweb", "Capture d'écran d'un site web"],
+      ["up", "Lien temporaire (2 h) pour un fichier (ou en reply)"],
       ["qr", "Génère un QR code"],
       ["base64", "Encode / décode (Base64, hex, binaire…)"],
       ["getpp", "Photo de profil"],

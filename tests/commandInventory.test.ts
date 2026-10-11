@@ -41,6 +41,7 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "search", aliases: ["recherche", "websearch"] },
   { name: "fetch", aliases: ["read", "lire"] },
   { name: "wiki", aliases: ["wikipedia", "encyclopedie"] },
+  { name: "upload", aliases: ["up", "tr", "lu", "opload", "opl", "upl"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

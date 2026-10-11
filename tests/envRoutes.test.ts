@@ -91,7 +91,7 @@ describe("GET /api/system/env", () => {
     const byKey = Object.fromEntries(res.body.vars.map((v: any) => [v.key, v]));
     expect(res.body.vars.length).toBe(ENV_EDITABLE_SPECS.length);
     expect(byKey.TAVILY_API_KEY.value).toBe("tvly…i789"); // jamais en clair
-    expect(byKey.TAVILY_API_KEY.restartRequired).toBe(false); // à chaud
+    expect(byKey.TAVILY_API_KEY.restartRequired).toBe(true); // 9.5 : le moteur charge .env au boot
     expect(byKey.NEBULA_DIGEST_HOUR.value).toBe("9");
     expect(byKey.NEBULA_AI_DAILY_LIMIT.set).toBe(false); // absent du fichier
     expect(byKey.GEMINI_API_KEY.restartRequired).toBe(true);
@@ -135,12 +135,12 @@ describe("POST /api/system/env", () => {
     expect(content).not.toContain("NEBULA_AI_DAILY_LIMIT");
   });
 
-  it("quota web = appliqué à chaud (restartRequired false)", async () => {
+  it("toute variable moteur = redémarrage requis (9.5 : .env chargé au boot, plus de faux « à chaud »)", async () => {
     const res = await request(buildApp())
       .post("/api/system/env")
       .send({ key: "NEBULA_WEB_DAILY_LIMIT", value: "30" })
       .expect(200);
-    expect(res.body.restartRequired).toBe(false);
+    expect(res.body.restartRequired).toBe(true);
   });
 });
 

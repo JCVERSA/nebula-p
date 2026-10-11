@@ -12,6 +12,8 @@ import {
   KeyRound,
   Settings2,
   Cookie,
+  Copy,
+  Download,
 } from "lucide-react";
 
 /**
@@ -135,6 +137,8 @@ export default function SystemPanel() {
   const [ytError, setYtError] = useState<string | null>(null);
   const [ytBusy, setYtBusy] = useState(false);
   const [ytConfirmDelete, setYtConfirmDelete] = useState(false);
+  // 9.4b — journal : copie / export
+  const [logsCopied, setLogsCopied] = useState(false);
 
   const fetchJson = async (url: string): Promise<any | null> => {
     try {
@@ -245,6 +249,43 @@ export default function SystemPanel() {
       setYtError("Panneau injoignable — réessaie.");
     } finally {
       setYtBusy(false);
+    }
+  };
+
+  // 9.4b — copier ce qui est affiché (WYSIWYG, pour coller dans le chat).
+  const copyLogs = async () => {
+    try {
+      await navigator.clipboard.writeText(logs);
+      setLogsCopied(true);
+      setTimeout(() => setLogsCopied(false), 2000);
+    } catch {
+      /* clipboard indisponible (contexte non sécurisé) — silencieux */
+    }
+  };
+
+  // 9.4b — exporter : récupère les 300 dernières lignes (max API) avec un
+  // en-tête daté + version — le fichier se partage tel quel pour du debug.
+  const exportLogs = async () => {
+    try {
+      const data = await fetchJson("/api/system/logs?lines=300");
+      const content = typeof data?.lines === "string" && data.lines ? data.lines : logs;
+      const stamp = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const name = `nebula-logs-${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())}-${pad(stamp.getHours())}h${pad(stamp.getMinutes())}.txt`;
+      const header =
+        `# Nebula — export des logs (${stamp.toISOString()})\n` +
+        `# version ${info?.version ?? "?"} · commit ${info?.commit ?? "?"} · 300 dernières lignes\n\n`;
+      const blob = new Blob([header + content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* export best-effort */
     }
   };
 
@@ -624,13 +665,33 @@ export default function SystemPanel() {
       <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-zinc-100">Journal (bot.log)</h3>
-          <button
-            onClick={() => setLogsPaused((p) => !p)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 transition cursor-pointer"
-          >
-            {logsPaused ? <Play size={12} /> : <Pause size={12} />}
-            {logsPaused ? "Reprendre" : "Pause"}
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={copyLogs}
+              title="Copier les lignes affichées"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 transition cursor-pointer"
+              data-testid="btn-copy-logs"
+            >
+              <Copy size={12} />
+              {logsCopied ? "Copié ✓" : "Copier"}
+            </button>
+            <button
+              onClick={exportLogs}
+              title="Exporter les 300 dernières lignes en .txt"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 transition cursor-pointer"
+              data-testid="btn-export-logs"
+            >
+              <Download size={12} />
+              Exporter
+            </button>
+            <button
+              onClick={() => setLogsPaused((p) => !p)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 transition cursor-pointer"
+            >
+              {logsPaused ? <Play size={12} /> : <Pause size={12} />}
+              {logsPaused ? "Reprendre" : "Pause"}
+            </button>
+          </div>
         </div>
         <pre
           data-testid="system-log"

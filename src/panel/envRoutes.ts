@@ -56,7 +56,11 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     key: "NEBULA_WEB_DAILY_LIMIT", label: "Quota web / jour / utilisateur",
     description: "Recherches/lectures web (.search/.fetch/.wiki) par utilisateur et par jour (défaut 20).",
     type: "number", group: "quotas", default: "20", min: 0, max: 500,
-    hot: true,
+  },
+  {
+    key: "NEBULA_UPLOAD_MAX_MB", label: "Taille max .up (Mo)",
+    description: "Taille maximum par fichier uploadé via .up/.upload (défaut 500 Mo).",
+    type: "number", group: "quotas", default: "500", min: 10, max: 4096,
   },
   {
     key: "NEBULA_AI_PRIMARY", label: "Moteur IA primaire",
@@ -92,7 +96,6 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     key: "TAVILY_API_KEY", label: "Clé Tavily",
     description: "Clé (tvly-…) qui améliore .search — gratuite sur app.tavily.com. Vide = DuckDuckGo.",
     type: "secret", group: "keys",
-    hot: true,
   },
   {
     key: "NEBULA_YTDLP_COOKIES", label: "Fichier cookies YouTube",

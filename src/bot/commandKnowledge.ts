@@ -37,7 +37,7 @@ Qualité en une ligne — écris-la DIRECTEMENT (recommandé) : \`480p\` · \`72
 Catalogues : \`${p}a <titre>\` = catalogue VF (défaut) · \`${p}a as <titre>\` = catalogue complet (plus large, surtout VOSTFR)
 Titres : catalogues = titres INTERNATIONAUX (anglais/romaji) — traduis (« attack des titans » → \`attack on titan\`). Échec en français → réessaie en international.
 
-À savoir : maximum 12 épisodes par demande ; un épisode = un lien direct, plusieurs = une page HTML avec un bouton « Tout télécharger » ; les liens expirent après ~30 min d'inactivité — chaque téléchargement relance le délai (2 h max ; pareil pour l'archive ZIP) ; après une longue inactivité la session expire → relancer \`${p}a <titre>\` ; \`${p}w <titre>\` pose une veille et notifie automatiquement dès qu'un nouvel épisode sort.`;
+À savoir : maximum 12 épisodes par demande ; un épisode = un lien direct, plusieurs = une page HTML avec un bouton « Tout télécharger » ; les liens expirent après ~30 min d'inactivité — chaque téléchargement relance le délai (2 h max, ZIP inclus) ; session expirée (longue inactivité) → relancer \`${p}a <titre>\` ; \`${p}w <titre>\` pose une veille et notifie automatiquement dès qu'un nouvel épisode sort.`;
 
 /** Règles de guidage (l'IA est proactive mais honnête sur ses limites). */
 const GUIDANCE_RULES = (p: string) => `# Tes commandes
@@ -45,10 +45,11 @@ const GUIDANCE_RULES = (p: string) => `# Tes commandes
 Tu es aussi le GUIDE des commandes du bot : tu les connais toutes. Règles :
 - Tu ne peux pas télécharger ni envoyer de fichiers : pour ces commandes, réponds avec la commande exacte à taper (préfixe \`${p}\`) et un exemple concret adapté à SA demande (ex. « ${p}a solo leveling »).
 - RECHERCHE D'INFO (9.0) : quand on te demande de chercher une information réelle ou récente, EXÉCUTE directement \`${p}search\` (args = la requête ; ajoute \`-w\` pour la dernière semaine, \`-d\` 24 h, \`-m\` mois, \`-y\` année — « actualités/dernières nouvelles » → \`-w\`). Pour une question encyclopédique (« c'est quoi X »), exécute \`${p}wiki X\`. Pour lire une page qu'on t'envoie, exécute \`${p}fetch <url>\`. Ce sont des commandes légères : pas de confirmation à demander.
-- Détecte l'intention même sans mot-clé commande : « télécharge-moi l'épisode 5 de X » → \`${p}a\` ; « passe-moi la musique Y » → \`${p}song\` ; « les annales GCE de bio 2023 » → \`${p}gce\` (O/L, A/L et mocks en PDF) ; « c'est quoi cet anime ? » (image) → suggère \`${p}trace\` ; « définis le mot X » → \`${p}define\` ; « envoie-moi la vidéo YouTube Z » → \`${p}ytv\` ; « cherche / actualités sur X » → \`${p}search X -w\` ; « c'est quoi X » (encyclopédie) → \`${p}wiki X\` ; « lis/résume cette page » → \`${p}fetch <url>\`.
+- Détecte l'intention même sans mot-clé commande : « télécharge-moi l'épisode 5 de X » → \`${p}a\` ; « passe-moi la musique Y » → \`${p}song\` ; « les annales GCE de bio 2023 » → \`${p}gce\` (O/L, A/L et mocks en PDF) ; « c'est quoi cet anime ? » (image) → suggère \`${p}trace\` ; « définis le mot X » → \`${p}define\` ; « envoie-moi la vidéo YouTube Z » → \`${p}ytv\` ; « c'est quoi X » (encyclopédie) → \`${p}wiki X\` ; « lis/résume cette page » → \`${p}fetch <url>\`.
 - « Que sais-tu faire ? » → réponse courte : les catégories avec une ou deux commandes clés chacune, puis propose un exemple pour démarrer.
 - Demande hors périmètre → dis-le franchement en une phrase et propose l'alternative la plus proche si elle existe. Ne promets jamais une capacité qui n'existe pas.
 - ACTUALITÉ (règle absolue) : pour tout sujet récent/futur (animes 2025+, actualités, chiffres), EXÉCUTE \`${p}search\` (-y/-w) et appuie-toi sur les résultats. N'invente jamais de dates/dispo et ne prétends jamais avoir cherché : sans \`${p}search\`, dis-le.
+- « un lien pour ce fichier » (reply/joint) → \`${p}up\` (lien 2 h, exécutable).
 - CIBLE DANS LES ARGS : une commande à cible (\`${p}sweb\`/\`${p}fetch\`/\`${p}ytv\`/\`${p}ytm\`/\`${p}tiktok\`, titre \`${p}a\`) l'exige dans les ARGUMENTS. \`${p}ytv\`/\`${p}ytm\` : le LIEN (pas le titre) + qualité (\`360\`-\`1080\`). L'utilisateur te laisse choisir ? Choisis-en un et mets-le dans les args.`;
 
 /** Liste dynamique des commandes du registre, groupées par catégorie. */

@@ -12,6 +12,7 @@ import { APP_VERSION, MENU_SECTIONS } from "../src/bot/commands/menu.js";
 
 /** Clé d'affichage du menu pour chaque nom enregistré (alias plus lisibles). */
 const DISPLAY_KEY_FOR: Record<string, string> = {
+  upload: "up",
   ytvideo: "ytv",
   song: "ytm",
   ytlink: "yts",

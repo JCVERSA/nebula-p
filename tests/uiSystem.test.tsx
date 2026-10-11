@@ -61,6 +61,7 @@ function makeResponses(): Record<string, unknown> {
     },
     "/api/system/update-status": { updating: true, logTail: "" },
     "/api/system/logs?lines=100": { lines: "[bot:nebula] moteur prêt\n[WATCH] planifié" },
+    "/api/system/logs?lines=300": { lines: "[bot:nebula] moteur prêt\n[WATCH] planifié\n[MEM] ok" },
     "/api/system/yt-cookies": {
       configured: false,
       envSet: false,
@@ -178,6 +179,34 @@ describe("Section Système (9.2)", () => {
       expect(screen.getByTestId("yt-cookies-feedback").textContent).toContain("42 cookies")
     );
     expect(screen.getByTestId("yt-cookies-feedback").textContent).toContain("redémarrage requis");
+  });
+
+  it("9.4b — Copier : les lignes affichées partent dans le presse-papiers + feedback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<App />);
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
+    await clickNav("Système");
+    await waitFor(() => expect(screen.getByTestId("system-log").textContent).toContain("moteur prêt"));
+    fireEvent.click(screen.getByTestId("btn-copy-logs"));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(String(writeText.mock.calls[0][0])).toContain("moteur prêt");
+    await waitFor(() => expect(screen.getByTestId("btn-copy-logs").textContent).toContain("Copié ✓"));
+  });
+
+  it("9.4b — Exporter : télécharge un .txt des 300 dernières lignes (fetch dédié)", async () => {
+    const createObjectURL = vi.fn(() => "blob:mock");
+    const revokeObjectURL = vi.fn();
+    (URL as any).createObjectURL = createObjectURL;
+    (URL as any).revokeObjectURL = revokeObjectURL;
+    render(<App />);
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
+    await clickNav("Système");
+    await waitFor(() => expect(screen.getByTestId("btn-export-logs")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("btn-export-logs"));
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    expect(calls).toContain("/api/system/logs?lines=300"); // export = plus large que l'affichage
+    await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock"));
   });
 
   it("journal en direct : les lignes de bot.log sont affichées", async () => {

@@ -22,6 +22,7 @@ import defineCommand from "./commands/define.js";
 import searchCommand from "./commands/search.js";
 import fetchCommand from "./commands/fetch.js";
 import wikiCommand from "./commands/wiki.js";
+import uploadCommand from "./commands/upload.js";
 import helpCommand from "./commands/help.js";
 import swebCommand from "./commands/sweb.js";
 import watchCommand from "./commands/watch.js";
@@ -90,6 +91,7 @@ function getBuiltinCommands(): BotCommand[] {
     searchCommand,
     fetchCommand,
     wikiCommand,
+    uploadCommand,
     swebCommand,
     watchCommand,
     animeCommand,
