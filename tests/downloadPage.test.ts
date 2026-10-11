@@ -118,7 +118,7 @@ describe("downloadPage — 8.41 hardening", () => {
     expect(html).toContain('method: "HEAD"');
     expect(html).toContain("ev.preventDefault()"); // clicks never navigate the page away
     expect(html).toContain("expired"); // expired accounting for the download-all button
-    expect(html).toContain("classList.add(failed");
+    expect(html).toContain('classList.add("failed")');
     expect(html).toContain(".item.failed");
   });
 });
@@ -171,6 +171,15 @@ describe("downloadPage — 9.14 restyle (file-share)", () => {
     expect(html).toContain('"\u2713 pr\u00eat"'.replace("\u2713", "✓").replace("\u00eat", "êt"));
     // le balayage n'écrase jamais une ligne déjà traitée par l'utilisateur
     expect(html.match(/classList\.contains\("done"\)/g)!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("9.14b : un lien INJOIGNABLE (sonde statut 0) n'affiche JAMAIS la coche verte", () => {
+    const html = build();
+    // la coche n'est émise que pour un état vérifié…
+    expect(html).toContain('kind === "ok" ? CK : ""');
+    // …et le statut 0 a son message neutre dédié (tentative / non vérifié)
+    expect(html).toContain("▶ tentative — lien non vérifié");
+    expect(html).toContain("— non vérifié");
   });
 
   it("la mécanique 8.41 est INTACTE après le restyle (ids, anti-navigation, HEAD)", () => {

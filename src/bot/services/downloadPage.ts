@@ -250,12 +250,16 @@ ${listItems}
   }
   tick(); setInterval(tick, 30000);
 
-  function setState(i, text, failed) {
+  function setState(i, text, kind) {
     var li = document.getElementById("item-" + i);
     if (!li) return;
     var s = li.querySelector("[data-state]");
-    if (s) s.innerHTML = CK + "<span>" + text + "</span>";
-    li.classList.add(failed ? "failed" : "done");
+    // 9.14b (retour owner) : seul un état VÉRIFIÉ a la coche verte. Un lien
+    // que la sonde n'a pas pu joindre (statut 0) reste neutre — jamais de
+    // « ✓ lancé » mensonger sur un téléchargement invérifiable.
+    if (s) s.innerHTML = (kind === "ok" ? CK : "") + "<span>" + text + "</span>";
+    if (kind === "ok") li.classList.add("done");
+    else if (kind === "fail") li.classList.add("failed");
   }
 
   function fetchOne(url) {
@@ -279,8 +283,9 @@ ${listItems}
 
   function downloadOne(i) {
     return probe(urls[i]).then(function (status) {
-      if (status === 410 || status === 404) { setState(i, EXPIRED_MSG, true); return "expired"; }
-      setState(i, "✓ lancé", false);
+      if (status === 410 || status === 404) { setState(i, EXPIRED_MSG, "fail"); return "expired"; }
+      if (status === 0) { setState(i, "▶ tentative — lien non vérifié", "neutral"); }
+      else { setState(i, "✓ lancé", "ok"); }
       return fetchOne(urls[i]).then(function () { return "ok"; });
     });
   }
@@ -300,8 +305,9 @@ ${listItems}
         return probe(url).then(function (status) {
           var li2 = document.getElementById("item-" + i);
           if (li2 && (li2.classList.contains("done") || li2.classList.contains("failed"))) return;
-          if (status === 410 || status === 404) { setState(i, EXPIRED_MSG, true); }
-          else { setState(i, "✓ prêt", false); }
+          if (status === 410 || status === 404) { setState(i, EXPIRED_MSG, "fail"); }
+          else if (status === 0) { setState(i, "— non vérifié", "neutral"); }
+          else { setState(i, "✓ prêt", "ok"); }
         });
       });
     });
