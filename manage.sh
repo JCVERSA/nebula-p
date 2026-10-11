@@ -551,13 +551,35 @@ cmd_update() {
     ok "Modifications locales écartées — le nouveau commit fait foi."
   fi
   local new_rev; new_rev="$(git -C "${APP_DIR}" rev-parse --short HEAD)"
+  # 9.18c — le dépôt peut être À JOUR alors que le BUILD ne l'est pas :
+  # update précédent interrompu entre le pull et le build (build échoué →
+  # update_fail relance l'ancien dist : le redémarrage ressemble à un
+  # succès), ou pull manuel en SSH. « Déjà à jour » sans rebuild rendait
+  # alors le bouton DÉFINITIVEMENT inopérant — retour terrain 9.18/9.18b :
+  # checkout à jour, UI 9.16. On compare donc le rev réellement CONSTRUIT
+  # (dist/.nebula-build-rev, écrit après un build réussi) au HEAD courant :
+  # divergence → reconstruction complète. Le bouton devient auto-réparant.
+  local head_full; head_full="$(git -C "${APP_DIR}" rev-parse HEAD)"
+  local built_rev=""
+  [ -f "${APP_DIR}/dist/.nebula-build-rev" ] && built_rev="$(tail -n 1 "${APP_DIR}/dist/.nebula-build-rev" 2>/dev/null || true)"
+  local stale_rebuild="no"
   if [ "${old_rev}" = "${new_rev}" ]; then
-    ok "Déjà à jour (${new_rev})."
-    [ "${was_running}" = "yes" ] && info "Le bot tourne — pas de redémarrage nécessaire."
-    return 0
+    if [ -n "${built_rev}" ] && [ "${built_rev}" = "${head_full}" ]; then
+      ok "Déjà à jour (${new_rev}) — build à jour."
+      if [ "${was_running}" = "yes" ]; then
+        info "Le bot tourne — pas de redémarrage nécessaire."
+      else
+        info "Le bot est arrêté — relance avec: ./manage.sh start"
+      fi
+      return 0
+    fi
+    stale_rebuild="yes"
+    warn "Code à jour (${new_rev}) mais build périmé (${built_rev:-aucun marqueur}) — reconstruction…"
   fi
-  ok "Code: ${old_rev} → ${new_rev}"
-  ( cd "${APP_DIR}" && git log --oneline "${old_rev}..${new_rev}" 2>/dev/null | sed 's/^/    /' )
+  if [ "${old_rev}" != "${new_rev}" ]; then
+    ok "Code: ${old_rev} → ${new_rev}"
+    ( cd "${APP_DIR}" && git log --oneline "${old_rev}..${new_rev}" 2>/dev/null | sed 's/^/    /' )
+  fi
 
   # 8.85 : chemin ABSOLU du script À JOUR sur disque. BASH_SOURCE peut être
   # relatif (ex. ./manage.sh) : un exec direct échouerait selon le cwd d'où
@@ -587,7 +609,13 @@ cmd_update() {
   fi
 
   hdr "Dépendances"
-  if ( cd "${APP_DIR}" && git diff --name-only "${old_rev}" "${new_rev}" -- package.json package-lock.json | grep -q . ); then
+  # 9.18c — rebuild d'un build périmé : l'état de node_modules est inconnu
+  # (l'update interrompu a pu mourir avant OU après l'install) → install
+  # prudent, quasi instantané quand rien n'a changé.
+  if [ "${stale_rebuild}" = "yes" ]; then
+    info "Build périmé — npm install prudent (état de node_modules inconnu)…"
+    ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 2 | sed 's/^/    /' ) || update_fail "npm install a échoué"
+  elif ( cd "${APP_DIR}" && git diff --name-only "${old_rev}" "${new_rev}" -- package.json package-lock.json | grep -q . ); then
     info "package*.json modifié → npm install…"
     ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 2 | sed 's/^/    /' ) || update_fail "npm install a échoué"
   else
@@ -596,6 +624,11 @@ cmd_update() {
 
   hdr "Build"
   ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 6 | sed 's/^/    /' ) || update_fail "Build échoué"
+  # 9.18c — marqueur du rev réellement construit : c'est lui qui permet au
+  # prochain update de détecter un build périmé, et au panneau Système
+  # d'afficher la vérité (buildCommit ≠ commit = avertissement ambre).
+  git -C "${APP_DIR}" rev-parse HEAD > "${APP_DIR}/dist/.nebula-build-rev" 2>/dev/null || true
+  ok "Build OK — rev ${new_rev} marqué."
 
   hdr "Rotation du log (audit 8.51)"
   install_logrotate
@@ -701,6 +734,7 @@ cmd_setup() {
   fi
   hdr "Build"
   ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 4 | sed 's/^/    /' ) || die "Build échoué"
+  git -C "${APP_DIR}" rev-parse HEAD > "${APP_DIR}/dist/.nebula-build-rev" 2>/dev/null || true
   hdr "Rotation du log (audit 8.51)"
   install_logrotate
   ok "Installation terminée — démarre avec: ./manage.sh start"

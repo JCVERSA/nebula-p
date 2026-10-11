@@ -123,3 +123,36 @@ describe("surface API complète", () => {
     expect(actionLog).toContain("action « stop »");
   });
 });
+
+describe("GET /api/system/info — buildCommit (9.18c)", () => {
+  it("marqueur absent → « ? » : build antérieur au marqueur, jamais de faux « à jour »", async () => {
+    const res = await request(buildApp()).get("/api/system/info").expect(200);
+    expect(res.body.buildCommit).toBe("?");
+  });
+
+  it("marqueur = HEAD d'un vrai dépôt git → buildCommit == commit", async () => {
+    const { execFileSync } = require("child_process");
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    execFileSync("git", ["config", "user.email", "nebula@test"], { cwd: dir });
+    execFileSync("git", ["config", "user.name", "nebula"], { cwd: dir });
+    execFileSync("git", ["add", "-A"], { cwd: dir });
+    execFileSync("git", ["commit", "-q", "-m", "init", "--no-gpg-sign"], { cwd: dir });
+    const full = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir }).toString().trim();
+    mkdirSync(join(dir, "dist"));
+    writeFileSync(join(dir, "dist", ".nebula-build-rev"), full + "\n", "utf-8");
+    const res = await request(buildApp()).get("/api/system/info").expect(200);
+    expect(res.body.commit).not.toBe("unknown");
+    expect(res.body.buildCommit).toBe(res.body.commit);
+  });
+
+  it("marqueur pointant un rev absent du dépôt → « ? » (pas de faux « à jour »)", async () => {
+    mkdirSync(join(dir, "dist"));
+    writeFileSync(
+      join(dir, "dist", ".nebula-build-rev"),
+      "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n",
+      "utf-8",
+    );
+    const res = await request(buildApp()).get("/api/system/info").expect(200);
+    expect(res.body.buildCommit).toBe("?");
+  });
+});

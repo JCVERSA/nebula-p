@@ -34,6 +34,7 @@ interface SystemInfoData {
   version?: string;
   commit?: string;
   branch?: string;
+  buildCommit?: string;
   uptimeSeconds?: number;
   updating?: boolean;
 }
@@ -278,7 +279,7 @@ export default function SystemPanel() {
       const name = `nebula-logs-${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())}-${pad(stamp.getHours())}h${pad(stamp.getMinutes())}.txt`;
       const header =
         `# Nebula — export des logs (${stamp.toISOString()})\n` +
-        `# version ${info?.version ?? "?"} · commit ${info?.commit ?? "?"} · 300 dernières lignes\n\n`;
+        `# version ${info?.version ?? "?"} · commit ${info?.commit ?? "?"} · build ${info?.buildCommit ?? "?"} · 300 dernières lignes\n\n`;
       const blob = new Blob([header + content], { type: "text/plain;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -412,7 +413,7 @@ export default function SystemPanel() {
         {infoError && !info ? (
           <p className="text-xs text-rose-300">{infoError}</p>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
             <div>
               <p className="text-zinc-500">Version</p>
               <p className="text-zinc-100 font-mono" data-testid="system-version">
@@ -422,6 +423,19 @@ export default function SystemPanel() {
             <div>
               <p className="text-zinc-500">Commit</p>
               <p className="text-zinc-100 font-mono">{info?.commit ?? "…"}</p>
+            </div>
+            <div>
+              <p className="text-zinc-500">Build</p>
+              <p
+                className={`font-mono ${
+                  info?.buildCommit && info.buildCommit !== info.commit
+                    ? "text-amber-300"
+                    : "text-zinc-100"
+                }`}
+                data-testid="system-build"
+              >
+                {info?.buildCommit ?? "—"}
+              </p>
             </div>
             <div>
               <p className="text-zinc-500">Branche</p>
@@ -435,6 +449,11 @@ export default function SystemPanel() {
             </div>
           </div>
         )}
+        {info && info.commit && info.commit !== "unknown" && info.buildCommit && info.buildCommit !== info.commit ? (
+          <p className="mt-2 text-xs text-amber-300" data-testid="system-build-warning">
+            ⚠︎ Build périmé — code {info.commit} ≠ build {info.buildCommit}. « Mettre à jour » reconstruit puis redémarre.
+          </p>
+        ) : null}
       </div>
 
       {/* ── Actions ────────────────────────────────────────────────────── */}

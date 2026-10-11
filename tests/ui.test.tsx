@@ -39,6 +39,17 @@ const NORMAL_RESPONSES: Record<string, unknown> = {
   "/api/bot/announce/status": { job: null, history: [] },
   "/api/bot/secrets": { secrets: [{ name: "GEMINI_API_KEY", configured: false, masked: null }] },
   "/api/auth/me": { authenticated: true },
+
+  // 9.18c — commit (checkout) ≠ buildCommit (rev réellement construit) :
+  // le panneau Système doit crier, pas laisser croire que tout est à jour.
+  "/api/system/info": {
+    version: "9.18.3",
+    commit: "9c18c01",
+    branch: "main",
+    buildCommit: "a320964",
+    uptimeSeconds: 120,
+    updating: false,
+  },
   "/api/bot/access": {
     policies: {},
     defaults: { defaultTo: "allow", adminAllow: [], memberDeny: [], memberAllow: [] },
@@ -123,6 +134,22 @@ describe("Nebula dashboard UI", () => {
     await clickNav("Settings");
     await waitFor(() => expect(screen.getByText("Bot Parameters")).toBeTruthy());
     expect(screen.getAllByText("API Secrets").length).toBeGreaterThan(0);
+  });
+
+  it("Système : avertissement ambre quand le build ne correspond pas au code (9.18c)", async () => {
+    render(<App />);
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
+    await clickNav("Système");
+    // La cellule Build affiche le rev du marqueur une fois l'info chargée
+    // Marge 5 s : sur un runner CI chargé, le 1 s par défaut de waitFor a
+    // fait flaker le run push (le run PR du même SHA était vert).
+    await waitFor(
+      () => expect(screen.getByTestId("system-build").textContent).toBe("a320964"),
+      { timeout: 5000 },
+    );
+    const warn = screen.getByTestId("system-build-warning");
+    expect(warn.textContent).toContain("9c18c01");
+    expect(warn.textContent).toContain("a320964");
   });
 
   it("shows the login gate when every API call is rejected", async () => {

@@ -34,6 +34,13 @@ export interface SystemInfo {
   version: string;
   commit: string;
   branch: string;
+  /**
+   * 9.18c — rev RÉELLEMENT construite (dist/.nebula-build-rev, écrit par
+   * manage.sh après un build réussi). « ? » = build antérieur au marqueur
+   * ou rev introuvable : le panneau affiche « code ≠ build » plutôt que
+   * de laisser croire que tout est à jour (retour terrain 9.18).
+   */
+  buildCommit: string;
 }
 
 export interface SystemState {
@@ -100,10 +107,23 @@ export function createDefaultSystemActions(opts: SystemActionsOptions = {}): Sys
       execFileText("git", ["rev-parse", "--short", "HEAD"], appDir),
       execFileText("git", ["rev-parse", "--abbrev-ref", "HEAD"], appDir),
     ]);
+    // 9.18c — rev du BUILD (marqueur écrit par manage.sh), pas celle du
+    // checkout : les deux divergent exactement dans le cas du retour
+    // terrain 9.18 (pull réussi, build jamais appliqué, UI ancienne).
+    let buildCommit = "?";
+    try {
+      const full = fs.readFileSync(path.join(appDir, "dist", ".nebula-build-rev"), "utf-8").trim();
+      if (full) {
+        buildCommit = (await execFileText("git", ["rev-parse", "--short", full], appDir)) || "?";
+      }
+    } catch {
+      /* marqueur absent — build antérieur à 9.18c : « ? » est honnête */
+    }
     const info: SystemInfo = {
       version: readPackageVersion(),
       commit: commit || "unknown",
       branch: branch || "unknown",
+      buildCommit,
     };
     cache = { at: Date.now(), info };
     return info;

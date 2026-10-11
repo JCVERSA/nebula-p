@@ -52,3 +52,34 @@ describe("9.18b — bruit libsignal « Bad MAC » (suppressLibsignalNoise)", () 
     expect(src).toContain('SUPPRESSED_WARN = "Session already closed"');
   });
 });
+
+describe("9.18c — update auto-réparant : build périmé détecté (manage.sh)", () => {
+  const src = fs.readFileSync(path.resolve(process.cwd(), "manage.sh"), "utf-8");
+
+  it("un build réussi marque son rev (update ET setup écrivent le marqueur)", () => {
+    // Deux écritures : cmd_update et cmd_setup — le setup seul ne doit pas
+    // laisser un dist sans marqueur (il deviendrait « périmé » à tort).
+    const needle = '> "${APP_DIR}/dist/.nebula-build-rev"';
+    expect(src.split(needle).length - 1).toBe(2);
+  });
+
+  it("« Déjà à jour » ne sort QUE si le build correspond au HEAD (anti no-op)", () => {
+    // Retour terrain : checkout à jour, UI ancienne — le bouton no-opait
+    // pour toujours. Le retour anticipé exige maintenant l'égalité
+    // marqueur/HEAD, sinon reconstruction complète.
+    expect(src).toContain("stale_rebuild");
+    expect(src).toContain("build périmé");
+    const guard = src.indexOf('[ "${built_rev}" = "${head_full}" ]');
+    const early = src.indexOf("Déjà à jour (${new_rev}) — build à jour.");
+    expect(guard).toBeGreaterThan(-1);
+    expect(early).toBeGreaterThan(guard);
+  });
+
+  it("rebuild d'un build périmé : npm install forcé (état node_modules inconnu)", () => {
+    const lines = src.split("\n");
+    const idx = lines.findIndex((l) => l.includes('[ "${stale_rebuild}" = "yes" ]'));
+    expect(idx).toBeGreaterThan(-1);
+    // La branche stale installe dans les 3 lignes qui suivent le if
+    expect(lines.slice(idx, idx + 4).join("\n")).toContain("npm install");
+  });
+});
