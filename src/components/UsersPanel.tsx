@@ -31,6 +31,7 @@ interface KnownUser {
   commandCount: number;
   lastCommand: string | null;
   banned: boolean;
+  isOwner?: boolean; // 9.16b — calculé côté moteur (digits OWNER_NUMBER / LID reconnu)
 }
 
 interface KnownGroup {
@@ -247,6 +248,11 @@ export default function UsersPanel() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-white truncate max-w-[160px]">{u.name || "Sans nom"}</span>
+                        {u.isOwner && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300 text-[10px] font-bold" title="Le propriétaire ne peut pas être banni">
+                            👑 OWNER
+                          </span>
+                        )}
                         {u.banned && (
                           <span className="px-1.5 py-0.5 rounded bg-rose-950/60 border border-rose-900/60 text-rose-300 text-[10px] font-bold">
                             BANNI
@@ -281,7 +287,15 @@ export default function UsersPanel() {
                         >
                           <RotateCcw className="w-3.5 h-3.5" />
                         </button>
-                        {u.banned ? (
+                        {u.isOwner ? (
+                          <button
+                            disabled
+                            title="Le propriétaire ne peut pas être banni"
+                            className="p-2 rounded-lg bg-black border border-white/5 text-zinc-600 cursor-not-allowed"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                          </button>
+                        ) : u.banned ? (
                           <button
                             onClick={() => void act(u.jid, "unban")}
                             disabled={busyJid === u.jid}

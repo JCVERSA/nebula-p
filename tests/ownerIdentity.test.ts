@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import path from "path";
-import { resolveOwnerIdentity } from "../src/bot/ownerIdentity.js";
+import { __resetOwnerLidsForTests, isKnownOwnerLid, resolveOwnerIdentity } from "../src/bot/ownerIdentity.js";
 
 /**
  * 8.89 — résolution owner sous LID (WhatsApp « masquer mon numéro »).
@@ -167,5 +167,57 @@ describe("8.89 — intégration structurelle (style audit 8.84)", () => {
     const src = readSrc("bot/commands/whois.ts");
     expect(src).toContain("resolveOwnerIdentity(sock, finalTarget, ownerCfg)");
     expect(src).toContain("WhatsApp :");
+  });
+});
+
+describe("9.16b — mémoire des LID owner (routes du gestionnaire d'utilisateurs)", () => {
+  beforeEach(() => {
+    __resetOwnerLidsForTests();
+  });
+
+  it("LID reconnu comme owner → mémorisé : isKnownOwnerLid vrai (routes panneau)", async () => {
+    const lidJid = `${OWNER_LID}@lid`;
+    expect(isKnownOwnerLid(lidJid)).toBe(false); // froid : rien de mémorisé
+    const sock = mkSock(`${OWNER}:0@s.whatsapp.net`);
+    const r = await resolveOwnerIdentity(sock as any, lidJid, OWNER);
+    expect(r.isOwner).toBe(true);
+    expect(isKnownOwnerLid(lidJid)).toBe(true); // 9.16b — les routes peuvent refuser le ban
+  });
+
+  it("LID d'un AUTRE utilisateur → reconnu non-owner, PAS mémorisé", async () => {
+    const lidJid = "111122223333444@lid";
+    const sock = mkSock("237999999999:0@s.whatsapp.net");
+    const r = await resolveOwnerIdentity(sock as any, lidJid, OWNER);
+    expect(r.isOwner).toBe(false);
+    expect(isKnownOwnerLid(lidJid)).toBe(false);
+  });
+
+  it("résolution inverse (8.89b) mémorise aussi le LID owner", async () => {
+    const lidJid = `${OWNER_LID}@lid`;
+    // getPNForLID ignore la paire → direction inverse la retrouve
+    const sock = mkSock(null, `${OWNER_LID}:5@lid`);
+    const r = await resolveOwnerIdentity(sock as any, lidJid, OWNER);
+    expect(r.isOwner).toBe(true);
+    expect(isKnownOwnerLid(lidJid)).toBe(true);
+  });
+
+  it("NEBULA_OWNER_LID (dernier recours) mémorise également", async () => {
+    process.env.NEBULA_OWNER_LID = OWNER_LID;
+    try {
+      const lidJid = `${OWNER_LID}@lid`;
+      const sock = mkSock(null, null); // aucune résolution possible
+      const r = await resolveOwnerIdentity(sock as any, lidJid, OWNER);
+      expect(r.isOwner).toBe(true);
+      expect(isKnownOwnerLid(lidJid)).toBe(true);
+    } finally {
+      delete process.env.NEBULA_OWNER_LID;
+    }
+  });
+
+  it("wiring app.ts : garde ban étendue au LID + auto-guérison owner banni", () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), "app.ts"), "utf8");
+    expect(src).toContain("isKnownOwnerLid(jid)");
+    expect(src).toContain("user.auto-unban-owner");
+    expect(src).toContain("le propriétaire ne peut pas être banni");
   });
 });

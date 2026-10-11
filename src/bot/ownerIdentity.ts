@@ -57,6 +57,37 @@ function numberCandidates(raw: string | null | undefined): string[] {
   return s.split(/[^0-9]+/).filter(Boolean);
 }
 
+// ── 9.16b — mémoire process des LID owner reconnus ─────────────────────────
+//
+// Retour terrain : l'owner s'est banni LUI-MÊME depuis le dashboard. Le gate
+// moteur l'a correctement ignoré (isOwner bypass), mais sa fiche affichait
+// « BANNI » — un état mensonger. Cause : les routes panneau ne voient que des
+// digits, et le jid LID de l'owner (masquage du numéro) ≠ OWNER_NUMBER.
+//
+// Quand resolveOwnerIdentity reconnaît un jid @lid comme owner (via la table
+// Baileys), on mémorise ses digits : les routes du MÊME process moteur
+// (ban du gestionnaire d'utilisateurs, badge OWNER) peuvent alors refuser
+// honnêtement. Froid (avant le 1er message) : NEBULA_OWNER_LID couvre la
+// garde route, et le gate moteur reste la protection réelle dans tous les cas.
+
+const knownOwnerLids = new Set<string>();
+
+/** Le jid (@lid ou téléphone) est-il un LID owner reconnu ce cycle de vie ? */
+export function isKnownOwnerLid(jid: string): boolean {
+  const d = jidDigits(jid);
+  return !!d && knownOwnerLids.has(d);
+}
+
+function rememberOwnerLid(jid: string): void {
+  const d = jidDigits(jid);
+  if (d) knownOwnerLids.add(d);
+}
+
+/** Tests uniquement. */
+export function __resetOwnerLidsForTests(): void {
+  knownOwnerLids.clear();
+}
+
 /**
  * Résout l'identité d'un expéditeur et décide s'il est l'owner.
  * Ne jette JAMAIS (toute défaillance de résolution → non-owner, pas de crash).
@@ -92,6 +123,7 @@ export async function resolveOwnerIdentity(
     resolvedNumber = null;
   }
   if (resolvedNumber && owners.includes(resolvedNumber)) {
+    rememberOwnerLid(senderJid); // 9.16b — les routes panneau pourront le reconnaître
     return { senderNumber, resolvedNumber, isOwner: true };
   }
 
@@ -104,6 +136,7 @@ export async function resolveOwnerIdentity(
     try {
       const lidJid = await sock?.signalRepository?.lidMapping?.getLIDForPN?.(`${pn}@s.whatsapp.net`);
       if (typeof lidJid === "string" && lidJid && jidDigits(lidJid) === senderNumber) {
+        rememberOwnerLid(senderJid); // 9.16b
         return { senderNumber, resolvedNumber: pn, isOwner: true };
       }
     } catch {}
@@ -111,5 +144,6 @@ export async function resolveOwnerIdentity(
 
   // Dernier recours : NEBULA_OWNER_LID (comparaison exacte du LID).
   const lidOwners = numberCandidates(process.env.NEBULA_OWNER_LID);
+  if (lidOwners.includes(senderNumber)) rememberOwnerLid(senderJid); // 9.16b
   return { senderNumber, resolvedNumber, isOwner: lidOwners.includes(senderNumber) };
 }

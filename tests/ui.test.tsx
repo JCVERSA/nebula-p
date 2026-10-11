@@ -26,6 +26,7 @@ const NORMAL_RESPONSES: Record<string, unknown> = {
   "/api/bot/users": {
     users: [
       { jid: "237600000001@s.whatsapp.net", name: "Test User", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 12, commandCount: 3, lastCommand: "menu", banned: false },
+      { jid: "120363161513685998@lid", name: "Owner LID", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 40, commandCount: 9, lastCommand: "menu", banned: false, isOwner: true },
     ],
     groups: [
       { jid: "120363000000000000@g.us", name: "Groupe Test", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 40 },
@@ -105,6 +106,7 @@ describe("Nebula dashboard UI", () => {
     await clickNav("Utilisateurs");
     await waitFor(() => expect(screen.getByText("Utilisateurs connus")).toBeTruthy());
     await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
+    expect(screen.getByText("👑 OWNER")).toBeTruthy(); // 9.16b — badge owner, ban impossible
     expect(screen.getAllByText(/237600000001/).length).toBeGreaterThan(0);
 
     await clickNav("Annonces");

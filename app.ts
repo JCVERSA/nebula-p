@@ -43,6 +43,7 @@ import { getAIUsageSummary, resetAIQuota } from "./src/bot/aiQuota.js";
 import { resetWebQuota } from "./src/bot/webQuota.js";
 import { resetAsrBudget } from "./src/bot/services/voiceTranscribe.js";
 import { listUsers, listGroups, setUserBanned } from "./src/bot/userDirectory.js";
+import { isKnownOwnerLid } from "./src/bot/ownerIdentity.js";
 import {
   draftAnnouncement,
   getAnnouncementHistory,
@@ -523,7 +524,28 @@ export function createApp(): express.Express {
   // DM/groupes, envoi progressif anti-ban, brouillon IA, historique).
   // ---------------------------------------------------------------------------
   app.get("/api/bot/users", rateLimit(30, 60_000), (_req, res) => {
-    res.json({ users: listUsers(), groups: listGroups() });
+    // 9.16b — flag isOwner par fiche : digits OWNER_NUMBER (multi-candidats),
+    // LID owner reconnu ce cycle de vie, ou NEBULA_OWNER_LID (froid).
+    const ownerCandidates = String(process.env.OWNER_NUMBER || getConfig().ownerNumber || "")
+      .split(/[^0-9]+/)
+      .filter(Boolean);
+    const lidOwners = String(process.env.NEBULA_OWNER_LID || "").split(/[^0-9]+/).filter(Boolean);
+    const isOwnerJid = (jid: string): boolean => {
+      const d = jid.split("@")[0].replace(/[^0-9]/g, "");
+      return (ownerCandidates.length > 0 || lidOwners.length > 0) && (ownerCandidates.includes(d) || lidOwners.includes(d) || isKnownOwnerLid(jid));
+    };
+    // Auto-guérison : un owner banni (test terrain 9.16b) est réhabilité —
+    // le gate moteur l'ignorait de toute façon, l'état affiché était un mensonge.
+    for (const u of listUsers()) {
+      if (u.banned && isOwnerJid(u.jid)) {
+        setUserBanned(u.jid, false);
+        recordAudit("panel", "user.auto-unban-owner", u.jid, "le propriétaire ne peut pas être banni — état auto-corrigé");
+      }
+    }
+    res.json({
+      users: listUsers().map((u) => ({ ...u, isOwner: isOwnerJid(u.jid) })),
+      groups: listGroups(),
+    });
   });
 
   app.post("/api/bot/users/action", rateLimit(20, 60_000), async (req, res) => {
@@ -535,11 +557,16 @@ export function createApp(): express.Express {
     }
     // Garde propriétaire : OWNER_NUMBER ne peut jamais être banni (par jid
     // téléphone — la porte moteur bypass en plus tout ban pour l'owner).
+    // 9.16b : la garde couvre AUSSI le LID de l'owner (masquage du numéro) —
+    // reconnu via la mémoire du moteur ou NEBULA_OWNER_LID.
     const ownerDigits = String(process.env.OWNER_NUMBER || getConfig().ownerNumber || "").replace(/[^0-9]/g, "");
     const jidDigits = jid.split("@")[0].replace(/[^0-9]/g, "");
-    if (ownerDigits && ownerDigits === jidDigits) {
-      res.status(400).json({ error: "le propriétaire ne peut pas être banni" });
-      return;
+    const ownerLidDigits = String(process.env.NEBULA_OWNER_LID || "").replace(/[^0-9]/g, "");
+    if ((ownerDigits && ownerDigits === jidDigits) || (ownerLidDigits && ownerLidDigits === jidDigits) || isKnownOwnerLid(jid)) {
+      if (action === "ban") {
+        res.status(400).json({ error: "le propriétaire ne peut pas être banni" });
+        return;
+      }
     }
     if (action === "ban" || action === "unban") {
       const ok = setUserBanned(jid, action === "ban");
