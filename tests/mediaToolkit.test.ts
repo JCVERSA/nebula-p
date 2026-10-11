@@ -127,6 +127,14 @@ describe("argument builders (8.48)", () => {
     expect(whatsappFitVideoOptions(0)).toBeNull();
   });
 
+  it("9.7 — heightCap=0 : AUCUN filtre scale (amincissement même résolution)", () => {
+    const fit = whatsappFitVideoOptions(1440, 190, 0)!;
+    expect(fit.options.join(" ")).not.toContain("-vf");
+    expect(fit.options.join(" ")).not.toContain("scale");
+    const fit480 = whatsappFitVideoOptions(1440, 92, 480)!;
+    expect(fit480.options.join(" ")).toContain("scale=-2:min(480");
+  });
+
   it("scale+pad preserves aspect (no distortion)", () => {
     expect(scalePadFilter(640, 360)).toBe(
       "scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2"

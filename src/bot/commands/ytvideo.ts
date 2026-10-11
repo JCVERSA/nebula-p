@@ -4,6 +4,7 @@ import path from "path";
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
 import { activeCookiesFile, ytvViaYtDlp } from "../services/ytDlp.js";
+import { slimVideoIfNeeded } from "../services/videoSlim.js";
 
 /**
  * `.ytvideo` / `.ytv` — portage natif de l'original neb (media/video.js,
@@ -18,6 +19,9 @@ interface VideoApiResult { downloadUrl: string; title: string | null }
 // 8.86 : plafond vidéo via yt-dlp local (le flux anime reste à 2 Go via
 // tempDownloadManager ; ici ce sont des vidéos YouTube courtes).
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+// 9.7 : on télécharge plus gros (jusqu'à 400 Mo) puis on AMINCIT à même
+// résolution — au lieu de refuser les vidéos de plus de 100 Mo.
+const SLIM_SOURCE_CEILING = 400 * 1024 * 1024;
 
 const VIDEO_APIS: Array<{ name: string; fetch: (url: string, quality: string) => Promise<VideoApiResult> }> = [
   {
@@ -134,7 +138,7 @@ const ytvideoCommand: BotCommand = {
       // cf. src/bot/services/ytDlp.ts). URL canonisée en interne.
       try {
         console.log(`[YTV] Trying yt-dlp (local, ${quality}p)...`);
-        const local = await ytvViaYtDlp(videoUrl, quality, MAX_VIDEO_BYTES);
+        const local = await ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING);
         if (local.ok) {
           videoPath = local.filePath;
           if (local.title) finalTitle = local.title;
@@ -172,6 +176,20 @@ const ytvideoCommand: BotCommand = {
       const mediaUrl = videoPath || downloadUrl;
       if (!mediaUrl) {
         return void (await context.reply("❌ Impossible de télécharger cette vidéo — toutes les sources ont échoué.\n🔄 Réessaie dans un instant."));
+      }
+
+      // 9.7 : amincissement même résolution pour passer sous le plafond
+      // d'envoi — sinon refus honnête (comportement d'avant).
+      if (videoPath) {
+        try {
+          if (fs.statSync(videoPath).size > MAX_VIDEO_BYTES) {
+            await context.reply("🗜️ Fichier lourd — compression intelligente en cours (même résolution)…");
+            await slimVideoIfNeeded(videoPath, { triggerBytes: MAX_VIDEO_BYTES, targetMB: 92 });
+            if (fs.statSync(videoPath).size > MAX_VIDEO_BYTES) {
+              return void (await context.reply("⚠️ *Vidéo trop lourde* (max 100 Mo à cette qualité) — essaie une qualité inférieure ou une vidéo plus courte."));
+            }
+          }
+        } catch {}
       }
 
       const safeName = (finalTitle || "video").replace(/[^\w\s-]/g, "").trim().slice(0, 60);

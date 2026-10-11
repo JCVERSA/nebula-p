@@ -63,6 +63,11 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     type: "number", group: "quotas", default: "500", min: 10, max: 4096,
   },
   {
+    key: "NEBULA_SLIM_MAX_MB", label: "Seuil d'amincissement vidéo (Mo)",
+    description: "Au-delà, vidéos et épisodes sont ré-encodés à MÊME résolution avant livraison (défaut 200 Mo).",
+    type: "number", group: "quotas", default: "200", min: 50, max: 2000,
+  },
+  {
     key: "NEBULA_AI_PRIMARY", label: "Moteur IA primaire",
     description: "gemini (défaut) ou nim — les images vont toujours à Gemini.",
     type: "enum", group: "quotas", default: "gemini", choices: ["gemini", "nim"],

@@ -42,6 +42,7 @@ import { acquireDiskClaim, availableForNewClaims } from "../diskClaims.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
 import { probeVideoInfo, whatsappFitVideoOptions } from "../services/mediaToolkit.js";
+import { slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
 import { enforceMemoryHeadroom } from "../services/memoryGuard.js";
 import {
   resolveBestMirrorStream,
@@ -2422,6 +2423,13 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           }
           totalMBDownloaded += thisMB;
 
+          // 9.7 : amincissement même résolution au-dessus du seuil — AVANT
+          // l'enregistrement du lien pour que la taille affichée soit la
+          // taille réelle. Échec → épisode original livré tel quel.
+          if (fs.statSync(localPath).size > slimTriggerBytes()) {
+            await slimVideoIfNeeded(localPath);
+          }
+
           // Move file into managed temporary store — TTL glissant 8.83 :
           // 30 min par défaut (NEBULA_LINK_TTL_MIN), remises à zéro à chaque
           // téléchargement, vie totale plafonnée à 2 h.
@@ -2827,6 +2835,16 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       let stats = fs.statSync(localPath);
       let fileSizeMB = stats.size / (1024 * 1024);
       console.log(`[NOVABOX] Downloaded raw file size: ${fileSizeMB.toFixed(2)} MB`);
+
+      // 9.7 : amincissement MÊME RÉSOLUTION au-dessus du seuil owner
+      // (NEBULA_SLIM_MAX_MB, défaut 200 Mo) — échec → fichier original.
+      if (stats.size > slimTriggerBytes()) {
+        const slim = await slimVideoIfNeeded(localPath);
+        if (slim.slimmed) {
+          stats = fs.statSync(localPath);
+          fileSizeMB = stats.size / (1024 * 1024);
+        }
+      }
 
       // Auto-compress ONLY when the raw file exceeds the 100 MB WhatsApp
       // document ceiling (95-100 MB sends fine as a document — transcoding

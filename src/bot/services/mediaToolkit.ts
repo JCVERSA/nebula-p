@@ -189,7 +189,8 @@ export function whatsappFitVideoOptions(
       "-maxrate", `${Math.round(videoKbps * 1.45)}k`,
       "-bufsize", `${Math.round(videoKbps * 2)}k`,
       "-preset", "veryfast",
-      "-vf", `scale=-2:min(${heightCap}\\,ih)`
+      // 9.7 : heightCap<=0 = MÊME RÉSOLUTION (amincissement sans downscale).
+      ...(heightCap && heightCap > 0 ? ["-vf", `scale=-2:min(${heightCap}\\,ih)`] : [])
     ],
     videoKbps,
     note: `${estimateSizeMb(durationSec, videoKbps, audioKbps).toFixed(1)} MB estimés`

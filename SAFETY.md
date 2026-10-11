@@ -150,6 +150,18 @@ Partage de fichiers via `.up` (9.5) :
 - téléchargement EN STREAMING vers le disque, coupé net dès que la limite
   est dépassée (jamais tamponné en RAM : heap 192 Mo < limite 500 Mo).
 
+Amincissement vidéo (9.7) — mêmes garanties d'airain :
+- échec/timeout/sortie plus lourde → le fichier ORIGINAL est livré (on ne
+ perd JAMAIS un épisode à cause de la compression) ;
+- durée inconnue (ffprobe muet) ou gain impossible (source déjà plus
+ frugale que la cible) → aucun ré-encodage tenté ;
+- UN SEUL ffmpeg à la fois (file de promesses — VPS 1 Go) ;
+- fichier remplacé SUR PLACE avant tout enregistrement de lien : les
+ tailles affichées (page HTML, ZIP, messages) sont toujours les tailles
+ réelles ;
+- même résolution garantie (aucun filtre scale) — H.264/AAC lisible
+ partout (leçon VP9 9.6) ; réglable `NEBULA_SLIM_MAX_MB` (50-2000).
+
 ## 5. Budgets et quotas
 
 | Ressource | Plafond |
@@ -159,6 +171,7 @@ Partage de fichiers via `.up` (9.5) :
 | Fichiers partagés (`.up`) | 50 / heure / utilisateur · 500 Mo max (`NEBULA_UPLOAD_MAX_MB`) |
 | Téléchargements YouTube AVEC session | 50 / heure (GLOBAL) — l'anonyme reste illimité (9.6) |
 | Indice média agent (9.6b) | nature seule (« une vidéo »), JAMAIS le contenu ni le nom — injecté seulement si un média est en jeu |
+| Amincissement vidéo (9.7) | déclenché seulement > `NEBULA_SLIM_MAX_MB` (défaut 200 Mo) · UN encodage à la fois · 15 min max |
 | Concurrence IA | globale, file d'attente |
 | Fiche agent (contexte) | < 6 000 caractères (test CI `agentContextBudget`) |
 | Historique anime dans le prompt | uniquement si le message parle d'anime (8.99, leçon Mastra) |
