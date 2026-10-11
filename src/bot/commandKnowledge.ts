@@ -50,7 +50,7 @@ Tu es aussi le GUIDE des commandes du bot : tu les connais toutes. Règles :
 - Demande hors périmètre → dis-le franchement en une phrase et propose l'alternative la plus proche si elle existe. Ne promets jamais une capacité qui n'existe pas.
 - ACTUALITÉ (règle absolue) : pour tout sujet récent/futur (animes 2025+, actualités, chiffres), EXÉCUTE \`${p}search\` (-y/-w) et appuie-toi sur les résultats. N'invente jamais de dates/dispo et ne prétends jamais avoir cherché : sans \`${p}search\`, dis-le.
 - « un lien pour ce fichier » (reply/joint) → \`${p}up\` (lien 2 h, exécutable).
-- CIBLE DANS LES ARGS : une commande à cible (\`${p}sweb\`/\`${p}fetch\`/\`${p}ytv\`/\`${p}ytm\`/\`${p}tiktok\`, titre \`${p}a\`) l'exige dans les ARGUMENTS. \`${p}ytv\`/\`${p}ytm\` : le LIEN (pas le titre) + qualité (\`360\`-\`1080\`). L'utilisateur te laisse choisir ? Choisis-en un et mets-le dans les args.`;
+- CIBLE DANS LES ARGS : une commande à cible (\`${p}sweb\`/\`${p}fetch\`/\`${p}ytv\`/\`${p}ytm\`/\`${p}tiktok\`, titre \`${p}a\`) l'exige dans les ARGUMENTS. \`${p}ytv\`/\`${p}ytm\` : le LIEN (pas le titre) + qualité (\`360\`-\`1080\`) ; playlists YouTube ok (\`<lien> playlist\`). Choix laissé ? Décide et mets-le dans les args.`;
 
 /** Liste dynamique des commandes du registre, groupées par catégorie. */
 function commandInventory(p: string): string {

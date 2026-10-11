@@ -3,8 +3,12 @@ import fs from "fs";
 import path from "path";
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
-import { activeCookiesFile, ytvViaYtDlp } from "../services/ytDlp.js";
-import { slimVideoIfNeeded } from "../services/videoSlim.js";
+import { activeCookiesFile, isPlaylistLink, probeYoutubeEntry, ytvViaYtDlp } from "../services/ytDlp.js";
+import { slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
+import { createBatchJob, updateEpisodeProgress, updateJobStatus, completeBatchJob } from "../batchDownloadManager.js";
+import { buildDownloadPage } from "../services/downloadPage.js";
+import { registerTempDownload } from "../tempDownloadManager.js";
+import { BatchZipManager } from "../services/batchZipManager.js";
 
 /**
  * `.ytvideo` / `.ytv` — portage natif de l'original neb (media/video.js,
@@ -22,6 +26,256 @@ const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
 // 9.7 : on télécharge plus gros (jusqu'à 400 Mo) puis on AMINCIT à même
 // résolution — au lieu de refuser les vidéos de plus de 100 Mo.
 const SLIM_SOURCE_CEILING = 400 * 1024 * 1024;
+
+// ── 9.10 (owner) : pistes audio, sous-titres, playlists ────────────────────
+// Décisions owner 2026-10-11 : piste audio FRANÇAISE par défaut (vo → choix),
+// sous-titres FR intégrés automatiquement (EN à défaut), playlists max 25
+// vidéos livrées en page HTML (+ ZIP optionnel derrière NEBULA_BATCH_ZIP),
+// choix proposé « vidéo seule / playlist » sur un lien contenant list=.
+const MAX_PLAYLIST_VIDEOS = 25;
+const MAX_PLAYLIST_TOTAL_MB = 2000;
+
+const KNOWN_AUDIO_LANGS = new Set(["fr", "en", "ja", "de", "es", "it", "pt", "ru", "ar", "ko", "zh"]);
+const LANG_LABELS: Record<string, string> = {
+  fr: "Français", en: "Anglais", ja: "Japonais", de: "Allemand", es: "Espagnol",
+  it: "Italien", pt: "Portugais", ru: "Russe", ar: "Arabe", ko: "Coréen", zh: "Chinois"
+};
+function langLabel(code: string): string {
+  return LANG_LABELS[code.split("-")[0]] || code;
+}
+
+export interface YtvTokens {
+  quality: string;
+  searchQuery: string;
+  /** « vo » (choix à la demande) ou un code de langue connu (fr, ja…). */
+  audioToken?: string;
+  forceMode?: "video" | "playlist";
+}
+
+/** Parse args : qualité + mots-clés 9.10 (vo, langue, playlist, video). Pur — testé. */
+export function parseYtvArgs(args: string[]): YtvTokens {
+  let quality = "720";
+  let audioToken: string | undefined;
+  let forceMode: "video" | "playlist" | undefined;
+  const rest: string[] = [];
+  for (const raw of args) {
+    const a = raw.toLowerCase();
+    if (a === "playlist" || a === "pl") { forceMode = "playlist"; continue; }
+    if (a === "video" || a === "vid") { forceMode = "video"; continue; }
+    if (a === "vo") { audioToken = "vo"; continue; }
+    if (KNOWN_AUDIO_LANGS.has(a)) { audioToken = a; continue; }
+    rest.push(raw);
+  }
+  const lastArg = rest[rest.length - 1];
+  const lastQuality = lastArg?.replace(/p$/i, "");
+  if (lastQuality && ["360", "480", "720", "1080"].includes(lastQuality)) {
+    quality = lastQuality;
+    rest.pop();
+  }
+  return { quality, searchQuery: rest.join(" ").trim(), audioToken, forceMode };
+}
+
+/** Sous-titres : FR manuel → FR auto → EN manuel → EN auto → aucun. Pur — testé. */
+export function pickSubtitles(subtitleLanguages: string[]): { lang: string; auto: boolean } | null {
+  const manual = subtitleLanguages.filter((s) => !s.startsWith("auto:"));
+  const autos = subtitleLanguages.filter((s) => s.startsWith("auto:")).map((s) => s.slice(5));
+  const pick = (list: string[], prefix: string) => list.find((l) => l.toLowerCase().startsWith(prefix));
+  return (
+    (pick(manual, "fr") && { lang: pick(manual, "fr")!, auto: false }) ||
+    (pick(autos, "fr") && { lang: pick(autos, "fr")!, auto: true }) ||
+    (pick(manual, "en") && { lang: pick(manual, "en")!, auto: false }) ||
+    (pick(autos, "en") && { lang: pick(autos, "en")!, auto: true }) ||
+    null
+  );
+}
+
+/** Piste audio par défaut (owner) : FR si le doublage existe, sinon la piste principale. Pur. */
+export function defaultAudioLanguage(audioLanguages: string[]): string | undefined {
+  if (audioLanguages.length <= 1) return undefined;
+  return audioLanguages.some((l) => l.startsWith("fr")) ? "fr" : undefined;
+}
+
+// ── Choix en attente (vidéo/playlist, ou n° de piste audio) ────────────────
+type PendingYtv =
+  | { kind: "mode"; url: string; quality: string; audioToken?: string; ts: number }
+  | { kind: "audio"; url: string; quality: string; tracks: string[]; ts: number };
+const pendingYtvChoices = new Map<string, PendingYtv>();
+const PENDING_TTL_MS = 3 * 60 * 1000;
+
+/** Tests uniquement. */
+export function __resetYtvPendingForTests(): void {
+  pendingYtvChoices.clear();
+}
+
+/** Résout un choix en attente ; purge l'entrée si la réponse est hors-sujet. */
+function consumePendingYtvChoice(
+  sender: string,
+  args: string[]
+): { url: string; quality: string; audioToken?: string; mode?: "video" | "playlist"; audioLang?: string } | null {
+  const stored = pendingYtvChoices.get(sender);
+  if (!stored) return null;
+  if (Date.now() - stored.ts > PENDING_TTL_MS) {
+    pendingYtvChoices.delete(sender);
+    return null;
+  }
+  const a = (args[0] || "").toLowerCase();
+  if (stored.kind === "mode") {
+    if (a === "1" || a === "video" || a === "vid") {
+      pendingYtvChoices.delete(sender);
+      return { url: stored.url, quality: stored.quality, audioToken: stored.audioToken, mode: "video" };
+    }
+    if (a === "2" || a === "playlist" || a === "pl") {
+      pendingYtvChoices.delete(sender);
+      return { url: stored.url, quality: stored.quality, audioToken: stored.audioToken, mode: "playlist" };
+    }
+    pendingYtvChoices.delete(sender); // hors-sujet : choix abandonné
+    return null;
+  }
+  const n = parseInt(a, 10);
+  if (Number.isInteger(n) && stored.tracks[n - 1]) {
+    pendingYtvChoices.delete(sender);
+    return { url: stored.url, quality: stored.quality, audioLang: stored.tracks[n - 1] };
+  }
+  pendingYtvChoices.delete(sender);
+  return null;
+}
+
+/** Télécharge une playlist YouTube (max 25) et livre la page HTML de liens. */
+async function executePlaylistDownload(
+  sock: any,
+  msg: any,
+  context: any,
+  playlistUrl: string,
+  quality: string,
+  audioLang?: string
+): Promise<void> {
+  const chatId = msg.key.remoteJid;
+  const probe = await probeYoutubeEntry(playlistUrl);
+  if (!probe.ok || !probe.isPlaylist || probe.entryIds.length === 0) {
+    return void (await context.reply(
+      "❌ *Impossible de lire cette playlist* — vérifie le lien, ou télécharge la vidéo seule avec `.ytv <lien> video`."
+    ));
+  }
+  const truncated = probe.entryIds.length > MAX_PLAYLIST_VIDEOS;
+  const ids = probe.entryIds.slice(0, MAX_PLAYLIST_VIDEOS);
+  const title = probe.playlistTitle || "Playlist YouTube";
+  await context.reply(
+    `📋 *Playlist « ${title} »* — ${ids.length} vidéos${truncated ? ` _(playlist de ${probe.playlistCount} — max ${MAX_PLAYLIST_VIDEOS})_` : ""}\n` +
+    `⏳ Téléchargement en cours — je t'envoie une page de liens à la fin.`
+  );
+
+  // Job visible dans le dashboard (même machinerie que les batches animé).
+  const batchJob = createBatchJob({
+    animeTitle: title, season: "Playlist", resolution: `${quality}p`,
+    language: audioLang ? audioLang.toUpperCase() : "—", totalEpisodes: ids.length
+  });
+  updateJobStatus(batchJob.id, "downloading", `Playlist : ${ids.length} vidéos`);
+
+  const links: Array<{ label: string; url: string; sizeMB: number; expiresAt: number }> = [];
+  const zipFiles: Array<{ filePath: string; n: number; title: string }> = [];
+  const failed: number[] = [];
+  let totalMB = 0;
+  let stopped = "";
+
+  for (let i = 0; i < ids.length; i++) {
+    const n = i + 1;
+    const url = `https://www.youtube.com/watch?v=${ids[i]}`;
+    try {
+      updateEpisodeProgress(batchJob.id, n, { status: "downloading", progressPercent: 30 });
+      const local = await ytvViaYtDlp(url, quality, SLIM_SOURCE_CEILING, { audioLang });
+      if (!local.ok) {
+        failed.push(n);
+        updateEpisodeProgress(batchJob.id, n, { status: "failed", progressPercent: 0, error: local.reason || "failed" });
+        continue;
+      }
+      // 9.7 : amincissement même résolution au-dessus du seuil.
+      try {
+        if (fs.statSync(local.filePath).size > slimTriggerBytes()) await slimVideoIfNeeded(local.filePath);
+      } catch {}
+      const sizeBytes = fs.statSync(local.filePath).size;
+      totalMB += sizeBytes / (1024 * 1024);
+      const safeTitle = (local.title || `Vidéo ${n}`).replace(/[\\/:*?"<>|]+/g, "_").slice(0, 80) || `Vidéo ${n}`;
+      const rec = registerTempDownload(local.filePath, `${String(n).padStart(2, "0")} - ${safeTitle}.mp4`, {
+        moveFile: true,
+        jobId: batchJob.id
+      });
+      links.push({ label: `${String(n).padStart(2, "0")} — ${local.title || `Vidéo ${n}`}`, url: rec.downloadUrl, sizeMB: rec.sizeMB, expiresAt: rec.expiresAt });
+      zipFiles.push({ filePath: rec.filePath, n, title: local.title || `Vidéo ${n}` });
+      updateEpisodeProgress(batchJob.id, n, { status: "completed", progressPercent: 100, sizeMB: rec.sizeMB, downloadUrl: rec.downloadUrl });
+      try { fs.rmSync(path.dirname(local.filePath), { recursive: true, force: true }); } catch {}
+      if (totalMB > MAX_PLAYLIST_TOTAL_MB) {
+        stopped = `🛑 Garde-fou : ${MAX_PLAYLIST_TOTAL_MB} Mo cumulés atteints — les vidéos restantes ne sont pas téléchargées.`;
+        break;
+      }
+    } catch (err: any) {
+      failed.push(n);
+      updateEpisodeProgress(batchJob.id, n, { status: "failed", progressPercent: 0, error: err?.message || "error" });
+    }
+  }
+
+  if (links.length === 0) {
+    updateJobStatus(batchJob.id, "failed", "Toutes les vidéos ont échoué");
+    return void (await context.reply("❌ *Aucune vidéo de la playlist n'a pu être téléchargée* — réessaie dans un instant."));
+  }
+
+  // ZIP optionnel — même variable d'environnement que les saisons animé.
+  let zipUrl: string | null = null;
+  let zipFilename = "";
+  let zipSizeMB = 0;
+  if (process.env.NEBULA_BATCH_ZIP === "1" && zipFiles.length > 0) {
+    try {
+      const zipResult = await BatchZipManager.packageEpisodes({
+        episodes: zipFiles.map((z) => ({ filePath: z.filePath, episodeNumber: z.n })),
+        animeTitle: title, season: "Playlist", resolution: `${quality}p`,
+        language: audioLang ? audioLang.toUpperCase() : "—",
+        namingStyle: "simple", batchJobId: batchJob.id
+      });
+      if ((zipResult as any).success) {
+        zipUrl = (zipResult as any).downloadUrl;
+        zipFilename = (zipResult as any).zipFilename;
+        zipSizeMB = (zipResult as any).sizeMB;
+        completeBatchJob(batchJob.id, {
+          zipDownloadUrl: zipUrl!, zipFilename, zipSizeMB,
+          zipToken: (zipResult as any).token || "", expiresAt: (zipResult as any).expiresAt || 0
+        });
+      }
+    } catch {}
+  }
+  if (!zipUrl) {
+    updateJobStatus(batchJob.id, "completed", `Playlist prête : ${links.length}/${ids.length} vidéos`);
+  }
+
+  // Page HTML (comme les batches animé) — sauf si le ZIP est là.
+  let pageDelivered = false;
+  if (links.length > 1 && !zipUrl) {
+    try {
+      const expiresAt = links.reduce((min, l) => (l.expiresAt && (!min || l.expiresAt < min) ? l.expiresAt : min), 0);
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "playlist";
+      const html = buildDownloadPage({
+        title: `${title} — Playlist`,
+        subtitle: `${quality}p${audioLang ? ` · audio ${langLabel(audioLang)}` : ""} · ${links.length} vidéos prêtes`,
+        entries: links.map((l) => ({ label: l.label, url: l.url, sizeMB: l.sizeMB })),
+        expiresAt
+      });
+      await sock.sendMessage(chatId, { document: Buffer.from(html, "utf-8"), mimetype: "text/html", fileName: `nebula-${slug}-playlist.html` }, { quoted: msg });
+      pageDelivered = true;
+    } catch {}
+  }
+
+  const failedNote = failed.length > 0 ? `\n⚠️ *Échecs :* vidéos ${failed.join(", ")}\n` : "";
+  let responseMsg =
+    `🚀 *PLAYLIST PRÊTE* 🚀\n\n` +
+    `🎬 *${title}*\n` +
+    `⚙️ *Qualité :* ${quality}p${audioLang ? ` · audio ${langLabel(audioLang)}` : ""}\n` +
+    `📦 *Prêtes :* ${links.length}/${ids.length} vidéos\n${failedNote}${stopped ? stopped + "\n" : ""}` +
+    `⏳ *Liens valides 30 min* (relancées à chaque téléchargement, max 2 h)\n\n` +
+    (pageDelivered
+      ? `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un bouton « Tout télécharger », ou un bouton par vidéo.`
+      : zipUrl
+        ? `📦 *ZIP complet :* ${zipFilename} (~${zipSizeMB} Mo)\n🔗 ${zipUrl}`
+        : links.map((l) => `• ${l.label} — ${l.sizeMB} Mo\n🔗 ${l.url}`).join("\n\n"));
+  await context.reply(responseMsg);
+}
 
 const VIDEO_APIS: Array<{ name: string; fetch: (url: string, quality: string) => Promise<VideoApiResult> }> = [
   {
@@ -88,21 +342,32 @@ const ytvideoCommand: BotCommand = {
     try {
       const chatId = msg.key.remoteJid;
       const args = context.args || [];
-      if (!args[0]) {
+      // 9.10 : un choix est-il en attente ? (1/2 vidéo-playlist, n° de piste)
+      const resolved = consumePendingYtvChoice(context.sender, args);
+      if (!args[0] && !resolved) {
         return void (await context.reply(
-          "🎬 *Usage:* `.ytv <nom ou lien YouTube> [résolution]`\n\nEx: `.ytv Ronaldo best goals 720`\nRésolutions : 360, 480, 720, 1080"
+          "🎬 *Usage:* `.ytv <nom ou lien YouTube> [résolution]`\n\nEx: `.ytv Ronaldo best goals 720`\nRésolutions : 360, 480, 720, 1080\n\nExtras : `.ytv <lien> vo` (piste audio au choix) · `.ytv <lien playlist>` (télécharge la playlist, max 25)"
         ));
       }
 
       let quality = "720";
       let searchQuery = args.join(" ");
-      const lastArg = args[args.length - 1];
-      // 9.3b : « 360p »/« 480P » acceptés en plus de « 360 » (retour
-      // terrain : l'agent et les humains écrivent naturellement « 360p »).
-      const lastQuality = lastArg?.replace(/p$/i, "");
-      if (["360", "480", "720", "1080"].includes(lastQuality)) {
-        quality = lastQuality;
-        searchQuery = args.slice(0, -1).join(" ");
+      let audioToken: string | undefined;
+      let forceMode: "video" | "playlist" | undefined;
+      let forcedAudioLang: string | undefined;
+      if (resolved) {
+        quality = resolved.quality;
+        searchQuery = resolved.url;
+        audioToken = resolved.audioToken;
+        forceMode = resolved.mode;
+        forcedAudioLang = resolved.audioLang;
+      } else {
+        // 9.3b : « 360p » accepté ; 9.10 : mots-clés vo/langue/playlist/video.
+        const tokens = parseYtvArgs(args);
+        quality = tokens.quality;
+        searchQuery = tokens.searchQuery;
+        audioToken = tokens.audioToken;
+        forceMode = tokens.forceMode;
       }
 
       let videoUrl: string, videoTitle: string, videoThumb: string | undefined;
@@ -121,6 +386,45 @@ const ytvideoCommand: BotCommand = {
         videoThumb = v.thumbnail;
       }
 
+      // 9.10 : lien de PLAYLIST — choix vidéo seule / playlist entière (owner).
+      if (isPlaylistLink(videoUrl) && forceMode !== "video") {
+        const wantedAudio = forcedAudioLang ?? (audioToken && audioToken !== "vo" ? audioToken : undefined);
+        if (forceMode === "playlist") {
+          return await executePlaylistDownload(sock, msg, context, videoUrl, quality, wantedAudio);
+        }
+        const plProbe = await probeYoutubeEntry(videoUrl);
+        if (plProbe.ok && plProbe.isPlaylist && plProbe.entryIds.length > 0) {
+          pendingYtvChoices.set(context.sender, { kind: "mode", url: videoUrl, quality, audioToken, ts: Date.now() });
+          return void (await context.reply(
+            `📋 *Lien de playlist détecté* — « ${plProbe.playlistTitle || "Playlist"} » (${plProbe.playlistCount} vidéos)\n\n` +
+            `*1.* Cette vidéo seule\n*2.* La playlist entière (max ${MAX_PLAYLIST_VIDEOS} vidéos)\n\n` +
+            `👉 Réponds avec : \`.ytv 1\` ou \`.ytv 2\``
+          ));
+        }
+        // Sonde playlist échouée → on tente la vidéo seule (comportement d'avant).
+      }
+
+      // 9.10 : sonde — pistes audio (doublages) et sous-titres (FR auto, owner).
+      // Échec de sonde → dégradation honnête : comportement d'avant 9.10.
+      let audioLang = forcedAudioLang;
+      let subs: { lang: string; auto: boolean } | null = null;
+      try {
+        const probe = await probeYoutubeEntry(videoUrl);
+        if (probe.ok && !probe.isPlaylist) {
+          subs = pickSubtitles(probe.subtitleLanguages);
+          if (!audioLang) {
+            if (audioToken === "vo" && probe.audioLanguages.length > 1) {
+              pendingYtvChoices.set(context.sender, { kind: "audio", url: videoUrl, quality, tracks: probe.audioLanguages, ts: Date.now() });
+              const list = probe.audioLanguages.map((l, i) => `*${i + 1}.* ${langLabel(l)} (${l})`).join("\n");
+              return void (await context.reply(
+                `🎚️ *Plusieurs pistes audio disponibles :*\n\n${list}\n\n👉 Réponds avec : \`.ytv 1\``
+              ));
+            }
+            audioLang = defaultAudioLanguage(probe.audioLanguages);
+          }
+        }
+      } catch {}
+
       const initialCaption = `*${videoTitle}*\n📺 Résolution : *${quality}p*\n\n⏳ Téléchargement en cours...`;
       try {
         const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
@@ -138,7 +442,7 @@ const ytvideoCommand: BotCommand = {
       // cf. src/bot/services/ytDlp.ts). URL canonisée en interne.
       try {
         console.log(`[YTV] Trying yt-dlp (local, ${quality}p)...`);
-        const local = await ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING);
+        const local = await ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING, { audioLang, subs });
         if (local.ok) {
           videoPath = local.filePath;
           if (local.title) finalTitle = local.title;
@@ -197,7 +501,10 @@ const ytvideoCommand: BotCommand = {
         video: { url: mediaUrl },
         mimetype: "video/mp4",
         fileName: `${safeName}.mp4`,
-        caption: `*${finalTitle || searchQuery}*\n📺 Qualité : ${quality}p\n\n> *_Downloaded by ${getConfig().botName}_*`
+        caption: `*${finalTitle || searchQuery}*\n📺 Qualité : ${quality}p` +
+          (audioLang ? `\n🎚️ Audio : ${langLabel(audioLang)}` : "") +
+          (subs ? `\n💬 Sous-titres ${subs.auto ? "automatiques " : ""}${subs.lang.split("-")[0].toUpperCase()} intégrés` : "") +
+          `\n\n> *_Downloaded by ${getConfig().botName}_*`
       }, { quoted: msg });
     } catch (error: any) {
       console.error("[YTV] Fatal:", error?.message || error);

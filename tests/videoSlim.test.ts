@@ -174,7 +174,7 @@ describe("wiring 9.7", () => {
   it("ytvideo : plafond de téléchargement relevé + amincissement avant envoi", () => {
     const src = readSrc("src/bot/commands/ytvideo.ts");
     expect(src).toContain("SLIM_SOURCE_CEILING");
-    expect(src).toContain("ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING)");
+    expect(src).toContain("ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING, { audioLang, subs })");
     expect(src).toContain('slimVideoIfNeeded(videoPath, { triggerBytes: MAX_VIDEO_BYTES, targetMB: 92 })');
   });
 

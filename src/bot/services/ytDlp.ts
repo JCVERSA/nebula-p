@@ -79,7 +79,11 @@ function resolveYtDlp(): string | null {
  * Exécute yt-dlp avec timeout dur. Ne jette jamais (retourne ok/stdout/stderr),
  * calqué sur runFfmpegKit (mediaToolkit) : même style, mêmes garanties.
  */
-export function runYtDlp(args: string[], timeoutMs = 120000): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+export function runYtDlp(
+  args: string[],
+  timeoutMs = 120000,
+  maxStdoutChars = 16000
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise(resolve => {
     const bin = resolveYtDlp();
     if (!bin) {
@@ -91,7 +95,7 @@ export function runYtDlp(args: string[], timeoutMs = 120000): Promise<{ ok: bool
     try {
       const p = spawn(bin, args); // PAS de shell — args transmis tels quels
       p.stdout.on("data", (d: Buffer) => {
-        if (stdout.length < 16000) stdout += d.toString();
+        if (stdout.length < maxStdoutChars) stdout += d.toString();
       });
       p.stderr.on("data", (d: Buffer) => {
         if (stderr.length < 16000) stderr += d.toString();
@@ -196,6 +200,98 @@ export function ytvFormatSpec(q: string): string {
   return `bv*[vcodec^=avc1][height<=${q}]+ba[acodec^=mp4a]/bv*[height<=${q}]+ba/b[height<=${q}]`;
 }
 
+// ── 9.10 : probe (pistes audio, sous-titres, playlists) ─────────────────────
+
+export interface YoutubeProbe {
+  ok: boolean;
+  isPlaylist: boolean;
+  playlistCount: number;
+  entryIds: string[];
+  playlistTitle: string | null;
+  title: string | null;
+  /** Langues des pistes audio (multi-doublage) — codes bas de casse. */
+  audioLanguages: string[];
+  /** Sous-titres dispo ; préfixe « auto: » = générés automatiquement. */
+  subtitleLanguages: string[];
+  detail?: string;
+}
+
+const PLAYLIST_ID_RE = /[?&]list=([a-zA-Z0-9_-]{12,})/;
+
+/** Lien de playlist (list= présent) ? Pur. */
+export function isPlaylistLink(input: string): boolean {
+  return PLAYLIST_ID_RE.test(input);
+}
+
+/** URL canonique playlist — SEULE forme passée à yt-dlp (anti-injection). Pur. */
+export function canonicalPlaylistUrl(input: string): string | null {
+  const m = input.match(PLAYLIST_ID_RE);
+  return m ? `https://www.youtube.com/playlist?list=${m[1]}` : null;
+}
+
+const PROBE_STDOUT_CAP = 2 * 1024 * 1024; // le -J dépasse largement 16 Ko
+
+/**
+ * 9.10 — sonde une URL YouTube SANS télécharger : pistes audio (doublages),
+ * sous-titres, ou contenu d'une playlist (flat = rapide, pas de fetch par
+ * vidéo). Échec → ok:false : l'appelant dégrade honnêtement (comportement
+ * d'avant 9.10), jamais d'exception.
+ */
+export async function probeYoutubeEntry(rawInput: string): Promise<YoutubeProbe> {
+  const empty: YoutubeProbe = {
+    ok: false, isPlaylist: false, playlistCount: 0, entryIds: [],
+    playlistTitle: null, title: null, audioLanguages: [], subtitleLanguages: []
+  };
+  const plUrl = canonicalPlaylistUrl(rawInput);
+  if (plUrl) {
+    const r = await runYtDlp(["--flat-playlist", "--skip-download", "-J", plUrl], 45000, PROBE_STDOUT_CAP);
+    if (!r.ok) return { ...empty, detail: stderrTail(r.stderr) };
+    try {
+      const j = JSON.parse(r.stdout);
+      const entries = Array.isArray(j.entries) ? j.entries.filter((e: any) => e && e.id) : [];
+      return {
+        ...empty, ok: true, isPlaylist: true,
+        playlistCount: typeof j.playlist_count === "number" ? j.playlist_count : entries.length,
+        entryIds: entries.map((e: any) => String(e.id)),
+        playlistTitle: j.title || null, title: j.title || null
+      };
+    } catch {
+      return { ...empty, detail: "json playlist illisible" };
+    }
+  }
+  const url = canonicalYoutubeUrl(rawInput);
+  if (!url) return { ...empty, detail: "no_id" };
+  const r = await runYtDlp(["--skip-download", "-J", url], 45000, PROBE_STDOUT_CAP);
+  if (!r.ok) return { ...empty, detail: stderrTail(r.stderr) };
+  try {
+    const j = JSON.parse(r.stdout);
+    const langs = new Set<string>();
+    for (const f of j.formats || []) {
+      if (f && f.acodec && f.acodec !== "none" && f.language) langs.add(String(f.language).toLowerCase());
+    }
+    const manual = Object.keys(j.subtitles || {});
+    const autos = Object.keys(j.automatic_captions || {}).map((k: string) => `auto:${k}`);
+    return {
+      ...empty, ok: true, isPlaylist: false,
+      title: j.title || null,
+      audioLanguages: [...langs],
+      subtitleLanguages: [...manual, ...autos]
+    };
+  } catch {
+    return { ...empty, detail: "json vidéo illisible" };
+  }
+}
+
+/**
+ * 9.10 — sélecteur de formats avec PRIORITÉ de piste audio : la langue
+ * demandée d'abord (avc1 + audio de la langue), puis tout le sélecteur 9.6
+ * en repli. Sans audioLang : comportement 9.6 inchangé. Pur.
+ */
+export function ytvFormatSpecWithAudio(q: string, audioLang?: string): string {
+  if (!audioLang) return ytvFormatSpec(q);
+  return `bv*[vcodec^=avc1][height<=${q}]+ba[language^=${audioLang}][acodec^=mp4a]/${ytvFormatSpec(q)}`;
+}
+
 /**
  * `.ytm` : audio via yt-dlp → buffer en mémoire (plafond maxBytes, la
  * conversion AAC existante gère webm/m4a/mp3 en entrée). Le répertoire
@@ -261,7 +357,12 @@ export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<Y
  * laisse Baileys streamer depuis le chemin). L'APPELANT doit purger le
  * répertoire (path.dirname(filePath)) après l'envoi.
  */
-export async function ytvViaYtDlp(rawInput: string, quality: string, maxBytes: number): Promise<YtDlpVideoOutcome> {
+export async function ytvViaYtDlp(
+  rawInput: string,
+  quality: string,
+  maxBytes: number,
+  opts: { audioLang?: string; subs?: { lang: string; auto: boolean } | null } = {}
+): Promise<YtDlpVideoOutcome> {
   const url = canonicalYoutubeUrl(rawInput);
   if (!url) return { ok: false, reason: "no_id" };
   const q = ["360", "480", "720", "1080"].includes(quality) ? quality : "720";
@@ -278,8 +379,9 @@ export async function ytvViaYtDlp(rawInput: string, quality: string, maxBytes: n
     const outBase = path.join(dir, "out");
     const cookies = activeCookiesFile();
     const buildArgs = (withCookies: boolean): string[] => [
-      // 9.6 : H.264+AAC d'abord (voir ytvFormatSpec) — repli 8.87 ensuite.
-      "-f", ytvFormatSpec(q),
+      // 9.6 : H.264+AAC d'abord ; 9.10 : piste audio de la langue demandée
+      // en tête de préférence quand elle existe.
+      "-f", ytvFormatSpecWithAudio(q, opts.audioLang),
       "--merge-output-format", "mp4",
       "--no-playlist", "--no-warnings", "--no-progress",
       // 8.86b : --print implique --simulate — voir ytmViaYtDlp ci-dessus.
@@ -288,6 +390,10 @@ export async function ytvViaYtDlp(rawInput: string, quality: string, maxBytes: n
       "--js-runtimes", "node",
       // 9.6 : anonyme d'abord — les cookies ne partent qu'en secours.
       ...(withCookies && cookies ? ["--cookies", cookies] : []),
+      // 9.10 : sous-titres intégrés au mp4 (mov_text) quand demandés.
+      ...(opts.subs
+        ? [opts.subs.auto ? "--write-auto-subs" : "--write-subs", "--sub-langs", opts.subs.lang, "--embed-subs"]
+        : []),
       "--max-filesize", String(maxBytes),
       "--print", "%(title)s",
       "-o", `${outBase}.%(ext)s`,

@@ -5,13 +5,23 @@ import path from "path";
 import {
   __setCookieDownloadsForTests,
   __setYtDlpBinForTests,
+  canonicalPlaylistUrl,
   canonicalYoutubeUrl,
   cookieDownloadsUsed,
+  isPlaylistLink,
+  probeYoutubeEntry,
   runYtDlp,
   ytmViaYtDlp,
   ytvFormatSpec,
+  ytvFormatSpecWithAudio,
   ytvViaYtDlp
 } from "../src/bot/services/ytDlp.js";
+import {
+  __resetYtvPendingForTests,
+  defaultAudioLanguage,
+  parseYtvArgs,
+  pickSubtitles
+} from "../src/bot/commands/ytvideo.js";
 
 /**
  * 8.86 — yt-dlp local, premier recours de `.ytm` / `.ytv`.
@@ -41,6 +51,8 @@ function installFakeBin(): void {
     "fs.appendFileSync(process.env.ARGS_LOG_PATH, JSON.stringify(args) + '\\n');",
     "if (process.env.FAKE_MODE === 'fail') { console.error('boom'); process.exit(1); }",
     "if (process.env.FAKE_MODE === 'toobig') { console.error('File is larger than max-filesize'); process.exit(0); }",
+    "if (process.env.FAKE_MODE === 'json-video') { console.log(JSON.stringify({title: 'Film VF', formats: [{acodec: 'mp4a', language: 'fr-FR'}, {acodec: 'mp4a', language: 'ja'}, {acodec: 'none', vcodec: 'avc1'}], subtitles: {fr: [{}]}, automatic_captions: {en: [{}]}})); process.exit(0); }",
+    "if (process.env.FAKE_MODE === 'json-playlist') { console.log(JSON.stringify({title: 'Ma Playlist', playlist_count: 3, entries: [{id: 'aaaaaaaaaaa'}, {id: 'bbbbbbbbbbb'}, {id: 'ccccccccccc'}]})); process.exit(0); }",
     "if (process.env.FAKE_MODE === 'signin') {",
     "  // 9.6 : le 1er appel (anonyme) se heurte au mur ; le retry avec",
     "  // cookies passe (compteur = lignes déjà journalisées).",
@@ -81,6 +93,7 @@ const CANNONICAL_RE = /^https:\/\/www\.youtube\.com\/watch\?v=[a-zA-Z0-9_-]{11}$
 beforeEach(() => {
   installFakeBin();
   __setCookieDownloadsForTests([]);
+  __resetYtvPendingForTests();
 });
 
 afterEach(() => {
@@ -377,6 +390,128 @@ describe("9.6 — H.264/AAC, anonyme d'abord, budget de session", () => {
   it("manage.sh : nebula update met yt-dlp à jour (self-update non fatal)", () => {
     const sh = fs.readFileSync(path.resolve(process.cwd(), "manage.sh"), "utf-8");
     expect(sh).toContain("yt-dlp -U");
+  });
+});
+
+// ── 9.10 : pistes audio, sous-titres, playlists ─────────────────────────────
+describe("9.10 — sonde YouTube (pistes audio, sous-titres, playlists)", () => {
+  it("canonicalPlaylistUrl / isPlaylistLink : canonisation et détection (anti-injection)", () => {
+    expect(isPlaylistLink("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc1234567890xyz")).toBe(true);
+    expect(isPlaylistLink("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe(false);
+    expect(canonicalPlaylistUrl("https://youtu.be/dQw4w9WgXcQ?list=PLabc1234567890xyz"))
+      .toBe("https://www.youtube.com/playlist?list=PLabc1234567890xyz");
+    expect(canonicalPlaylistUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBeNull();
+  });
+
+  it("sonde vidéo : langues audio (doublages) + sous-titres manuels puis auto", async () => {
+    process.env.FAKE_MODE = "json-video";
+    const p = await probeYoutubeEntry("https://youtu.be/dQw4w9WgXcQ");
+    expect(p.ok).toBe(true);
+    expect(p.isPlaylist).toBe(false);
+    expect(p.title).toBe("Film VF");
+    expect(p.audioLanguages).toEqual(["fr-fr", "ja"]);
+    expect(p.subtitleLanguages).toEqual(["fr", "auto:en"]);
+  });
+
+  it("sonde playlist (flat) : titre, nombre, IDs dans l'ordre", async () => {
+    process.env.FAKE_MODE = "json-playlist";
+    const p = await probeYoutubeEntry("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLabc1234567890xyz");
+    expect(p.ok).toBe(true);
+    expect(p.isPlaylist).toBe(true);
+    expect(p.playlistTitle).toBe("Ma Playlist");
+    expect(p.playlistCount).toBe(3);
+    expect(p.entryIds).toEqual(["aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"]);
+  });
+
+  it("sonde en échec → ok:false (dégradation honnête, jamais d'exception)", async () => {
+    process.env.FAKE_MODE = "fail";
+    const p = await probeYoutubeEntry("https://youtu.be/dQw4w9WgXcQ");
+    expect(p.ok).toBe(false);
+  });
+
+  it("ytvFormatSpecWithAudio : la langue demandée en tête, sélecteur 9.6 en repli", () => {
+    expect(ytvFormatSpecWithAudio("720", "fr"))
+      .toBe(`bv*[vcodec^=avc1][height<=720]+ba[language^=fr][acodec^=mp4a]/${ytvFormatSpec("720")}`);
+    expect(ytvFormatSpecWithAudio("480")).toBe(ytvFormatSpec("480"));
+  });
+
+  it("ytv avec piste audio + sous-titres : les args portent langue, --sub-langs et --embed-subs", async () => {
+    process.env.FAKE_EXT = "mp4";
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "720", 100 * 1024 * 1024, {
+      audioLang: "fr", subs: { lang: "fr", auto: false }
+    });
+    const args = readLoggedArgs().at(-1) as string[];
+    const i = args.indexOf("-f");
+    expect(args[i + 1]).toBe(ytvFormatSpecWithAudio("720", "fr"));
+    expect(args).toContain("--write-subs");
+    expect(args).toContain("--embed-subs");
+    expect(args[args.indexOf("--sub-langs") + 1]).toBe("fr");
+    if (r.ok) fs.rmSync(path.dirname(r.filePath), { recursive: true, force: true });
+  });
+
+  it("sous-titres AUTOMATIQUES → --write-auto-subs (pas --write-subs)", async () => {
+    process.env.FAKE_EXT = "mp4";
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "720", 100 * 1024 * 1024, {
+      subs: { lang: "en", auto: true }
+    });
+    const args = readLoggedArgs().at(-1) as string[];
+    expect(args).toContain("--write-auto-subs");
+    expect(args).not.toContain("--write-subs");
+    if (r.ok) fs.rmSync(path.dirname(r.filePath), { recursive: true, force: true });
+  });
+});
+
+describe("9.10 — helpers .ytv (purs)", () => {
+  it("parseYtvArgs : qualité, vo, langue connue, playlist/video — les mots inconnus restent", () => {
+    expect(parseYtvArgs(["un", "test", "720"])).toEqual({ quality: "720", searchQuery: "un test", audioToken: undefined, forceMode: undefined });
+    expect(parseYtvArgs(["<lien>", "vo", "1080p"])).toMatchObject({ quality: "1080", audioToken: "vo" });
+    expect(parseYtvArgs(["<lien>", "ja"])).toMatchObject({ audioToken: "ja" });
+    expect(parseYtvArgs(["<lien>", "playlist"])).toMatchObject({ forceMode: "playlist" });
+    expect(parseYtvArgs(["<lien>", "video", "480"])).toMatchObject({ forceMode: "video", quality: "480" });
+    // un mot de 2 lettres inconnu n'est PAS mangé comme langue
+    expect(parseYtvArgs(["ok", "go"])).toMatchObject({ searchQuery: "ok go", audioToken: undefined });
+  });
+
+  it("pickSubtitles : FR manuel > FR auto > EN manuel > EN auto > aucun", () => {
+    expect(pickSubtitles(["en", "fr"])).toEqual({ lang: "fr", auto: false });
+    expect(pickSubtitles(["auto:fr", "en"])).toEqual({ lang: "fr", auto: true });
+    expect(pickSubtitles(["en", "de"])).toEqual({ lang: "en", auto: false });
+    expect(pickSubtitles(["auto:en"])).toEqual({ lang: "en", auto: true });
+    expect(pickSubtitles(["de", "auto:es"])).toBeNull();
+    expect(pickSubtitles([])).toBeNull();
+  });
+
+  it("defaultAudioLanguage : FR si doublage FR, sinon piste principale (undefined)", () => {
+    expect(defaultAudioLanguage(["fr-fr", "ja"])).toBe("fr");
+    expect(defaultAudioLanguage(["ja", "en"])).toBeUndefined();
+    expect(defaultAudioLanguage(["fr"])).toBeUndefined(); // une seule piste : rien à choisir
+    expect(defaultAudioLanguage([])).toBeUndefined();
+  });
+});
+
+describe("wiring 9.10 (ytvideo)", () => {
+  const readSrc = (rel: string) => fs.readFileSync(path.resolve(process.cwd(), rel), "utf-8");
+
+  it("playlist : max 25, garde 2 Go, page HTML, ZIP optionnel, choix vidéo/playlist", () => {
+    const src = readSrc("src/bot/commands/ytvideo.ts");
+    expect(src).toContain("MAX_PLAYLIST_VIDEOS = 25");
+    expect(src).toContain("MAX_PLAYLIST_TOTAL_MB = 2000");
+    expect(src).toContain("buildDownloadPage");
+    expect(src).toContain("BatchZipManager.packageEpisodes");
+    expect(src).toContain("NEBULA_BATCH_ZIP");
+    expect(src).toContain("Cette vidéo seule");
+  });
+
+  it("choix en attente : écrans 1/2 (mode) et n° de piste (audio), TTL 3 min", () => {
+    const src = readSrc("src/bot/commands/ytvideo.ts");
+    expect(src).toContain('kind: "mode"');
+    expect(src).toContain('kind: "audio"');
+    expect(src).toContain("PENDING_TTL_MS = 3 * 60 * 1000");
+  });
+
+  it("fiche agent : la ligne .ytv mentionne les playlists sans nommer de source (8.42)", () => {
+    const src = readSrc("src/bot/commandKnowledge.ts");
+    expect(src).toContain("playlists YouTube ok");
   });
 });
 
