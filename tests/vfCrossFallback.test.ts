@@ -70,7 +70,8 @@ describe("Wiring novabox 8.95 (fallback croisé + ask-first)", () => {
   });
 
   it("8.96 : le défaut de catalogue est effectif (va, sauf désactivation opérateur)", () => {
-    expect(src).toContain("quickParams.source || effectiveDefaultSource()");
+    // 9.9 : le défaut va reste effectif — la VOSTFR explicite part sur l'autre catalogue
+    expect(src).toContain('quickParams.language === "VOSTFR" ? "as" : effectiveDefaultSource()');
   });
 
   it("le fallback croisé est branché (lookup + candidat exact)", () => {

@@ -51,6 +51,7 @@ import uploadCommand, {
 } from "../src/bot/commands/upload.js";
 import { registerTempDownload } from "../src/bot/tempDownloadManager.js";
 import { downloadContentFromMessage } from "@whiskeysockets/baileys";
+import { __resetRecentMessagesForTests, getRecentMessage, recordRecentMessage } from "../src/bot/services/recentMessages.js";
 
 const mRegister = vi.mocked(registerTempDownload);
 const mDownload = vi.mocked(downloadContentFromMessage);
@@ -92,6 +93,7 @@ const REPLY_MSG = mkMsg({
 beforeEach(() => {
   vi.clearAllMocks();
   __resetUploadQuotaForTests();
+  __resetRecentMessagesForTests();
   mRegister.mockImplementation((() => ({
     token: "tok123", downloadUrl: "https://dash.example/d/tok123",
     expiresAt: 0, ttlMinutes: 120, sizeMB: 1, sizeBytes: 1,
@@ -127,6 +129,22 @@ describe("findMediaNode (pur)", () => {
     expect(findMediaNode(ephemeralReply)?.kind).toBe("videoMessage");
     const viewOnceReply = { viewOnceMessage: { message: REPLY_MSG.message } };
     expect(findMediaNode(viewOnceReply)?.kind).toBe("videoMessage");
+  });
+
+  it("9.8 — citation ÉPURÉE (quotedMessage absent) : média retrouvé via le registre stanzaId", async () => {
+    // constat prod 9.6c : reply dont contextInfo n'a PAS de quotedMessage
+    // (chat éphémère) — clés : extendedTextMessage + messageContextInfo.
+    // L'original (vidéo du bot) est dans le registre des messages récents.
+    const CHAT = "237999000111@s.whatsapp.net";
+    recordRecentMessage(CHAT, "ORIG1", DOC_MSG.message);
+    const strippedReply = mkMsg({ extendedTextMessage: { text: ".up", contextInfo: { stanzaId: "ORIG1" } } });
+    strippedReply.key.remoteJid = CHAT;
+    const ctx = mkContext();
+    await uploadCommand.execute!({} as any, strippedReply, ctx);
+    expect(mRegister).toHaveBeenCalledTimes(1); // le média a bien été trouvé
+    expect(mRegister.mock.calls[0][1]).toBe("rapport 2026.pdf");
+    // même résolution pour l'agent : le hint passe aussi par le registre
+    expect(getRecentMessage(CHAT, "ORIG1")).toBeTruthy();
   });
 
   it("9.6c — enveloppes RARES (editedMessage, viewOnceMessageV2Extension) : trouvées aussi", () => {

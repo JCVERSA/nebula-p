@@ -43,6 +43,7 @@ import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
 import { probeVideoInfo, whatsappFitVideoOptions } from "../services/mediaToolkit.js";
 import { slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
+import { organizeVfSelection } from "../services/voiranimeClient.js";
 import { enforceMemoryHeadroom } from "../services/memoryGuard.js";
 import {
   resolveBestMirrorStream,
@@ -977,6 +978,36 @@ function searchFailureMessage(err: any): string {
   return `😕 *La recherche a échoué.*\n\n🔁 *Réessaie dans un instant* — et vérifie l'orthographe du titre.`;
 }
 
+/**
+ * 9.9 (owner) : écran de sélection VF organisé — entrées non-VF retirées,
+ * saisons regroupées et étiquetées (« Kimetsu no Yaiba — Saison 2 »), films
+ * nommés. Retourne la liste réordonnée (le mapping `.a N` suit cet ordre),
+ * les étiquettes, et une note honnête quand aucune VF n'existe.
+ */
+function organizeVfScreen(
+  results: SourceSearchResult[]
+): { results: SourceSearchResult[]; labels: Map<SourceSearchResult, string> | null; note: string | null } {
+  const vfEntries = results.filter((r) => r.language === "VF" && r.slug);
+  if (vfEntries.length === 0) {
+    return {
+      results,
+      labels: null,
+      note: results.length > 0 ? "🔍 _Aucune entrée VF pour cette recherche — voici tout ce que le catalogue propose (précise \`vostfr\` pour l'assumer) :_" : null,
+    };
+  }
+  const organized = organizeVfSelection(
+    vfEntries.map((r) => ({ title: r.title, url: r.url, slug: String(r.slug), isVf: true }))
+  );
+  const byKey = new Map(vfEntries.map((r) => [`${r.slug}|${r.url}`, r]));
+  const reordered = organized.map((o) => byKey.get(`${o.result.slug}|${o.result.url}`)!).filter(Boolean);
+  const labels = new Map<SourceSearchResult, string>();
+  for (const o of organized) {
+    const r = byKey.get(`${o.result.slug}|${o.result.url}`);
+    if (r) labels.set(r, o.label);
+  }
+  return { results: reordered, labels, note: null };
+}
+
 const animeCommand: BotCommand = {
   name: "anime",
   category: "Novabox",
@@ -990,7 +1021,11 @@ const animeCommand: BotCommand = {
     const quickParams = parseQuickDownloadParams(args);
     // 8.69: the chosen catalog (`as` default / `va` flag) — mono-source flow.
     // 8.96 : défaut = voir-anime (owner) — sauf si l'opérateur l'a désactivé.
-    const source = quickParams.source || effectiveDefaultSource();
+    // 9.9 (owner) : VOSTFR demandée explicitement → anime-sama DIRECTEMENT
+    // (plus de détour par voir-anime puis bascule croisée).
+    const source =
+      quickParams.source ||
+      (quickParams.language === "VOSTFR" ? "as" : effectiveDefaultSource());
 
     // Reset session helper
     const refreshSessionTimer = (session: AnimeSession) => {
@@ -1638,6 +1673,12 @@ const animeCommand: BotCommand = {
           return context.reply(searchEmptyMessage(quickParams.animeQuery, source));
         }
 
+        // 9.9 (owner) : défaut VF → entrées VF seules, liste organisée
+        // (saisons regroupées/étiquetées, films nommés).
+        const vfScreen =
+          source === "va" && !quickParams.language ? organizeVfScreen(searchResults) : null;
+        if (vfScreen) searchResults = vfScreen.results;
+
         // Clear previous session
         clearUserSession(sender);
 
@@ -1680,12 +1721,13 @@ const animeCommand: BotCommand = {
           refreshSessionTimer(newSession);
 
           const listText = searchResults
-            .map((r, i) => `*${i + 1}.* ${r.title}${r.subtitle ? ` (_${r.subtitle}_)` : ""}`)
+            .map((r, i) => `*${i + 1}.* ${vfScreen?.labels?.get(r) ?? `${r.title}${r.subtitle ? ` (_${r.subtitle}_)` : ""}`}`)
             .join("\n");
 
           await context.react("🎬");
           return context.reply(
             `🎬 *Novabox - Sélectionnez l'Anime* 🎬\n\n` +
+            (vfScreen?.note ? `${vfScreen.note}\n\n` : "") +
             `Plusieurs animes correspondent à *"${quickParams.animeQuery}"*. Veuillez choisir pour continuer le téléchargement direct:\n\n` +
             `${listText}\n\n` +
             `👉 Répondez avec: \`.a [numéro]\` (ex: \`.a 1\`)`
@@ -1790,9 +1832,17 @@ const animeCommand: BotCommand = {
       setUserSession(sender, newSession);
       refreshSessionTimer(newSession);
 
+      // 9.9 (owner) : défaut VF → entrées VF seules, liste organisée.
+      const vfScreen =
+        newSession.source === "va" && !quickParams.language ? organizeVfScreen(searchResults) : null;
+      if (vfScreen) {
+        searchResults = vfScreen.results;
+        newSession.searchResults = searchResults;
+      }
+
       // Print list of matching anime
       const listText = searchResults
-        .map((r, i) => `*${i + 1}.* ${r.title}${r.subtitle ? ` (_${r.subtitle}_)` : ""}`)
+        .map((r, i) => `*${i + 1}.* ${vfScreen?.labels?.get(r) ?? `${r.title}${r.subtitle ? ` (_${r.subtitle}_)` : ""}`}`)
         .join("\n");
 
       await context.react("🎬");

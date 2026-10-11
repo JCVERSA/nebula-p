@@ -37,6 +37,7 @@ import { setDigestSender, startDigestScheduler } from "./services/digestService.
 import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
 import { handleAgentMessage } from "./services/agentRunner.js";
 import { describeMessageMedia } from "./utils/quotedMedia.js";
+import { getRecentMessage, recordRecentMessage } from "./services/recentMessages.js";
 import { peekPendingConfirmation } from "./services/agentBrain.js";
 import { hasPendingLanguageConfirm, bareLanguageAnswer } from "./commands/novabox.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "./services/animeChoices.js";
@@ -720,6 +721,10 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
       for (const msg of m.messages) {
         if (!msg.message) continue;
 
+        // 9.8 : registre borné des messages récents (reçus ET émis) —
+        // résout les replies dont la citation a été épurée (chat éphémère).
+        recordRecentMessage(String(msg.key?.remoteJid || ""), String(msg.key?.id || ""), msg.message);
+
         // Unwrap ephemeral, viewOnce, or other wrapper messages
         let messageContent = msg.message;
         if (messageContent.ephemeralMessage) {
@@ -826,6 +831,18 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
             // naturelle en commande existante et l'exécute aux droits de
             // l'utilisateur (RoleGuard inchangé). Renvoie false → l'IA
             // n'est pas configurée : laisser le chemin normal répondre.
+            // 9.6b : l'agent sait qu'un média est en jeu (nature seule,
+            // jamais le contenu) — « un lien pour ça » → .up direct.
+            // 9.8 : citation épurée → repli sur le registre (stanzaId).
+            let mediaHint = describeMessageMedia(messageContent);
+            if (!mediaHint) {
+              const stanzaId = messageContent?.extendedTextMessage?.contextInfo?.stanzaId;
+              if (stanzaId) {
+                const stored = getRecentMessage(senderJid, String(stanzaId));
+                const q = stored && describeMessageMedia(stored);
+                if (q) mediaHint = { what: q.what, how: "reply" };
+              }
+            }
             const handledByAgent = await handleAgentMessage(
               sock,
               msg,
@@ -838,9 +855,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 text,
                 botName: config.botName,
                 prefix,
-                // 9.6b : l'agent sait qu'un média est en jeu (nature seule,
-                // jamais le contenu) — « un lien pour ça » → .up direct.
-                mediaHint: describeMessageMedia(messageContent),
+                mediaHint,
               },
               (commandName, args) =>
                 dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")

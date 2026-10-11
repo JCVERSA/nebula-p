@@ -3,6 +3,7 @@ import path from "path";
 // Named import uniquement (le bundle CJS esbuild casse les default imports
 // de ce package ESM-only — voir la note en tête de botEngine.ts).
 import { downloadContentFromMessage, normalizeMessageContent } from "@whiskeysockets/baileys";
+import { getRecentMessage } from "../services/recentMessages.js";
 import { BotCommand } from "../types.js";
 import { extractQuotedMediaContent } from "../utils/quotedMedia.js";
 import { registerTempDownload, getTempDownloadDir } from "../tempDownloadManager.js";
@@ -189,7 +190,22 @@ const uploadCommand: BotCommand = {
   description: "Générer un lien de téléchargement temporaire (2 h) pour un fichier envoyé ou cité",
   usage: ".up (avec le fichier, ou en reply d'un média)",
   execute: async (sock, msg, context) => {
-    const media = findMediaNode(msg?.message);
+    let media = findMediaNode(msg?.message);
+    if (!media) {
+      // 9.8 : le reply peut citer un message dont le CONTENU a été épuré
+      // (chat éphemère — constat prod 9.6c : extendedTextMessage +
+      // messageContextInfo, quotedMessage absent). L'original reste
+      // identifiable par stanzaId dans le registre des messages récents.
+      const norm = normalizeMessageContent(msg?.message) || msg?.message;
+      const stanzaId = norm?.extendedTextMessage?.contextInfo?.stanzaId;
+      if (stanzaId) {
+        const stored = getRecentMessage(String(msg?.key?.remoteJid || ""), String(stanzaId));
+        if (stored) {
+          media = findMediaNode(stored);
+          if (media) console.log(`[UP] citation épurée — média retrouvé via le registre (stanzaId)`);
+        }
+      }
+    }
     if (!media) {
       // 9.6c : clés seules (jamais de contenu) — si une forme résiste
       // encore en prod, le journal la nomme immédiatement.

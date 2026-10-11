@@ -24,6 +24,10 @@ import { getGroupPolicy } from "./groupAccessStore.js";
 import { recordAudit } from "./auditTrail.js";
 import { extractQuotedMediaContent } from "./utils/quotedMedia.js";
 import { replySuggestsOtherCatalog } from "./services/agentBrain.js";
+// 9.8 : les écrans interactifs des commandes PREFIX (.a tapé directement)
+// n'étaient pas mémorisés — un « 3 » nu après la liste partait en question
+// au lieu d'exécuter .a 3 (constat prod).
+import { setLastObservation } from "./services/agentObservation.js";
 import { addLog, bufferFromDataUri, getCachedGroupMetadata, maskLogNumber } from "./botEngine.js";
 
 export interface DispatchInfo {
@@ -278,6 +282,12 @@ export async function dispatchBotCommand(
     await replyHandler(`❌ *Nebula Error:* Failed to execute command \`${commandName}\`.\nReason: ${err.message || err}`);
     outcome.hadError = true;
     outcome.lastText = `Nebula Error: ${err.message || err}`;
+  }
+  // 9.1/9.8 : mémorise la sortie pour CE chat, commandes prefix comprises —
+  // le tour suivant de l'agent (un numéro nu, « le 2e »…) saura à quoi ça
+  // se rapporte. Le chemin agent re-posera la même entrée : idempotent.
+  if (outcome.texts.length > 0) {
+    setLastObservation(senderJid, commandName, outcome.texts);
   }
   return outcome;
 }

@@ -86,6 +86,90 @@ export function parseVoiranimeSearch(html: string): VoiranimeSearchResult[] {
 }
 
 /** Search VoirAnime and return entries (VF entries flagged structurally). */
+// ── 9.9 : organisation VF de l'écran de sélection ───────────────────────────
+// Owner : par défaut la liste ne montre QUE les entrées VF, regroupées par
+// anime avec les saisons étiquetées (« — Saison 2 ») et les films nommés —
+// le site publie une page par saison (« Kimetsu no Yaiba 2/3/4 ») et la
+// liste brute ressemblait à des animes différents. Pure — testée.
+
+export interface OrganizedVfEntry {
+  result: VoiranimeSearchResult;
+  /** Saison déduite (null pour les films/OAV). */
+  season: number | null;
+  isFilm: boolean;
+  baseTitle: string;
+  /** Étiquette prête pour la liste : « Kimetsu no Yaiba — Saison 2 ». */
+  label: string;
+}
+
+const FILM_SLUG_RE = /(^|[-_])(film|movie|oav)([-_]|$)/i;
+
+/** Retire le marqueur de saison final (« Kimetsu no Yaiba 2 », « … R2 »). */
+function stripSeasonMarker(title: string): string {
+  const m = title.match(/^(.*?)[\s]+[Rr]?(\d+)\s*$/);
+  if (m && m[1].trim().length >= 2) return m[1].trim();
+  return title.trim();
+}
+
+/**
+ * Regroupe et étiquette les entrées VF : par anime (ordre d'apparition),
+ * saisons croissantes puis films/OAV. Marqueurs reconnus : slug trailing
+ * « -N » / « -rN » / « -sN » / « -saison-N » (conventions du site), titre
+ * final « N » ou « R2 » ; sans marqueur = saison 1 (convention voir-anime,
+ * cohérente avec resolveVoiranimeSeason).
+ */
+export function organizeVfSelection(entries: VoiranimeSearchResult[]): OrganizedVfEntry[] {
+  const analyzed: OrganizedVfEntry[] = entries.map((e) => {
+    const bare = e.slug.replace(/-vf$/i, "");
+    const isFilm = FILM_SLUG_RE.test(bare) || /\b(film|movie|oav)\b/i.test(e.title);
+    const colon = e.title.match(/^([^:]{2,}):\s*(.+)$/);
+    const slugM =
+      bare.match(/-(\d+)$/) || bare.match(/-r(\d+)$/) ||
+      bare.match(/-s(\d+)$/) || bare.match(/-saison-(\d+)$/);
+    const titleM = e.title.match(/\sR(\d)\s*$/i) || e.title.match(/\s(\d+)\s*$/);
+    const explicit = !!(slugM || titleM); // marqueur de saison RÉEL (pas le défaut)
+    const season = isFilm || !explicit ? (explicit ? parseInt((slugM || titleM)![1], 10) : 1) : parseInt((slugM || titleM)![1], 10);
+
+    // Clé de regroupement : préfixe avant « : » (les saisons d'un même anime
+    // partagent le préfixe), sinon le titre sans son marqueur.
+    const groupKey = stripSeasonMarker(colon ? colon[1] : e.title);
+    let label: string;
+    if (isFilm) {
+      const sub = colon ? colon[2].trim() : "";
+      label = sub ? `${groupKey} — Film : ${sub}` : `${groupKey} — Film`;
+    } else if (explicit) {
+      label = `${stripSeasonMarker(e.title)} — Saison ${season}`;
+    } else if (colon) {
+      // Sous-titre distinctif SANS marqueur de saison (ex. « Mugen
+      // Ressha-hen », un film non marqué) : titre complet, honnête —
+      // on n'invente pas une « Saison 1 » qui pourrait être fausse.
+      label = e.title;
+    } else {
+      label = `${groupKey} — Saison 1`; // convention voir-anime (cf. resolveVoiranimeSeason)
+    }
+    return { result: e, season: isFilm ? null : season, isFilm, baseTitle: groupKey, label };
+  });
+
+  // Groupement par anime (clé = base, ordre de première apparition).
+  const groups: Array<{ base: string; items: OrganizedVfEntry[] }> = [];
+  for (const a of analyzed) {
+    const key = a.baseTitle.toLowerCase();
+    let g = groups.find((x) => x.base === key);
+    if (!g) { g = { base: key, items: [] }; groups.push(g); }
+    g.items.push(a);
+  }
+  const out: OrganizedVfEntry[] = [];
+  for (const g of groups) {
+    g.items.sort((x, y) => {
+      if (x.isFilm !== y.isFilm) return x.isFilm ? 1 : -1;
+      if (!x.isFilm) return (x.season ?? 99) - (y.season ?? 99);
+      return x.label.localeCompare(y.label, "fr");
+    });
+    out.push(...g.items);
+  }
+  return out;
+}
+
 export async function voiranimeSearch(query: string): Promise<VoiranimeSearchResult[]> {
   const html = await fetchHtml(`${VOIRANIME_ORIGIN}/?s=${encodeURIComponent(query)}`);
   return parseVoiranimeSearch(html);

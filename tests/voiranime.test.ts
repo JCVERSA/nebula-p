@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  organizeVfSelection,
   parseVoiranimeSearch,
   parseVoiranimeEpisodes,
   parseVoiranimePlayer,
@@ -92,5 +93,73 @@ describe("resolveVoiranimeSeason", () => {
   it("returns null when nothing matches a higher season", () => {
     expect(resolveVoiranimeSeason(entries, 5)).toBeNull();
     expect(resolveVoiranimeSeason([], 1)).toBeNull();
+  });
+});
+
+// ── 9.9 : organisation VF de l'écran de sélection ──────────────────────────
+describe("organizeVfSelection (9.9)", () => {
+  // Entrées réelles du transcript owner (recherche "demon slayer" sur voir-anime)
+  const KIMETSU = [
+    { title: "Kimetsu no Yaiba: Mugenjou-hen Movie 1 – Akaza Sairai", url: "u1", slug: "kimetsu-no-yaiba-mugenjou-hen-movie-1-akaza-sairai-vf", isVf: true },
+    { title: "Kimetsu no Yaiba 4", url: "u2", slug: "kimetsu-no-yaiba-4-vf", isVf: true },
+    { title: "Kimetsu no Yaiba 3", url: "u3", slug: "kimetsu-no-yaiba-3-vf", isVf: true },
+    { title: "Kimetsu no Yaiba 2", url: "u4", slug: "kimetsu-no-yaiba-2-vf", isVf: true },
+    { title: "Kimetsu no Yaiba: Mugen Ressha-hen", url: "u5", slug: "kimetsu-no-yaiba-mugen-ressha-hen-vf", isVf: true },
+  ];
+
+  it("regroupe par anime, saisons croissantes puis films nommés (transcript réel)", () => {
+    const out = organizeVfSelection(KIMETSU);
+    expect(out.map((o) => o.label)).toEqual([
+      // film SANS marqueur structurel : titre complet, on n'invente pas « Saison 1 »
+      "Kimetsu no Yaiba: Mugen Ressha-hen",
+      "Kimetsu no Yaiba — Saison 2",
+      "Kimetsu no Yaiba — Saison 3",
+      "Kimetsu no Yaiba — Saison 4",
+      "Kimetsu no Yaiba — Film : Mugenjou-hen Movie 1 – Akaza Sairai",
+    ]);
+  });
+
+  it("R2 = saison 2 ; slug -N reconnu ; sans marqueur NI sous-titre = Saison 1", () => {
+    const out = organizeVfSelection([
+      { title: "Code Geass: Lelouch of the Rebellion R2", url: "u2", slug: "code-geass-r2-vf", isVf: true },
+      { title: "Code Geass: Lelouch of the Rebellion", url: "u1", slug: "code-geass-hangyaku-no-lelouch-vf", isVf: true },
+      { title: "Mushoku Tensei", url: "u3", slug: "mushoku-tensei-3-vf", isVf: true },
+      { title: "Sparks of Tomorrow", url: "u4", slug: "sparks-of-tomorrow-vf", isVf: true },
+    ]);
+    expect(out.map((o) => `${o.label}|${o.season}`)).toEqual([
+      // préfixe « : » partagé → même groupe, ordre d'apparition du groupe
+      "Code Geass: Lelouch of the Rebellion|1",
+      "Code Geass: Lelouch of the Rebellion — Saison 2|2",
+      "Mushoku Tensei — Saison 3|3",
+      "Sparks of Tomorrow — Saison 1|1",
+    ]);
+  });
+
+  it("le résultat porte TOUJOURS l'entrée d'origine (mapping .a N intact)", () => {
+    const out = organizeVfSelection(KIMETSU);
+    expect(out.every((o) => KIMETSU.includes(o.result))).toBe(true);
+    expect(out.length).toBe(KIMETSU.length);
+  });
+});
+
+describe("wiring 9.9 (novabox + guidage agent)", () => {
+  const readSrc = (rel: string) => require("fs").readFileSync(rel, "utf-8");
+
+  it("VOSTFR explicite → anime-sama directement (plus de détour voir-anime)", () => {
+    const src = readSrc("src/bot/commands/novabox.ts");
+    expect(src).toContain('quickParams.language === "VOSTFR" ? "as"');
+  });
+
+  it("les DEUX écrans de sélection organisent le VF par défaut", () => {
+    const src = readSrc("src/bot/commands/novabox.ts");
+    const uses = src.split("organizeVfScreen(searchResults)").length - 1;
+    expect(uses).toBeGreaterThanOrEqual(2); // flux quick + flux standard
+  });
+
+  it("la fiche agent .a documente le routing — SANS nommer la source (8.42)", () => {
+    const src = readSrc("src/bot/commandKnowledge.ts");
+    expect(src).toContain("liste organisée par saisons");
+    expect(src).toContain("vostfr");
+    expect(src).not.toContain("anime-sama"); // règle 8.42 : jamais de source privée nommée
   });
 });
