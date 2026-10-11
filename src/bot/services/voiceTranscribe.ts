@@ -38,6 +38,16 @@ export const ASR_MAX_INPUT_BYTES = 16 * 1024 * 1024;
 /** 12 Mo wav ≈ 16 Mo en base64 — sous la limite inline (~20 Mo requête). */
 export const ASR_MAX_WAV_BYTES = 12 * 1024 * 1024;
 export const ASR_HOURLY_LIMIT = 10;
+/**
+ * 9.15e — retries sur surcharges transitoires. En prod, juste après la
+ * validation du pivot : HTTP 503 « This model is currently experiencing
+ * high demand… usually temporary » puis 504. Un 503 revient VITE (~1 s) :
+ * backoff 1,5 s puis 4 s, 3 tentatives max ≈ 8 s au pire. Le 504 n'est
+ * PAS retenté (la tentative a déjà duré ~30 s — l'utilisateur n'attendra
+ * pas le double pour un deuxième délai dépassé).
+ */
+export const ASR_MAX_ATTEMPTS = 3;
+const ASR_RETRY_BACKOFF_MS = [1500, 4000] as const;
 
 const ASR_PROMPT = [
   "Transcris ce message vocal.",
@@ -114,9 +124,21 @@ export interface AsrOptions {
   generate?: (parts: AsrParts, model: string) => Promise<string | null>;
   /** Injection pour les tests : lanceur ffmpeg. */
   ffmpegRun?: FfmpegRunner;
+  /** Injection pour les tests : attente de backoff entre les tentatives. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export type AsrResult = { ok: true; text: string } | { ok: false; error: string };
+
+/** 9.15e — échec transitoire (surcharge/réseau) qui mérite une nouvelle tentative. */
+export function isTransientAsrError(err: unknown): boolean {
+  const e = err as { status?: unknown; code?: unknown; message?: unknown };
+  const status = Number(e?.status ?? e?.code ?? NaN);
+  if (status === 429 || status === 500 || status === 502 || status === 503) return true;
+  return /fetch failed|econnreset|etimedout|socket hang up/i.test(String(e?.message || ""));
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function defaultGenerate(parts: AsrParts, model: string): Promise<string | null> {
   const ai = getAIClient();
@@ -152,15 +174,29 @@ export async function transcribeVoiceNote(input: Buffer, options: AsrOptions = {
     { text: ASR_PROMPT }
   ];
   const generate = options.generate || defaultGenerate;
-  try {
-    const text = await generate(parts, getAsrModel());
-    if (typeof text === "string" && text.trim()) return { ok: true, text: text.trim() };
-    return { ok: false, error: "réponse de transcription vide" };
-  } catch (err: any) {
-    const status = err?.status || err?.code;
-    const detail = err?.message || String(err);
-    return { ok: false, error: status ? `HTTP ${status} : ${detail}` : detail };
+  const sleep = options.sleep || defaultSleep;
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= ASR_MAX_ATTEMPTS; attempt++) {
+    try {
+      const text = await generate(parts, getAsrModel());
+      if (typeof text === "string" && text.trim()) return { ok: true, text: text.trim() };
+      return { ok: false, error: "réponse de transcription vide" };
+    } catch (err) {
+      lastError = err;
+      if (attempt < ASR_MAX_ATTEMPTS && isTransientAsrError(err)) {
+        await sleep(ASR_RETRY_BACKOFF_MS[attempt - 1]);
+        continue;
+      }
+      break;
+    }
   }
+  const e = lastError as { status?: unknown; code?: unknown; message?: string };
+  const status = e?.status || e?.code;
+  if (status === 503 || status === 504) {
+    return { ok: false, error: `HTTP ${status} : modèle Gemini momentanément surchargé — réessaie dans quelques instants` };
+  }
+  const detail = e?.message || String(lastError);
+  return { ok: false, error: status ? `HTTP ${status} : ${detail}` : detail };
 }
 
 /** Consomme un crédit budget après un succès (échec = pas facturé). */

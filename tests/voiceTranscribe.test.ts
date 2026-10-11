@@ -4,6 +4,7 @@ import path from "path";
 import {
   ASR_DEFAULT_MODEL,
   ASR_HOURLY_LIMIT,
+  ASR_MAX_ATTEMPTS,
   ASR_MAX_INPUT_BYTES,
   ASR_MAX_WAV_BYTES,
   __resetAsrForTests,
@@ -91,13 +92,97 @@ describe("9.15d — transcribeVoiceNote (injecté, pivot Gemini)", () => {
     expect((await transcribeVoiceNote(Buffer.from("ogg"), { generate: async () => "   ", ffmpegRun: fakeFfmpeg })).ok).toBe(false);
   });
 
-  it("échec Gemini → erreur honnête qui remonte le détail", async () => {
+  it("échec Gemini NON transitoire (400) → erreur honnête qui remonte le détail, sans retry", async () => {
+    const generate = vi.fn(async (): Promise<string | null> => {
+      throw Object.assign(new Error("API key not valid"), { status: 400 });
+    });
+    const sleep = vi.fn(async (): Promise<void> => {});
+    const res = await transcribeVoiceNote(Buffer.from("ogg"), { generate, ffmpegRun: fakeFfmpeg, sleep });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("400");
+    expect(generate).toHaveBeenCalledTimes(1); // déterministe : jamais retenté
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("9.15e retry : 503 transitoire (surcharge) → backoff puis succès au 2e essai", async () => {
+    let calls = 0;
+    const generate = vi.fn(async (): Promise<string | null> => {
+      calls++;
+      if (calls === 1) throw Object.assign(new Error("high demand"), { status: 503 });
+      return "télécharge jjk 5 en 480p";
+    });
+    const sleeps: number[] = [];
     const res = await transcribeVoiceNote(Buffer.from("ogg"), {
-      generate: async () => { throw Object.assign(new Error("quota exceeded"), { status: 429 }); },
-      ffmpegRun: fakeFfmpeg
+      generate,
+      ffmpegRun: fakeFfmpeg,
+      sleep: async (ms: number): Promise<void> => { sleeps.push(ms); }
+    });
+    expect(res).toEqual({ ok: true, text: "télécharge jjk 5 en 480p" });
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([1500]); // backoff court : un 503 revient vite
+  });
+
+  it("9.15e retry : 503 persistant → 3 tentatives max puis échec honnête ACTIONNABLE", async () => {
+    const generate = vi.fn(async (): Promise<string | null> => {
+      throw Object.assign(new Error("high demand"), { status: 503 });
+    });
+    const sleeps: number[] = [];
+    const res = await transcribeVoiceNote(Buffer.from("ogg"), {
+      generate,
+      ffmpegRun: fakeFfmpeg,
+      sleep: async (ms: number): Promise<void> => { sleeps.push(ms); }
     });
     expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toContain("503");
+      expect(res.error).toContain("réessaie"); // l'utilisateur sait quoi faire
+    }
+    expect(ASR_MAX_ATTEMPTS).toBe(3);
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(sleeps).toEqual([1500, 4000]);
+  });
+
+  it("9.15e retry : 504 NON retenté (la tentative a déjà duré ~30 s) → échec honnête immédiat", async () => {
+    const generate = vi.fn(async (): Promise<string | null> => {
+      throw Object.assign(new Error("Deadline expired before operation could complete"), { status: 504 });
+    });
+    const sleep = vi.fn(async (): Promise<void> => {});
+    const res = await transcribeVoiceNote(Buffer.from("ogg"), { generate, ffmpegRun: fakeFfmpeg, sleep });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toContain("504");
+      expect(res.error).toContain("réessaie");
+    }
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("9.15e retry : 429 épuisé → retries puis erreur honnête (rate limit)", async () => {
+    const generate = vi.fn(async (): Promise<string | null> => {
+      throw Object.assign(new Error("quota exceeded"), { status: 429 });
+    });
+    const sleep = vi.fn(async (): Promise<void> => {});
+    const res = await transcribeVoiceNote(Buffer.from("ogg"), { generate, ffmpegRun: fakeFfmpeg, sleep });
+    expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toContain("429");
+    expect(generate).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("9.15e retry : erreur réseau transitoire (fetch failed) → retry puis succès", async () => {
+    let calls = 0;
+    const generate = vi.fn(async (): Promise<string | null> => {
+      calls++;
+      if (calls === 1) throw new Error("fetch failed");
+      return "ok";
+    });
+    const res = await transcribeVoiceNote(Buffer.from("ogg"), {
+      generate,
+      ffmpegRun: fakeFfmpeg,
+      sleep: async (): Promise<void> => {}
+    });
+    expect(res).toEqual({ ok: true, text: "ok" });
+    expect(generate).toHaveBeenCalledTimes(2);
   });
 
   it("désactivé / sans clé / entrée vide ou trop lourde → refus SANS appel réseau", async () => {
