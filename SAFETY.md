@@ -158,6 +158,7 @@ Partage de fichiers via `.up` (9.5) :
 | Exécutions agent | 10 / heure / utilisateur |
 | Fichiers partagés (`.up`) | 50 / heure / utilisateur · 500 Mo max (`NEBULA_UPLOAD_MAX_MB`) |
 | Téléchargements YouTube AVEC session | 50 / heure (GLOBAL) — l'anonyme reste illimité (9.6) |
+| Indice média agent (9.6b) | nature seule (« une vidéo »), JAMAIS le contenu ni le nom — injecté seulement si un média est en jeu |
 | Concurrence IA | globale, file d'attente |
 | Fiche agent (contexte) | < 6 000 caractères (test CI `agentContextBudget`) |
 | Historique anime dans le prompt | uniquement si le message parle d'anime (8.99, leçon Mastra) |

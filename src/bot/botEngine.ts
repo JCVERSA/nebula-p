@@ -36,6 +36,7 @@ import { setWatchSender, startWatchScheduler } from "./services/episodeWatchServ
 import { setDigestSender, startDigestScheduler } from "./services/digestService.js";
 import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
 import { handleAgentMessage } from "./services/agentRunner.js";
+import { describeMessageMedia } from "./utils/quotedMedia.js";
 import { peekPendingConfirmation } from "./services/agentBrain.js";
 import { hasPendingLanguageConfirm, bareLanguageAnswer } from "./commands/novabox.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "./services/animeChoices.js";
@@ -837,6 +838,9 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 text,
                 botName: config.botName,
                 prefix,
+                // 9.6b : l'agent sait qu'un média est en jeu (nature seule,
+                // jamais le contenu) — « un lien pour ça » → .up direct.
+                mediaHint: describeMessageMedia(messageContent),
               },
               (commandName, args) =>
                 dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")

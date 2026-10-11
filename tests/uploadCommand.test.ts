@@ -106,6 +106,15 @@ describe("findMediaNode (pur)", () => {
     const wrapped = { viewOnceMessage: { message: { imageMessage: { mimetype: "image/jpeg" } } } };
     expect(findMediaNode(wrapped)?.kind).toBe("imageMessage");
   });
+
+  it("9.6b — reply ENVELOPPÉ (ephemeral/viewOnce) : le média cité reste trouvé", () => {
+    // bug prod 2026-10-11 : « Aucun fichier détecté » sur un reply valide,
+    // car le média cité était cherché sur le message brut (enveloppé).
+    const ephemeralReply = { ephemeralMessage: { message: REPLY_MSG.message } };
+    expect(findMediaNode(ephemeralReply)?.kind).toBe("videoMessage");
+    const viewOnceReply = { viewOnceMessage: { message: REPLY_MSG.message } };
+    expect(findMediaNode(viewOnceReply)?.kind).toBe("videoMessage");
+  });
 });
 
 describe("mediaMeta (pur)", () => {

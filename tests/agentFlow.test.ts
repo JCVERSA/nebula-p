@@ -111,6 +111,30 @@ beforeEach(() => {
   mGetCommand.mockImplementation(((n: string) => COMMANDS[n]) as any);
 });
 
+describe("9.6b — contexte média de l'agent", () => {
+  it("média cité en reply → le prompt système porte l'indice (+ .up), sans le contenu", async () => {
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "ok" }));
+    const ctx = mk("un lien pour ça");
+    await handleAgentMessage(ctx.sock, ctx.msg, {
+      ...ctx.info,
+      mediaHint: { what: "une vidéo", how: "reply" },
+    }, mkExec());
+    expect(mAI).toHaveBeenCalledTimes(1);
+    const sysPrompt = mAI.mock.calls[0][1] as string;
+    expect(sysPrompt).toContain("répond (reply) à une vidéo");
+    expect(sysPrompt).toContain(".up");
+    expect(sysPrompt).toContain("un lien pour ça");
+  });
+
+  it("sans média → aucun bloc média dans le prompt (éco tokens)", async () => {
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "ok" }));
+    const ctx = mk("salut ça va ?");
+    await handleAgentMessage(ctx.sock, ctx.msg, ctx.info, mkExec());
+    const sysPrompt = mAI.mock.calls[0][1] as string;
+    expect(sysPrompt).not.toContain("Média en contexte");
+  });
+});
+
 describe("8.93 — décisions de l'agent", () => {
   it("execute léger : traduit, annonce puis exécute aux droits de l'utilisateur", async () => {
     mAI.mockResolvedValueOnce('{"action":"execute","command":"gce","args":"a bio 2023 2","say":"📄 Je cherche ça…"}');

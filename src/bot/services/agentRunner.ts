@@ -65,6 +65,8 @@ export interface AgentMessageInfo {
   text: string;
   botName: string;
   prefix: string;
+  /** 9.6b — média joint/cité par l'utilisateur (indice de contexte, jamais le contenu). */
+  mediaHint?: { what: string; how: "joint" | "reply" } | null;
 }
 
 export type AgentExecutor = (
@@ -158,11 +160,18 @@ export async function handleAgentMessage(
     // contexte, un « le 2e » ou « en VF » en réponse naturelle repartirait
     // d'une page blanche → boucle. TTL 10 min côté agentObservation.
     const obsBlock = observationContext(info.senderJid);
+    // 9.6b : sans ça, l'agent ne VOIT pas que l'utilisateur a répondu à un
+    // média — « un lien pour ça » partait en 4 questions de clarification.
+    // Indice compact, injecté UNIQUEMENT quand il y a un média (éco tokens).
+    const mediaBlock = info.mediaHint
+      ? `## Média en contexte\nLe message de l'utilisateur ${info.mediaHint.how === "joint" ? "a joint" : "répond (reply) à"} ${info.mediaHint.what} — « ça », « ce fichier », « un lien pour ça » désignent CE média (\`${info.prefix}up\` génère un lien temporaire, commande légère exécutable directement).`
+      : null;
     const persona =
       getPersonaPrompt("dm", info.botName) +
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
       (choiceBlock ? `\n\n${choiceBlock}` : "") +
-      (obsBlock ? `\n\n${obsBlock}` : "");
+      (obsBlock ? `\n\n${obsBlock}` : "") +
+      (mediaBlock ? `\n\n${mediaBlock}` : "");
     const agentSystem = `${persona}\n\n${buildAgentKnowledge(info.prefix)}`;
 
     let decision = null as ReturnType<typeof parseAgentDecision>;

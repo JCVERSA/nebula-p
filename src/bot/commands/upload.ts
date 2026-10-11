@@ -43,7 +43,11 @@ export function findMediaNode(messageContent: any): { node: any; kind: string } 
   const direct = unwrap(messageContent);
   const kind = Object.keys(direct || {}).find((k) => MEDIA_KEYS.includes(k));
   if (kind) return { node: direct[kind], kind };
-  const quoted = extractQuotedMediaContent(messageContent);
+  // 9.6b (bug prod) : on passe le contenu DÉROULÉ — un reply peut arriver
+  // enveloppé (ephemeralMessage/viewOnce) et extractQuotedMediaContent
+  // cherche extendedTextMessage au SOMMET. Sur le message brut, un reply
+  // parfaitement valide rendait « Aucun fichier détecté ».
+  const quoted = extractQuotedMediaContent(direct);
   if (quoted) {
     const qk = Object.keys(quoted).find((k) => MEDIA_KEYS.includes(k));
     if (qk) return { node: quoted[qk], kind: qk };
