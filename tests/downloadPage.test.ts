@@ -42,12 +42,12 @@ describe("downloadPage — content", () => {
     expect(html).toContain("Solo Leveling — Saison 2 &amp; &lt;fin&gt;");
   });
 
-  it("uses the project palette (zinc darks + amber primary)", () => {
+  it("uses the file-share mint palette (9.14 restyle)", () => {
     const html = build();
     expect(html).toContain(`--bg:${DOWNLOAD_PAGE_PALETTE.bg}`);
     expect(html).toContain(`--primary:${DOWNLOAD_PAGE_PALETTE.primary}`);
-    expect(DOWNLOAD_PAGE_PALETTE.bg).toBe("#09090b");
-    expect(DOWNLOAD_PAGE_PALETTE.primary).toBe("#f59e0b");
+    expect(DOWNLOAD_PAGE_PALETTE.bg).toBe("#0b1011");
+    expect(DOWNLOAD_PAGE_PALETTE.primary).toBe("#a2e3cb");
   });
 
   it("offers per-episode buttons with download + blank fallback and a Tout télécharger action", () => {
@@ -140,5 +140,44 @@ describe("downloadPage — wiring", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
     expect(src).toContain("failedEpisodeCount");
     expect(src).toContain("Téléchargement impossible pour les"); // 8.58: message utilisateur FR
+  });
+});
+
+// ── 9.14 — restyle file-share : style + animations + balayage initial ─────
+describe("downloadPage — 9.14 restyle (file-share)", () => {
+  it("porte la coquille file-share : topbar, pastille d'état, tuiles, ombre", () => {
+    const html = build();
+    expect(html).toContain('class="shell"');
+    expect(html).toContain('class="topbar"');
+    expect(html).toContain('class="pill"');
+    expect(html).toContain("liens actifs");
+    expect(html).toContain('class="tile"');
+    expect(html).toContain("--shadow:0 18px 54px");
+  });
+
+  it("portes les animations file-share : spinner, skeleton, coche animée, reduced-motion", () => {
+    const html = build();
+    expect(html).toContain("@keyframes rot");
+    expect(html).toContain("@keyframes sh");
+    expect(html).toContain("@keyframes ck");
+    expect(html).toContain('class="sk"');
+    expect(html).toContain('class="spin"');
+    expect(html).toContain("prefers-reduced-motion");
+  });
+
+  it("balayage initial : skeleton puis état réel — un lien expiré se voit AVANT tout clic", () => {
+    const html = build();
+    expect(html).toContain("function sweep()");
+    expect(html).toContain('"\u2713 pr\u00eat"'.replace("\u2713", "✓").replace("\u00eat", "êt"));
+    // le balayage n'écrase jamais une ligne déjà traitée par l'utilisateur
+    expect(html.match(/classList\.contains\("done"\)/g)!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("la mécanique 8.41 est INTACTE après le restyle (ids, anti-navigation, HEAD)", () => {
+    const html = build();
+    expect(html).toContain('id="all"');
+    expect(html).toContain('id="countdown"');
+    expect(html).toContain('method: "HEAD"');
+    expect(html).toContain("ev.preventDefault()");
   });
 });
