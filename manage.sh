@@ -521,9 +521,34 @@ cmd_update() {
   local old_rev; old_rev="$(git -C "${APP_DIR}" rev-parse --short HEAD 2>/dev/null || echo '?')"
 
   git -C "${APP_DIR}" config pull.ff only   # supprime le hint de divergence
+  # 9.18b — auto-stash : un fichier suivi modifié localement (typiquement
+  # package-lock.json, réécrit par le npm du VPS à un install précédent)
+  # bloquait TOUT update (« Pull refusé ») sans que l'owner n'ait rien fait.
+  # On met les modifications suivies de côté, on tire, puis on les ÉCARTE
+  # (le nouveau commit fait foi) ; si le pull échoue, on les RESTAURE.
+  # Les fichiers non suivis (.env, bots.json, database/) ne sont jamais
+  # touchés — le stash sans --include-untracked ne les voit pas.
+  local stashed="no"
+  if ! git -C "${APP_DIR}" diff --quiet 2>/dev/null || ! git -C "${APP_DIR}" diff --cached --quiet 2>/dev/null; then
+    info "Fichiers suivis modifiés localement — mise de côté (auto-stash)…"
+    if git -C "${APP_DIR}" stash push -m "nebula-update-auto-stash" >/dev/null 2>&1; then
+      stashed="yes"
+      warn "Modifications locales écartées pour l'update (restaurables : git stash list)."
+    else
+      die "Auto-stash impossible — résous avec git status puis relance."
+    fi
+  fi
   info "git pull --ff-only origin ${BRANCH}…"
   if ! ( cd "${APP_DIR}" && git pull --ff-only origin "${BRANCH}" 2>&1 | sed 's/^/    /' ); then
+    if [ "${stashed}" = "yes" ]; then
+      git -C "${APP_DIR}" stash pop >/dev/null 2>&1 || true
+      warn "Pull échoué — modifications locales restaurées."
+    fi
     die "Pull refusé (commits locaux ou divergence) — résous avec git status/git stash puis relance."
+  fi
+  if [ "${stashed}" = "yes" ]; then
+    git -C "${APP_DIR}" stash drop >/dev/null 2>&1 || true
+    ok "Modifications locales écartées — le nouveau commit fait foi."
   fi
   local new_rev; new_rev="$(git -C "${APP_DIR}" rev-parse --short HEAD)"
   if [ "${old_rev}" = "${new_rev}" ]; then

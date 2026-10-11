@@ -22,6 +22,12 @@
 
 const SUPPRESSED_INFO = "Closing session:";
 const SUPPRESSED_WARN = "Session already closed";
+/** 9.18b — bruit de déchiffrement connu (messages hors-ordre/rejoués après
+ *  une reconnexion) : Baileys imprime l'erreur AVEC sa pile, ~15 fois par
+ *  incident, dans bot.log et le tail du dashboard. Rien d'actionnable —
+ *  la couche au-dessus gère (message abandonné). On n'avale QUE cette
+ *  combinaison exacte (prefix + Bad MAC), tout le reste passe. */
+const SUPPRESSED_ERR_PREFIX = "Session error:";
 
 const g = globalThis as { __nebulaLibsignalNoiseSuppressed?: boolean };
 
@@ -38,5 +44,15 @@ if (!g.__nebulaLibsignalNoiseSuppressed) {
   console.warn = (...args: unknown[]) => {
     if (args.length > 0 && args[0] === SUPPRESSED_WARN) return; // objet session → jeté
     originalWarn(...args);
+  };
+
+  const originalError = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    if (args.length > 1 && args[0] === SUPPRESSED_ERR_PREFIX) {
+      const second = args[1] as { message?: unknown } | undefined;
+      const text = String(second instanceof Error ? second.message : (second ?? ""));
+      if (text.includes("Bad MAC")) return; // bruit connu → jeté
+    }
+    originalError(...args);
   };
 }
