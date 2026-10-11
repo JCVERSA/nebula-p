@@ -226,8 +226,10 @@ export function protectApiRoutes(app: import("express").Express, panelAuth: Pane
 }
 
 /**
- * Archive projet (source complète en ZIP, pour sauvegarde/déplacement) —
- * publique, servie par les deux applications.
+ * Archive projet (source complète en ZIP, pour sauvegarde/déplacement).
+ * PROTÉGÉE par protectApiRoutes (session panneau / Bearer) — accessible
+ * depuis le navigateur via le bouton Export du dashboard (cookie session).
+ * (Audit 2026-10-11 J-5 : le commentaire disait « publique » à tort.)
  */
 export function registerProjectArchiveRoute(app: import("express").Express): void {
   app.get("/nebula-bot-latest.zip", (_req, res) => {

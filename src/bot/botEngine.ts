@@ -798,8 +798,12 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
               const senderParticipant = groupMetadata.participants.find((p: any) => p.id.split("@")[0] === actualSenderNumber);
               isSenderAdmin = senderParticipant?.admin === "admin" || senderParticipant?.admin === "superadmin";
             }
-            // 9.16 — répertoire : le groupe est connu dès son premier message.
-            touchGroup(senderJid, { name: groupMetadata?.subject });
+            // 9.16/9.18 — répertoire : le groupe est connu dès son premier
+            // message, avec sa taille (ciblage annonces du dashboard).
+            touchGroup(senderJid, {
+              name: groupMetadata?.subject,
+              memberCount: Array.isArray(groupMetadata?.participants) ? groupMetadata.participants.length : undefined,
+            });
           } catch (e) {}
         }
 
@@ -807,7 +811,13 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         // rafraîchit fiche, compteurs et dernier contact. Un banni est
         // ignoré par TOUT le moteur ; le propriétaire ne peut jamais l'être.
         if (!isFromMe) {
-          touchUser(actualSenderJid, { name: msg.pushName || "" });
+          // 9.18 — ownerCheck a déjà résolu le LID vers le vrai numéro (pour
+          // tout expéditeur @lid, owner ou pas) : on le conserve dans la
+          // fiche, zéro appel Baileys supplémentaire.
+          touchUser(actualSenderJid, {
+            name: msg.pushName || "",
+            resolvedNumber: ownerCheck.resolvedNumber || undefined,
+          });
           if (!isOwner && isBannedUser(actualSenderJid)) {
             continue;
           }

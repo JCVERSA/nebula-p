@@ -11,6 +11,7 @@ import {
 import { forgetAnimeChoices } from "../services/animeChoices.js";
 import { getConfig } from "../config.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "../aiQuota.js";
+import { isMutedUser } from "../userDirectory.js";
 
 const aiCommand: BotCommand = {
   name: "ai",
@@ -44,6 +45,12 @@ const aiCommand: BotCommand = {
         "⚠️ *No AI engine configured on the server.*\n" +
         "Configure `GEMINI_API_KEY` (primary) or `NVIDIA_NIM_API_KEY` (fallback) in the secrets or environment file."
       );
+      return;
+    }
+
+    // 9.18 (L) — sourdine IA : refus honnête, aucun token dépensé.
+    if (isMutedUser(context.sender)) {
+      await context.reply("🔇 *Les réponses IA sont temporairement désactivées pour toi.* Les commandes classiques (.menu) fonctionnent toujours.");
       return;
     }
 

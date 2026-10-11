@@ -28,12 +28,14 @@ interface KnownUser {
   name: string;
   lastSeen: number;
   banned: boolean;
+  noAnnounce?: boolean;
 }
 
 interface KnownGroup {
   jid: string;
   name: string;
   lastSeen: number;
+  memberCount?: number;
 }
 
 interface AnnouncementJob {
@@ -60,7 +62,13 @@ function formatDate(ts: number): string {
   return new Date(ts).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-export default function AnnouncementsPanel() {
+interface AnnouncementsPanelProps {
+  /** 9.18 (E) — jids pré-sélectionnés depuis le gestionnaire d'utilisateurs. */
+  preselected?: string[];
+  onPreselectConsumed?: () => void;
+}
+
+export default function AnnouncementsPanel({ preselected, onPreselectConsumed }: AnnouncementsPanelProps) {
   const botUrl = useBotUrl();
   const [text, setText] = useState("");
   const [idea, setIdea] = useState("");
@@ -106,6 +114,15 @@ export default function AnnouncementsPanel() {
     void loadStatus();
   }, [loadDirectory, loadStatus]);
 
+  // 9.18 (E) — pont depuis Utilisateurs : « Annoncer à la sélection ».
+  useEffect(() => {
+    if (preselected && preselected.length) {
+      setSelected((prev) => new Set([...prev, ...preselected]));
+      onPreselectConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselected]);
+
   // Polling pendant un envoi en cours
   useEffect(() => {
     if (job?.status === "running") {
@@ -116,7 +133,9 @@ export default function AnnouncementsPanel() {
     }
   }, [job?.status, loadStatus]);
 
-  const eligibleUsers = useMemo(() => users.filter((u) => !u.banned), [users]);
+  // 9.18 (F) — les opt-out sont exclus du ciblage (le serveur filtre aussi).
+  const eligibleUsers = useMemo(() => users.filter((u) => !u.banned && !u.noAnnounce), [users]);
+  const optOutCount = useMemo(() => users.filter((u) => u.noAnnounce && !u.banned).length, [users]);
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return eligibleUsers;
@@ -187,7 +206,10 @@ export default function AnnouncementsPanel() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setNotice(`📢 Annonce lancée vers ${data.total} destinataire(s) — envoi progressif (~3-8 s par message).`);
+      setNotice(
+        `📢 Annonce lancée vers ${data.total} destinataire(s) — envoi progressif (~3-8 s par message).` +
+          (data.skippedOptOut ? ` ${data.skippedOptOut} opt-out ignoré(s).` : "")
+      );
       setText("");
       await loadStatus();
     } catch (e: any) {
@@ -286,6 +308,7 @@ export default function AnnouncementsPanel() {
             <h4 className="text-sm font-bold text-white">Utilisateurs</h4>
             <span className="ml-auto text-[11px] text-zinc-400 tabular-nums">
               {selectedUsers.length} sélectionné(s) / {eligibleUsers.length}
+              {optOutCount ? ` · ${optOutCount} 🔕` : ""}
             </span>
           </div>
           <div className="flex gap-1.5 flex-wrap">
@@ -339,6 +362,11 @@ export default function AnnouncementsPanel() {
                 {eligibleUsers.length ? "Aucun utilisateur ne correspond au filtre." : "Personne n'a encore écrit au bot."}
               </p>
             )}
+            {optOutCount > 0 && (
+              <p className="text-[10px] text-zinc-600 px-3">
+                {optOutCount} utilisateur(s) ont refusé les annonces — exclus du ciblage (bouton 🔕 dans Utilisateurs pour rétablir).
+              </p>
+            )}
             {filteredUsers.length > 100 && (
               <p className="text-[10px] text-zinc-500 px-3 pt-1">{filteredUsers.length - 100} de plus — affiné le filtre.</p>
             )}
@@ -366,7 +394,10 @@ export default function AnnouncementsPanel() {
                   onChange={() => toggle(g.jid)}
                   className="accent-amber-500 w-3.5 h-3.5 cursor-pointer"
                 />
-                <span className="text-xs text-white truncate flex-1">{g.name || "Groupe sans nom"}</span>
+                <span className="text-xs text-white truncate flex-1">
+                  {g.name || "Groupe sans nom"}
+                  {g.memberCount ? <span className="text-zinc-500"> · {g.memberCount} membres</span> : null}
+                </span>
               </label>
             ))}
             {!groups.length && (

@@ -23,6 +23,26 @@ function getQuotaFile(): string {
 }
 
 const DAILY_LIMIT = Number(process.env.NEBULA_AI_DAILY_LIMIT || 40);
+
+// 9.18 (M) — limite IA personnalisée par utilisateur (userDirectory).
+// Injection d'un résolveur plutôt qu'un import direct : aiQuota reste un
+// module bas niveau sans dépendance circulaire avec le répertoire.
+let overrideGetter: ((sender: string) => number | null) | null = null;
+export function setAIQuotaOverrideGetter(fn: (sender: string) => number | null | undefined): void {
+  overrideGetter = (sender) => {
+    try {
+      const v = fn(sender);
+      return typeof v === "number" && v > 0 ? v : null;
+    } catch {
+      return null;
+    }
+  };
+}
+function limitFor(sender: string): number {
+  const o = overrideGetter?.(sender);
+  if (o && Number.isFinite(o) && o > 0) return Math.min(Math.floor(o), 500);
+  return DAILY_LIMIT;
+}
 const MAX_CONCURRENT = Math.max(1, Number(process.env.NEBULA_AI_MAX_CONCURRENT || 3));
 
 interface UsageRecord {
@@ -79,31 +99,39 @@ export interface AIQuotaDecision {
 /** Checks the daily budget; does not consume. */
 export function checkAIQuota(sender: string): AIQuotaDecision {
   const rec = recordFor(sender);
-  if (rec.count >= DAILY_LIMIT) {
+  const limit = limitFor(sender);
+  if (rec.count >= limit) {
     return {
       allowed: false,
       usedToday: rec.count,
-      limit: DAILY_LIMIT,
-      error: `Daily AI request limit reached (${rec.count}/${DAILY_LIMIT}). Try again tomorrow.`,
+      limit,
+      error: `Daily AI request limit reached (${rec.count}/${limit}). Try again tomorrow.`,
     };
   }
-  return { allowed: true, usedToday: rec.count, limit: DAILY_LIMIT };
+  return { allowed: true, usedToday: rec.count, limit };
+}
+
+/** 9.18 (B) — usage IA du jour pour le dashboard (sans consommation). */
+export function getAIQuotaUsage(sender: string): { used: number; limit: number } {
+  const rec = recordFor(sender);
+  return { used: rec.count, limit: limitFor(sender) };
 }
 
 /** Consumes one unit of the daily budget. */
 export function consumeAIQuota(sender: string): AIQuotaDecision {
   const rec = recordFor(sender);
-  if (rec.count >= DAILY_LIMIT) {
+  const limit = limitFor(sender);
+  if (rec.count >= limit) {
     return {
       allowed: false,
       usedToday: rec.count,
-      limit: DAILY_LIMIT,
-      error: `Daily AI request limit reached (${rec.count}/${DAILY_LIMIT}). Try again tomorrow.`,
+      limit,
+      error: `Daily AI request limit reached (${rec.count}/${limit}). Try again tomorrow.`,
     };
   }
   rec.count += 1;
   scheduleSave();
-  return { allowed: true, usedToday: rec.count, limit: DAILY_LIMIT };
+  return { allowed: true, usedToday: rec.count, limit };
 }
 
 /** 9.16 — remet à zéro le quota IA du jour pour un utilisateur (dashboard). */

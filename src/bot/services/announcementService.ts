@@ -133,6 +133,18 @@ async function runJob(job: AnnouncementJob, options: StartOptions): Promise<void
     job.failures.push({ jid: "(moteur)", error: "moteur WhatsApp non connecté" });
     job.status = "done";
     job.finishedAt = Date.now();
+    // 9.17 (audit J-1) : ce chemin écrit AUSSI l'historique — sinon la trace
+    // d'un envoi échoué par moteur déconnecté disparaissait au job suivant.
+    history.push({
+      id: job.id,
+      at: job.startedAt,
+      text: job.text,
+      total: job.targets.length,
+      sent: 0,
+      failed: job.targets.length,
+    });
+    if (history.length > HISTORY_CAP) history = history.slice(-HISTORY_CAP);
+    saveHistory();
     return;
   }
   for (let i = 0; i < job.targets.length; i++) {

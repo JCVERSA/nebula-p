@@ -27,6 +27,7 @@ import { generateTextWithFallback, isAIConfigured } from "../geminiClient.js";
 import { getPersonaPrompt } from "../persona.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "../aiQuota.js";
 import { recordAudit } from "../auditTrail.js";
+import { isMutedUser } from "../userDirectory.js";
 import {
   getMemoryContext,
   recordExchange,
@@ -124,6 +125,20 @@ export async function handleAgentMessage(
 ): Promise<boolean> {
   const text = (info.text || "").trim();
   if (!text) return false;
+
+  // 9.18 (L) — sourdine IA : l'utilisateur garde ses commandes mais les
+  // tours IA lui sont refusés honnêtement (aucun token dépensé).
+  if (isMutedUser(String(info.actorJid || ""))) {
+    const sendMuted = async (t: string) => {
+      try {
+        await sock.sendMessage(info.senderJid, { text: t }, { quoted: msg });
+      } catch {}
+    };
+    await sendMuted(
+      "🔇 Les réponses IA sont temporairement désactivées pour toi — les commandes classiques (.menu) fonctionnent toujours."
+    );
+    return true;
+  }
 
   const sendText = async (t: string) => {
     try {

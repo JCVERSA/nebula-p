@@ -25,12 +25,16 @@ const NORMAL_RESPONSES: Record<string, unknown> = {
   "/api/bot/analytics": { stats: { menu: 5, ping: 3 } },
   "/api/bot/users": {
     users: [
-      { jid: "237600000001@s.whatsapp.net", name: "Test User", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 12, commandCount: 3, lastCommand: "menu", banned: false },
+      { jid: "237600000001@s.whatsapp.net", name: "Test User", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 12, commandCount: 3, lastCommand: "menu", banned: false, quota: { ai: { used: 12, limit: 40 }, web: { used: 3, limit: 20 }, asr: { used: 2, limit: 10 } } },
       { jid: "120363161513685998@lid", name: "Owner LID", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 40, commandCount: 9, lastCommand: "menu", banned: false, isOwner: true },
     ],
     groups: [
       { jid: "120363000000000000@g.us", name: "Groupe Test", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 40 },
     ],
+    total: 2,
+    counts: { all: 2, active7d: 2, new30d: 0, banned: 0 },
+    limit: 200,
+    offset: 0,
   },
   "/api/bot/announce/status": { job: null, history: [] },
   "/api/bot/secrets": { secrets: [{ name: "GEMINI_API_KEY", configured: false, masked: null }] },
@@ -52,7 +56,9 @@ function mockFetch(handler: (url: string, init?: any) => Promise<{ ok: boolean; 
   }) as unknown as typeof fetch;
 }
 
-function normalHandler(url: string): Promise<{ ok: boolean; status: number; json: () => Promise<any> }> {
+function normalHandler(rawUrl: string): Promise<{ ok: boolean; status: number; json: () => Promise<any> }> {
+  // 9.17 : /api/bot/users?segment=…&limit=… — lookup sur le chemin seul
+  const url = rawUrl.split("?")[0];
   const body = NORMAL_RESPONSES[url] ?? {};
   return Promise.resolve({ ok: true, status: 200, json: async () => body });
 }
@@ -107,6 +113,7 @@ describe("Nebula dashboard UI", () => {
     await waitFor(() => expect(screen.getByText("Utilisateurs connus")).toBeTruthy());
     await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
     expect(screen.getByText("👑 OWNER")).toBeTruthy(); // 9.16b — badge owner, ban impossible
+    expect(screen.getByText("IA 12/40")).toBeTruthy(); // 9.18 (B) — quotas visibles
     expect(screen.getAllByText(/237600000001/).length).toBeGreaterThan(0);
 
     await clickNav("Annonces");

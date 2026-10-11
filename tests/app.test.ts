@@ -336,6 +336,51 @@ describe("Project archive download", () => {
       expect(res.status).toBe(404);
     }
   });
+
+  it("2026-10-11 (audit J-5) : le zip exige l'auth panneau — SANS session → 401, jamais public", async () => {
+    const res = await request(app).get("/nebula-bot-latest.zip");
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("9.18 — User manager routes", () => {
+  it("GET /api/bot/users : forme paginée avec compteurs (tri par défaut côté serveur)", async () => {
+    const res = await request(app).get("/api/bot/users").set(auth);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.users)).toBe(true);
+    expect(res.body.counts).toBeTruthy();
+    expect(typeof res.body.total).toBe("number");
+    expect(typeof res.body.limit).toBe("number");
+  });
+
+  it("GET /api/bot/users/export : CSV authentifié, 401 sans session", async () => {
+    const res = await request(app).get("/api/bot/users/export").set(auth);
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/csv");
+    const res2 = await request(app).get("/api/bot/users/export");
+    expect(res2.status).toBe(401);
+  });
+
+  it("détail d'un jid inconnu : 404 honnête", async () => {
+    const res = await request(app).get("/api/bot/users/inconnu@s.whatsapp.net/detail").set(auth);
+    expect(res.status).toBe(404);
+  });
+
+  it("bulk ban : l'owner est ignoré, jamais banni (garde multi-jids)", async () => {
+    process.env.OWNER_NUMBER = "237640143760";
+    try {
+      const res = await request(app)
+        .post("/api/bot/users/action-bulk")
+        .set(auth)
+        .send({ jids: ["237640143760@s.whatsapp.net", "237600000099@s.whatsapp.net"], action: "ban" });
+      expect(res.status).toBe(200);
+      expect(res.body.skippedOwner).toBe(1);
+      expect(res.body.applied).toBe(0); // l'autre jid est inconnu du répertoire → notFound
+      expect(res.body.notFound).toBe(1);
+    } finally {
+      delete process.env.OWNER_NUMBER;
+    }
+  });
 });
 
 describe("Rate limiting", () => {

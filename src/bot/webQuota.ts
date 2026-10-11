@@ -94,6 +94,14 @@ export function consumeWebQuota(sender: string): void {
   scheduleSave();
 }
 
+/** 9.18 (B) — usage web du jour pour le dashboard (sans consommation). */
+export function getWebQuotaUsage(sender: string): { used: number; limit: number } {
+  const limit = getWebDailyLimit();
+  const r = usage[sender];
+  const used = r && r.date === today() ? r.count : 0;
+  return { used, limit };
+}
+
 /** 9.16 — remet à zéro le quota web du jour pour un utilisateur (dashboard). */
 export function resetWebQuota(sender: string): boolean {
   if (!usage[sender]) return false;

@@ -468,10 +468,9 @@ export default function App() {
 
   const [geminiPlaygroundPrompt, setGeminiPlaygroundPrompt] = useState<string>("Write a quick WhatsApp status update about coding late at night.");
   const [geminiPlaygroundOutput, setGeminiPlaygroundOutput] = useState<string>("");
+  // 9.18 (E) — pont Utilisateurs → Annonces (« Annoncer à la sélection »).
+  const [announcePreselect, setAnnouncePreselect] = useState<string[]>([]);
   const [isTestingGemini, setIsTestingGemini] = useState<boolean>(false);
-
-
-  // Group Tools
 
 
   // ------------------------------------------------------------- data fetch
@@ -3215,11 +3214,20 @@ export default function App() {
                 </div>
               )}
 
-              {/* ============================================================ UTILISATEURS (9.16) */}
-              {activeTab === "users" && <UsersPanel />}
+              {/* ============================================================ UTILISATEURS (9.16/9.18) */}
+              {activeTab === "users" && (
+                <UsersPanel
+                  onAnnounceTo={(jids) => {
+                    setAnnouncePreselect(jids);
+                    setActiveTab("announcements");
+                  }}
+                />
+              )}
 
-              {/* ============================================================ ANNONCES (9.16 — absorbe Group Tools) */}
-              {activeTab === "announcements" && <AnnouncementsPanel />}
+              {/* ============================================================ ANNONCES (9.16/9.18 — absorbe Group Tools) */}
+              {activeTab === "announcements" && (
+                <AnnouncementsPanel preselected={announcePreselect} onPreselectConsumed={() => setAnnouncePreselect([])} />
+              )}
 
               {/* ============================================================ SECRETS VAULT */}
               {/* ============================================================ LOGS */}

@@ -39,10 +39,20 @@ import { getTempDownload, touchTempDownload, updateServerBaseUrl, cleanupExpired
 import { getGroupPolicy, setGroupPolicy, listGroupPolicies } from "./src/bot/groupAccessStore.js";
 import { DEFAULT_GROUP_POLICY } from "./src/bot/accessControl.js";
 import { getAuditEvents, clearAudit, recordAudit } from "./src/bot/auditTrail.js";
-import { getAIUsageSummary, resetAIQuota } from "./src/bot/aiQuota.js";
-import { resetWebQuota } from "./src/bot/webQuota.js";
-import { resetAsrBudget } from "./src/bot/services/voiceTranscribe.js";
-import { listUsers, listGroups, setUserBanned } from "./src/bot/userDirectory.js";
+import { getAIUsageSummary, resetAIQuota, getAIQuotaUsage, setAIQuotaOverrideGetter } from "./src/bot/aiQuota.js";
+import { resetWebQuota, getWebQuotaUsage } from "./src/bot/webQuota.js";
+import { getAsrUsage, resetAsrBudget } from "./src/bot/services/voiceTranscribe.js";
+import {
+  isBannedUser,
+  listGroups,
+  listUsers,
+  setUserAILimit,
+  setUserBanned,
+  setUserMuted,
+  setUserNoAnnounce,
+  setUserNote,
+  getUserAILimit,
+} from "./src/bot/userDirectory.js";
 import { isKnownOwnerLid } from "./src/bot/ownerIdentity.js";
 import {
   draftAnnouncement,
@@ -70,6 +80,11 @@ import {
 export function createApp(): express.Express {
   const app = express();
   app.set("trust proxy", true);
+
+  // 9.18 (M) — limite IA quotidienne personnalisée par utilisateur : le
+  // répertoire est la source, aiQuota la consomme via résolveur injecté
+  // (aucune dépendance circulaire, défaut = limite globale inchangée).
+  setAIQuotaOverrideGetter((jid) => getUserAILimit(jid));
   app.use(express.json({ limit: "32mb" }));
 
   // ---------------------------------------------------------------------------
@@ -523,7 +538,7 @@ export function createApp(): express.Express {
   // 9.16 — Répertoire utilisateurs + annonces (gestionnaire users, sélection
   // DM/groupes, envoi progressif anti-ban, brouillon IA, historique).
   // ---------------------------------------------------------------------------
-  app.get("/api/bot/users", rateLimit(30, 60_000), (_req, res) => {
+  app.get("/api/bot/users", rateLimit(30, 60_000), (req, res) => {
     // 9.16b — flag isOwner par fiche : digits OWNER_NUMBER (multi-candidats),
     // LID owner reconnu ce cycle de vie, ou NEBULA_OWNER_LID (froid).
     const ownerCandidates = String(process.env.OWNER_NUMBER || getConfig().ownerNumber || "")
@@ -542,9 +557,62 @@ export function createApp(): express.Express {
         recordAudit("panel", "user.auto-unban-owner", u.jid, "le propriétaire ne peut pas être banni — état auto-corrigé");
       }
     }
+    // 9.17 (audit J-3) — pagination + recherche + segment CÔTÉ SERVEUR :
+    // renoyer tout le répertoire à chaque polling ne passe pas à l'échelle.
+    // 9.18 — isBannedUser() applique l'expiration paresseuse des bans temporaires.
+    const all = listUsers().map((u) => {
+      isBannedUser(u.jid);
+      return { ...u, isOwner: isOwnerJid(u.jid) };
+    });
+    const weekAgo = Date.now() - 7 * 86400_000;
+    const monthAgo = Date.now() - 30 * 86400_000;
+    const counts = {
+      all: all.length,
+      active7d: all.filter((u) => u.lastSeen >= weekAgo && !u.banned).length,
+      new30d: all.filter((u) => u.firstSeen >= monthAgo && !u.banned).length,
+      banned: all.filter((u) => u.banned).length,
+    };
+    const segment = String(req.query.segment || "all");
+    const q = String(req.query.q || "").trim().toLowerCase();
+    let filtered = all;
+    if (segment === "active7d") filtered = filtered.filter((u) => u.lastSeen >= weekAgo && !u.banned);
+    else if (segment === "new30d") filtered = filtered.filter((u) => u.firstSeen >= monthAgo && !u.banned);
+    else if (segment === "banned") filtered = filtered.filter((u) => u.banned);
+    else filtered = filtered.filter((u) => !u.banned); // « Tous » = non bannis
+    if (q) {
+      filtered = filtered.filter(
+        (u) => u.jid.toLowerCase().includes(q) || (u.name || "").toLowerCase().includes(q)
+      );
+    }
+    // 9.18 (G) — tri côté serveur (activité par défaut).
+    const SORTS: Record<string, (x: typeof all[number], y: typeof all[number]) => number> = {
+      lastSeen: (x, y) => y.lastSeen - x.lastSeen,
+      firstSeen: (x, y) => y.firstSeen - x.firstSeen,
+      messageCount: (x, y) => y.messageCount - x.messageCount,
+      commandCount: (x, y) => y.commandCount - x.commandCount,
+      name: (x, y) => String(x.name || "").localeCompare(String(y.name || "")),
+    };
+    const sortField = String(req.query.sort || "lastSeen");
+    const sortDir = String(req.query.sortDir || "desc") === "asc" ? "asc" : "desc";
+    const cmp = SORTS[sortField] || SORTS.lastSeen;
+    const sorted = [...filtered].sort(cmp);
+    if (sortDir === "asc") sorted.reverse();
+
+    const total = filtered.length;
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    // 9.18 (B) — usage des quotas du jour, joint par fiche.
+    const page = sorted.slice(offset, offset + limit).map((u) => ({
+      ...u,
+      quota: { ai: getAIQuotaUsage(u.jid), web: getWebQuotaUsage(u.jid), asr: getAsrUsage(u.jid) },
+    }));
     res.json({
-      users: listUsers().map((u) => ({ ...u, isOwner: isOwnerJid(u.jid) })),
-      groups: listGroups(),
+      users: page,
+      groups: listGroups().slice(0, 500),
+      total,
+      counts,
+      limit,
+      offset,
     });
   });
 
@@ -563,19 +631,83 @@ export function createApp(): express.Express {
     const jidDigits = jid.split("@")[0].replace(/[^0-9]/g, "");
     const ownerLidDigits = String(process.env.NEBULA_OWNER_LID || "").replace(/[^0-9]/g, "");
     if ((ownerDigits && ownerDigits === jidDigits) || (ownerLidDigits && ownerLidDigits === jidDigits) || isKnownOwnerLid(jid)) {
-      if (action === "ban") {
-        res.status(400).json({ error: "le propriétaire ne peut pas être banni" });
+      if (action === "ban" || action === "mute") {
+        res.status(400).json({ error: "le propriétaire ne peut pas être banni ni mis en sourdine" });
         return;
       }
     }
     if (action === "ban" || action === "unban") {
-      const ok = setUserBanned(jid, action === "ban");
+      let hours: number | undefined;
+      if (action === "ban") {
+        const raw = Number(req.body?.hours);
+        if (req.body?.hours !== undefined && req.body?.hours !== null && req.body?.hours !== 0 && (!Number.isFinite(raw) || raw < 1 || raw > 720)) {
+          res.status(400).json({ error: "durée invalide (heures, 1-720, ou 0/vide = permanent)" });
+          return;
+        }
+        hours = Number.isFinite(raw) && raw > 0 ? raw : undefined;
+      }
+      const reason = action === "ban" ? String(req.body?.reason || "").slice(0, 200) : undefined;
+      const ok = setUserBanned(jid, action === "ban", { reason, hours });
       if (!ok) {
         res.status(404).json({ error: "utilisateur inconnu du répertoire" });
         return;
       }
-      recordAudit("panel", action === "ban" ? "user.ban" : "user.unban", jid, action === "ban" ? "banni depuis le dashboard" : "réhabilité depuis le dashboard");
+      recordAudit(
+        "panel",
+        action === "ban" ? "user.ban" : "user.unban",
+        jid,
+        action === "ban"
+          ? `banni depuis le dashboard${reason ? ` — motif : ${reason}` : ""}${hours ? ` — pendant ${hours} h` : " — permanent"}`
+          : "réhabilité depuis le dashboard"
+      );
       res.json({ ok: true, banned: action === "ban" });
+      return;
+    }
+    if (action === "note") {
+      const text = String(req.body?.text ?? "");
+      if (text.length > 300) {
+        res.status(400).json({ error: "note trop longue (max 300 caractères)" });
+        return;
+      }
+      if (!setUserNote(jid, text)) {
+        res.status(404).json({ error: "utilisateur inconnu du répertoire" });
+        return;
+      }
+      recordAudit("panel", "user.note", jid, text ? "note mise à jour" : "note effacée");
+      res.json({ ok: true });
+      return;
+    }
+    if (action === "mute" || action === "unmute") {
+      if (!setUserMuted(jid, action === "mute")) {
+        res.status(404).json({ error: "utilisateur inconnu du répertoire" });
+        return;
+      }
+      recordAudit("panel", action === "mute" ? "user.mute" : "user.unmute", jid, "sourdine IA — commandes conservées");
+      res.json({ ok: true, muted: action === "mute" });
+      return;
+    }
+    if (action === "optout" || action === "optin") {
+      if (!setUserNoAnnounce(jid, action === "optout")) {
+        res.status(404).json({ error: "utilisateur inconnu du répertoire" });
+        return;
+      }
+      recordAudit("panel", action === "optout" ? "user.optout" : "user.optin", jid, "préférence annonces");
+      res.json({ ok: true, noAnnounce: action === "optout" });
+      return;
+    }
+    if (action === "set-ai-limit") {
+      const raw = req.body?.limit;
+      const limit = raw === null || raw === "" || raw === undefined ? null : Number(raw);
+      if (limit !== null && (!Number.isFinite(limit) || limit < 1 || limit > 500)) {
+        res.status(400).json({ error: "limite invalide (1-500 requêtes/jour, ou null = limite globale)" });
+        return;
+      }
+      if (!setUserAILimit(jid, limit)) {
+        res.status(404).json({ error: "utilisateur inconnu du répertoire" });
+        return;
+      }
+      recordAudit("panel", "user.ai-limit", jid, limit ? `limite IA quotidienne : ${limit}` : "limite IA globale rétablie");
+      res.json({ ok: true, limit });
       return;
     }
     if (action === "reset-quota") {
@@ -604,16 +736,143 @@ export function createApp(): express.Express {
     res.status(400).json({ error: "action inconnue (ban|unban|reset-quota|dm)" });
   });
 
+  // 9.18 (E) — actions groupées : une seule requête pour ≤200 jids.
+  app.post("/api/bot/users/action-bulk", rateLimit(10, 60_000), (req, res) => {
+    const jids = (Array.isArray(req.body?.jids) ? req.body.jids : [])
+      .map((j: unknown) => String(j || "").trim())
+      .filter((j: string) => /^[0-9a-zA-Z@.:_-]+$/.test(j))
+      .slice(0, 200);
+    const action = String(req.body?.action || "");
+    const allowed = ["ban", "unban", "mute", "unmute", "reset-quota", "optout", "optin"];
+    if (!jids.length) {
+      res.status(400).json({ error: "aucun jid valide" });
+      return;
+    }
+    if (!allowed.includes(action)) {
+      res.status(400).json({ error: "action inconnue (ban|unban|mute|unmute|reset-quota|optout|optin)" });
+      return;
+    }
+    const reason = String(req.body?.reason || "").slice(0, 200);
+    const rawHours = Number(req.body?.hours);
+    const hours = Number.isFinite(rawHours) && rawHours > 0 ? rawHours : undefined;
+    const ownerDigits = String(process.env.OWNER_NUMBER || getConfig().ownerNumber || "").replace(/[^0-9]/g, "");
+    let applied = 0;
+    let skippedOwner = 0;
+    let notFound = 0;
+    for (const jid of jids) {
+      const jidDigits = jid.split("@")[0].replace(/[^0-9]/g, "");
+      const isOwnerJid = (ownerDigits && ownerDigits === jidDigits) || isKnownOwnerLid(jid);
+      if (isOwnerJid && (action === "ban" || action === "mute")) {
+        skippedOwner += 1;
+        continue;
+      }
+      let ok = true;
+      if (action === "ban") ok = setUserBanned(jid, true, { reason, hours });
+      else if (action === "unban") ok = setUserBanned(jid, false);
+      else if (action === "mute") ok = setUserMuted(jid, true);
+      else if (action === "unmute") ok = setUserMuted(jid, false);
+      else if (action === "optout") ok = setUserNoAnnounce(jid, true);
+      else if (action === "optin") ok = setUserNoAnnounce(jid, false);
+      else if (action === "reset-quota") {
+        resetAIQuota(jid);
+        resetWebQuota(jid);
+        resetAsrBudget(jid);
+      }
+      if (!ok) notFound += 1;
+      else applied += 1;
+    }
+    recordAudit(
+      "panel",
+      `user.bulk-${action}`,
+      `${applied} jid(s)`,
+      `owner ignoré(s) : ${skippedOwner}, inconnu(s) : ${notFound}${reason ? ` — motif : ${reason}` : ""}`
+    );
+    res.json({ ok: true, applied, skippedOwner, notFound });
+  });
+
+  // 9.18 (H) — export CSV de la liste filtrée (mêmes filtres que la liste).
+  app.get("/api/bot/users/export", rateLimit(5, 60_000), (req, res) => {
+    const segment = String(req.query.segment || "all");
+    const q = String(req.query.q || "").trim().toLowerCase();
+    const weekAgo = Date.now() - 7 * 86400_000;
+    const monthAgo = Date.now() - 30 * 86400_000;
+    let filtered = listUsers();
+    if (segment === "active7d") filtered = filtered.filter((u) => u.lastSeen >= weekAgo && !u.banned);
+    else if (segment === "new30d") filtered = filtered.filter((u) => u.firstSeen >= monthAgo && !u.banned);
+    else if (segment === "banned") filtered = filtered.filter((u) => u.banned);
+    else filtered = filtered.filter((u) => !u.banned);
+    if (q) {
+      filtered = filtered.filter((u) => u.jid.toLowerCase().includes(q) || (u.name || "").toLowerCase().includes(q));
+    }
+    const esc = (v: unknown): string => {
+      const s = String(v ?? "");
+      return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = "jid;nom;numero_resolu;premier_contact;derniere_activite;messages;commandes;banni;motif;note;muet;refuse_annonces";
+    const rows = filtered.slice(0, 5000).map((u) =>
+      [
+        u.jid,
+        u.name,
+        u.resolvedNumber || "",
+        new Date(u.firstSeen).toISOString(),
+        new Date(u.lastSeen).toISOString(),
+        u.messageCount,
+        u.commandCount,
+        u.banned ? (u.bannedUntil ? `jusqu_a ${new Date(u.bannedUntil).toISOString()}` : "permanent") : "",
+        u.banReason || "",
+        u.note || "",
+        u.muted ? "oui" : "",
+        u.noAnnounce ? "oui" : "",
+      ]
+        .map(esc)
+        .join(";")
+    );
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="nebula_users.csv"');
+    res.send("\uFEFF" + header + "\n" + rows.join("\n"));
+  });
+
+  // 9.18 (I) — fiche détail : quotas complets + historique d'actions (audit).
+  app.get("/api/bot/users/:jid/detail", rateLimit(30, 60_000), (req, res) => {
+    const jid = String(req.params.jid || "");
+    if (!/^[0-9a-zA-Z@.:_-]+$/.test(jid)) {
+      res.status(400).json({ error: "jid invalide" });
+      return;
+    }
+    const found = listUsers().find((u) => u.jid === jid);
+    if (!found) {
+      res.status(404).json({ error: "utilisateur inconnu du répertoire" });
+      return;
+    }
+    isBannedUser(jid); // expiration paresseuse d'un ban temporaire
+    const fresh = listUsers().find((u) => u.jid === jid) || found;
+    const audit = getAuditEvents(500)
+      .filter((e: { target?: string }) => e.target === jid)
+      .slice(0, 50);
+    res.json({
+      user: fresh,
+      quota: { ai: getAIQuotaUsage(jid), web: getWebQuotaUsage(jid), asr: getAsrUsage(jid) },
+      audit,
+    });
+  });
+
   app.post("/api/bot/announce", rateLimit(5, 60_000), (req, res) => {
     const text = String(req.body?.text || "");
-    const targets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+    const rawTargets: unknown[] = Array.isArray(req.body?.targets) ? req.body.targets : [];
+    // 9.18 (F) — le refus d'annonces est appliqué CÔTÉ SERVEUR (défense en
+    // profondeur : même une UI compromise ne contourne pas l'opt-out).
+    const dirUser = new Map(listUsers().map((u) => [u.jid, u]));
+    const optedOut = rawTargets
+      .map((t) => String(t))
+      .filter((t) => !t.endsWith("@g.us") && dirUser.get(t)?.noAnnounce);
+    const targets = rawTargets.map((t) => String(t)).filter((t) => !optedOut.includes(t));
     const result = startAnnouncement(text, targets);
     if (!result.ok) {
       res.status(result.error.includes("en cours") ? 409 : 400).json({ error: result.error });
       return;
     }
-    recordAudit("panel", "announce.start", result.id, `${result.total} destinataire(s)`);
-    res.json({ ok: true, id: result.id, total: result.total });
+    recordAudit("panel", "announce.start", result.id, `${result.total} destinataire(s)${optedOut.length ? `, ${optedOut.length} opt-out ignoré(s)` : ""}`);
+    res.json({ ok: true, id: result.id, total: result.total, skippedOptOut: optedOut.length });
   });
 
   app.get("/api/bot/announce/status", rateLimit(30, 60_000), (_req, res) => {

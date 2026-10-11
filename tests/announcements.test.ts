@@ -124,6 +124,13 @@ describe("9.16 — announcementService (envoi progressif)", () => {
     await vi.waitFor(() => expect(getAnnouncementStatus()?.status).toBe("done"), { timeout: 3000 });
     const job = getAnnouncementStatus();
     expect(job?.sentCount).toBe(0);
+    // 9.17 (audit J-1) : la trace est écrite dans l'historique PERSISTANT
+    // — plus de disparition silencieuse au job suivant.
+    await vi.waitFor(() => expect(getAnnouncementHistory()).toHaveLength(1), { timeout: 2000 });
+    const [entry] = getAnnouncementHistory();
+    expect(entry.total).toBe(1);
+    expect(entry.sent).toBe(0);
+    expect(entry.failed).toBe(1);
   });
 
   it("sendDirectMessage : passe par le sender, texte requis", async () => {
@@ -158,6 +165,21 @@ describe("9.16 — brouillon IA", () => {
 });
 
 describe("9.16 — wiring routes API (app.ts)", () => {
+  it("9.18 (F) — opt-out annonces appliqué CÔTÉ SERVEUR (défense en profondeur)", () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), "app.ts"), "utf-8");
+    expect(src).toContain("optedOut");
+    expect(src).toContain("skippedOptOut");
+    expect(src).toContain("noAnnounce");
+  });
+
+  it("9.18 (C/E) — routes ban avec durée, actions groupées, export et détail", () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), "app.ts"), "utf-8");
+    expect(src).toContain('app.post("/api/bot/users/action-bulk"');
+    expect(src).toContain('app.get("/api/bot/users/export"');
+    expect(src).toContain('app.get("/api/bot/users/:jid/detail"');
+    expect(src).toContain("durée invalide");
+  });
+
   it("les routes users/annonces existent derrière le rate limit du panneau", async () => {
     const src = fs.readFileSync(path.resolve(process.cwd(), "app.ts"), "utf-8");
     expect(src).toContain('app.get("/api/bot/users"');

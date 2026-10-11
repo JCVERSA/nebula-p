@@ -204,6 +204,13 @@ export function chargeAsrBudget(user: string): void {
   recordAsrUse(user);
 }
 
+/** 9.18 (B) — usage ASR de l'heure glissante pour le dashboard. */
+export function getAsrUsage(user: string): { used: number; limit: number } {
+  const windowStart = Date.now() - 60 * 60 * 1000;
+  const uses = (asrUse.get(user) || []).filter((t) => t > windowStart);
+  return { used: uses.length, limit: ASR_HOURLY_LIMIT };
+}
+
 /** 9.16 — remet à zéro le budget ASR d'un utilisateur (dashboard). */
 export function resetAsrBudget(user: string): boolean {
   if (!asrUse.has(user)) return false;
