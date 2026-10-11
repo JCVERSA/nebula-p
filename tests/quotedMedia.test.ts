@@ -42,4 +42,26 @@ describe("describeMessageMedia (pur, 9.6b)", () => {
     expect(extractQuotedMediaContent(reply)).toBeTruthy();
     expect(extractQuotedMediaContent({ ephemeralMessage: { message: reply } })).toBeTruthy();
   });
+
+  it("9.6c — enveloppes officielles rares, avec la VRAIE librairie Baileys", () => {
+    const reply = {
+      extendedTextMessage: {
+        text: "un lien pour ça",
+        contextInfo: { quotedMessage: { videoMessage: { mimetype: "video/mp4" } } },
+      },
+    };
+    // message appelant enveloppé (editedMessage / viewOnceMessageV2Extension)
+    expect(describeMessageMedia({ editedMessage: { message: reply } }))
+      .toEqual({ what: "une vidéo", how: "reply" });
+    expect(describeMessageMedia({ viewOnceMessageV2Extension: { message: reply } }))
+      .toEqual({ what: "une vidéo", how: "reply" });
+    // média CITÉ lui-même enveloppé (chat éphémère)
+    const wrappedQuoted = {
+      extendedTextMessage: {
+        text: ".up",
+        contextInfo: { quotedMessage: { ephemeralMessage: { message: { documentMessage: {} } } } },
+      },
+    };
+    expect(describeMessageMedia(wrappedQuoted)).toEqual({ what: "un document", how: "reply" });
+  });
 });

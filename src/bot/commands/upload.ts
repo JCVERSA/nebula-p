@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 // Named import uniquement (le bundle CJS esbuild casse les default imports
 // de ce package ESM-only — voir la note en tête de botEngine.ts).
-import { downloadContentFromMessage } from "@whiskeysockets/baileys";
+import { downloadContentFromMessage, normalizeMessageContent } from "@whiskeysockets/baileys";
 import { BotCommand } from "../types.js";
 import { extractQuotedMediaContent } from "../utils/quotedMedia.js";
 import { registerTempDownload, getTempDownloadDir } from "../tempDownloadManager.js";
@@ -24,29 +24,22 @@ import { registerTempDownload, getTempDownloadDir } from "../tempDownloadManager
  */
 
 const MEDIA_KEYS = ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"];
-const WRAPPER_KEYS = ["viewOnceMessage", "viewOnceMessageV2", "ephemeralMessage", "documentWithCaptionMessage"];
 
-/** Déplie les couches d'emballage Baileys (viewOnce, éphémère…). */
-function unwrap(content: any): any {
-  let c = content;
-  for (let i = 0; i < 4 && c && typeof c === "object"; i++) {
-    const k = Object.keys(c)[0];
-    if (k && WRAPPER_KEYS.includes(k) && c[k]?.message) c = c[k].message;
-    else break;
-  }
-  return c;
-}
-
-/** Trouve le nœud média du message (direct OU cité). Pur — testé. */
+/**
+ * Trouve le nœud média du message (direct OU cité). Pur — testé.
+ *
+ * 9.6c : déroulage OFFICIEL Baileys (normalizeMessageContent) — 9 sortes
+ * d'enveloppes (ephemeral, viewOnce v1/v2/v2Extension, documentWithCaption,
+ * editedMessage, associatedChildMessage, groupStatus…). Le déroulage maison
+ * (4 sortes, première clé de l'objet uniquement) laissait passer des replies
+ * valides en prod : l'agent VOYAIT la vidéo (indice 9.6b) mais la commande
+ * répondait « Aucun fichier détecté ».
+ */
 export function findMediaNode(messageContent: any): { node: any; kind: string } | null {
   if (!messageContent || typeof messageContent !== "object") return null;
-  const direct = unwrap(messageContent);
+  const direct = normalizeMessageContent(messageContent) || messageContent;
   const kind = Object.keys(direct || {}).find((k) => MEDIA_KEYS.includes(k));
   if (kind) return { node: direct[kind], kind };
-  // 9.6b (bug prod) : on passe le contenu DÉROULÉ — un reply peut arriver
-  // enveloppé (ephemeralMessage/viewOnce) et extractQuotedMediaContent
-  // cherche extendedTextMessage au SOMMET. Sur le message brut, un reply
-  // parfaitement valide rendait « Aucun fichier détecté ».
   const quoted = extractQuotedMediaContent(direct);
   if (quoted) {
     const qk = Object.keys(quoted).find((k) => MEDIA_KEYS.includes(k));
@@ -198,6 +191,10 @@ const uploadCommand: BotCommand = {
   execute: async (sock, msg, context) => {
     const media = findMediaNode(msg?.message);
     if (!media) {
+      // 9.6c : clés seules (jamais de contenu) — si une forme résiste
+      // encore en prod, le journal la nomme immédiatement.
+      const keys = Object.keys(msg?.message || {});
+      console.log(`[UP] aucun média détecté — clés du message: ${keys.join(", ") || "(vide)"}`);
       return void (await context.reply(USAGE(context.prefix)));
     }
     if (!checkUploadQuota(context.sender)) {

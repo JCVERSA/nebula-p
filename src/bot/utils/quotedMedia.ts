@@ -6,22 +6,23 @@
  * `.m gif`" — the media then lives in the QUOTED message. This pure helper
  * unwraps the quoted message (including ephemeral/viewOnce wrappers) and
  * returns its media-bearing content, or null.
+ *
+ * 9.6c : le déroulage des enveloppes est celui de la LIBRAIRIE
+ * (normalizeMessageContent) — l'implémentation maison ne connaissait que
+ * 4 sortes d'enveloppes sur les 9 officielles (viewOnceMessageV2Extension,
+ * editedMessage, associatedChildMessage, groupStatus…) et regardait la
+ * première clé de l'objet : des replies valides restaient invisibles.
  */
+
+import { normalizeMessageContent } from "@whiskeysockets/baileys";
 
 export type MediaContent = Record<string, any>;
 
 const MEDIA_TYPES = ["imageMessage", "videoMessage", "documentMessage", "audioMessage", "stickerMessage"];
 
+/** Déroulage officiel — 9 sortes d'enveloppes, mono-source avec Baileys. */
 function unwrapLayers(content: MediaContent | undefined | null): MediaContent | null {
-  let cur = content;
-  for (let i = 0; i < 5 && cur; i++) {
-    if (cur.ephemeralMessage?.message) cur = cur.ephemeralMessage.message;
-    else if (cur.viewOnceMessage?.message) cur = cur.viewOnceMessage.message;
-    else if (cur.viewOnceMessageV2?.message) cur = cur.viewOnceMessageV2.message;
-    else if (cur.documentWithCaptionMessage?.message) cur = cur.documentWithCaptionMessage.message;
-    else return cur;
-  }
-  return cur || null;
+  return (normalizeMessageContent(content as any) as MediaContent | undefined) || null;
 }
 
 /**

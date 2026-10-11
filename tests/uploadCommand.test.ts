@@ -14,8 +14,21 @@ import { tmpdir } from "os";
 
 // 9.5b : Baileys 7.x exporte downloadContentFromMessage (ce n'est PAS une
 // méthode du sock) — le mock fournit un flux asynchrone de chunks.
+// 9.6c : normalizeMessageContent (déroulage officiel des enveloppes) est
+// simulé fidèlement — les 9 sortes, par propriété (pas par première clé).
 vi.mock("@whiskeysockets/baileys", () => ({
   downloadContentFromMessage: vi.fn(),
+  normalizeMessageContent: (c: any) => {
+    let cur = c;
+    for (let i = 0; i < 5 && cur; i++) {
+      const w = cur.ephemeralMessage || cur.viewOnceMessage || cur.documentWithCaptionMessage
+        || cur.viewOnceMessageV2 || cur.viewOnceMessageV2Extension || cur.editedMessage
+        || cur.associatedChildMessage || cur.groupStatusMessage || cur.groupStatusMessageV2;
+      if (!w) break;
+      cur = w.message;
+    }
+    return cur;
+  },
 }));
 
 vi.mock("../src/bot/tempDownloadManager.js", () => ({
@@ -115,6 +128,14 @@ describe("findMediaNode (pur)", () => {
     const viewOnceReply = { viewOnceMessage: { message: REPLY_MSG.message } };
     expect(findMediaNode(viewOnceReply)?.kind).toBe("videoMessage");
   });
+
+  it("9.6c — enveloppes RARES (editedMessage, viewOnceMessageV2Extension) : trouvées aussi", () => {
+    // constat prod : l'agent voyait la vidéo (indice 9.6b) mais la commande
+    // non — le déroulage maison ne connaissait pas ces enveloppes officielles.
+    expect(findMediaNode({ editedMessage: { message: REPLY_MSG.message } })?.kind).toBe("videoMessage");
+    expect(findMediaNode({ viewOnceMessageV2Extension: { message: { imageMessage: { mimetype: "image/jpeg" } } } })?.kind).toBe("imageMessage");
+    expect(findMediaNode({ associatedChildMessage: { message: REPLY_MSG.message } })?.kind).toBe("videoMessage");
+  });
 });
 
 describe("mediaMeta (pur)", () => {
@@ -128,11 +149,18 @@ describe("mediaMeta (pur)", () => {
 });
 
 describe(".up — exécution", () => {
-  it("sans média → usage clair (pas d'upload)", async () => {
-    const ctx = mkContext();
-    await uploadCommand.execute!({} as any, mkMsg({ conversation: ".up" }), ctx);
-    expect(ctx._replies[0]).toContain("Aucun fichier détecté");
-    expect(mRegister).not.toHaveBeenCalled();
+  it("sans média → usage clair + journal des clés (diagnostic 9.6c, pas d'upload)", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const ctx = mkContext();
+      await uploadCommand.execute!({} as any, mkMsg({ conversation: ".up" }), ctx);
+      expect(ctx._replies[0]).toContain("Aucun fichier détecté");
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("[UP] aucun média"));
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("conversation"));
+      expect(mRegister).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it("document joint → lien 2 h avec nom, taille et TTL (streaming disque)", async () => {
