@@ -10,6 +10,7 @@ import {
   Package,
   Users,
   ShieldAlert,
+  Server,
   BarChart2,
   Settings,
   FileText,
@@ -59,6 +60,7 @@ const ITEMS: DrawerItem[] = [
   // Admin
   { id: "groups", label: "Group Tools", icon: <Users size={18} />, category: "admin" },
   { id: "security", label: "Security & Antilink", icon: <ShieldAlert size={18} />, category: "admin" },
+  { id: "system", label: "Système", icon: <Server size={18} />, category: "admin" },
   { id: "analytics", label: "Analytics & Usage", icon: <BarChart2 size={18} />, category: "admin" },
   { id: "settings", label: "Bot Settings", icon: <Settings size={18} />, category: "admin" },
 

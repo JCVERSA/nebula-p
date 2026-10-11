@@ -69,6 +69,7 @@ import { BatchDownloadStatus } from "./components/BatchDownloadStatus";
 import AccessControlPanel from "./components/AccessControlPanel";
 import SecurityExtras from "./components/SecurityExtras";
 import BotsPanel from "./components/BotsPanel";
+import SystemPanel from "./components/SystemPanel";
 import { ActiveBotProvider } from "./lib/botContext";
 import { withBotParam } from "./lib/botSelection";
 import SpotlightCard from "./components/SpotlightCard";
@@ -1887,6 +1888,7 @@ export default function App() {
                 {activeTab === "bots" && (
                   <BotsPanel activeBotId={activeBotId} onSelectBot={setActiveBotId} />
                 )}
+                {activeTab === "system" && <SystemPanel />}
 
                 {/* ============================================================ OVERVIEW */}
                 {activeTab === "overview" && (

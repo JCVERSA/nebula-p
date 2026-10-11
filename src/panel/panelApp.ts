@@ -9,6 +9,11 @@ import {
   protectApiRoutes,
   registerProjectArchiveRoute,
 } from "./httpMiddleware.js";
+import {
+  registerSystemRoutes,
+  createDefaultSystemActions,
+  type SystemActions,
+} from "./systemRoutes.js";
 
 /**
  * Multi-bots (8.75) — application panneau du process SUPERVISEUR.
@@ -38,7 +43,7 @@ export interface PanelSupervisor {
   describeConfig(): { source: "default" | "file"; file?: string; error?: string; total: number; enabled: number };
 }
 
-export function createPanelApp(supervisor: PanelSupervisor): express.Express {
+export function createPanelApp(supervisor: PanelSupervisor, systemActions?: SystemActions): express.Express {
   const app = express();
   app.set("trust proxy", true);
   app.use(express.json({ limit: "32mb" }));
@@ -92,6 +97,19 @@ export function createPanelApp(supervisor: PanelSupervisor): express.Express {
   // (sondés à travers les moteurs sans cookie de session) et /api/auth/.
   // ---------------------------------------------------------------------------
   protectApiRoutes(app, panelAuth);
+
+  // ---------------------------------------------------------------------------
+  // 9.2 — Section « Système » : mini-console admin (update/restart/stop/logs).
+  // Routes sous /api → protégées par la session panneau ; les actions
+  // destructrices ont leur propre rate limiter (4/min). Les actions lancent
+  // EXACTEMENT `bash manage.sh <action>` — aucun shell construit d'entrée
+  // utilisateur. Injectables pour les tests.
+  // ---------------------------------------------------------------------------
+  const systemActionLimiter = rateLimit(4, 60_000, "sysaction");
+  registerSystemRoutes(app, {
+    actions: systemActions || createDefaultSystemActions(),
+    actionRateLimit: systemActionLimiter,
+  });
 
   // ---------------------------------------------------------------------------
   // API: vue multi-bots (liste + état process + état WhatsApp fusionné)

@@ -8,6 +8,7 @@ import {
   Package,
   Users,
   ShieldAlert,
+  Server,
   BarChart2,
   Settings,
   FileText,
@@ -31,6 +32,7 @@ export type NavTab =
   | "plugins"
   | "groups"
   | "security"
+  | "system"
   | "analytics"
   | "diagnostics"
   | "logs"
@@ -249,6 +251,13 @@ export default function Sidebar({
               active={activeTab === "security"}
               collapsed={collapsed}
               onClick={() => setActiveTab("security")}
+            />
+            <NavItem
+              icon={<Server size={16} />}
+              label="Système"
+              active={activeTab === "system"}
+              collapsed={collapsed}
+              onClick={() => setActiveTab("system")}
             />
             <NavItem
               icon={<BarChart2 size={16} />}

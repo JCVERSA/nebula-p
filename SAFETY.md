@@ -90,6 +90,22 @@ flags shell (`--x`) supprimés, tokens plafonnés (80 chars) et budget total
 l'exécution utilise les arguments nettoyés — la commande revalide ses
 propres arguments ensuite (défense en profondeur).
 
+## 4quinquies. Console admin du panneau (9.2)
+
+La section « Système » du panneau peut lancer `nebula update`, `restart`
+et `stop`. Règles :
+- AUCUNE entrée utilisateur n'atteint un shell : les routes POST lancent
+  EXACTEMENT `bash manage.sh <action>` (script versionné du dépôt) ;
+- routes derrière la session panneau (protectApiRoutes) + rate limiter
+  dédié (4/min) ;
+- verrou manage.sh honoré : un update déjà en cours répond 409 ;
+- le script est lancé DÉTACHÉ (groupe de process propre) car il arrête
+  le panneau lui-même ; sa sortie part dans un log dédié (nebula-manage.log) ;
+- le tail de bot.log est plafonné (1-300 lignes, jamais le fichier de
+  150 Mo) et reste derrière l'authentification ;
+- « Arrêter » affiche un avertissement explicite : rien ne redémarre
+  tout seul, seule une relance SSH `nebula start` est possible.
+
 ## 5. Budgets et quotas
 
 | Ressource | Plafond |

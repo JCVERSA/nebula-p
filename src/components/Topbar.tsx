@@ -36,6 +36,7 @@ const TAB_TITLES: Record<NavTab, string> = {
   plugins: "Plugins",
   groups: "Group Tools",
   security: "Security & Antilink",
+  system: "Système",
   analytics: "Usage & Analytics",
   diagnostics: "System Diagnostics",
   logs: "System Logs",
