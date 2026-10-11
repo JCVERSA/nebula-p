@@ -335,8 +335,8 @@ const ytvideoCommand: BotCommand = {
   acceptsUrlArgs: true, // 9.3b — le guardrail agent préserve les URLs ici
   aliases: ["ytv", "ytmp4", "ytvid", "video"],
   category: "Media",
-  description: "Télécharger une vidéo YouTube avec option de résolution.",
-  usage: ".ytv <nom ou lien> [360|480|720|1080]",
+  description: "Vidéo YouTube : résolution, piste audio, sous-titres auto, playlists (max 25).",
+  usage: ".ytv <nom ou lien> [360-1080] [vo] [playlist|video]",
   execute: async (sock, msg, context) => {
     let videoPath: string | null = null; // fichier local yt-dlp (8.86) — purgé en finally
     try {

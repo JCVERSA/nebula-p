@@ -509,9 +509,12 @@ describe("wiring 9.10 (ytvideo)", () => {
     expect(src).toContain("PENDING_TTL_MS = 3 * 60 * 1000");
   });
 
-  it("fiche agent : la ligne .ytv mentionne les playlists sans nommer de source (8.42)", () => {
+  it("fiche agent : la ligne .ytv documente playlists + piste audio + sous-titres (8.42)", () => {
     const src = readSrc("src/bot/commandKnowledge.ts");
-    expect(src).toContain("playlists YouTube ok");
+    expect(src).toContain("playlist → \\`<lien> playlist\\`");
+    expect(src).toContain("piste audio → \\`vo\\`");
+    expect(src).toContain("sous-titres FR auto");
+    expect(src).toContain("la vidéo ou la playlist YouTube Z"); // intention naturelle
   });
 });
 
