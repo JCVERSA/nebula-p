@@ -125,7 +125,16 @@ Cookies YouTube collés (9.4) — mêmes principes :
   ne retourne que des métadonnées (nombre, domaines, expiration) ;
 - écriture atomique 0600 à côté du .env ; chemin NEBULA_YTDLP_COOKIES
   configuré automatiquement ; remplacement à chaud, suppression propre
-  (fichier + variable).
+  (fichier + variable) ;
+- session en SECOURS uniquement (9.6) : téléchargement ANONYME d'abord,
+  cookies joints seulement si la vidéo exige une session, plafond global
+  50 téléchargements authentifiés/heure (au-delà : refus honnête,
+  l'anonyme reste illimité) — le volume authentifié depuis l'IP du VPS
+  est ce qui fait bannir un compte ;
+- formats vidéo H.264/AAC en priorité (9.6) : le « best » de YouTube est
+  du VP9 remballé en .mp4, illisible par WhatsApp et la plupart des
+  lecteurs natifs ; `nebula update` met aussi yt-dlp à jour (les versions
+  vieilles déclenchent plus de contrôles anti-bot).
 - « Arrêter » affiche un avertissement explicite : rien ne redémarre
   tout seul, seule une relance SSH `nebula start` est possible.
 
@@ -148,6 +157,7 @@ Partage de fichiers via `.up` (9.5) :
 | Appels IA (chat + agent) | 40 / jour / utilisateur |
 | Exécutions agent | 10 / heure / utilisateur |
 | Fichiers partagés (`.up`) | 50 / heure / utilisateur · 500 Mo max (`NEBULA_UPLOAD_MAX_MB`) |
+| Téléchargements YouTube AVEC session | 50 / heure (GLOBAL) — l'anonyme reste illimité (9.6) |
 | Concurrence IA | globale, file d'attente |
 | Fiche agent (contexte) | < 6 000 caractères (test CI `agentContextBudget`) |
 | Historique anime dans le prompt | uniquement si le message parle d'anime (8.99, leçon Mastra) |

@@ -170,6 +170,9 @@ const songCommand: BotCommand = {
           return void (await context.reply(activeCookiesFile()
             ? "🔐 *Session YouTube expirée* — l'owner doit renouveler le fichier cookies (README §YouTube / NEBULA_YTDLP_COOKIES)."
             : "🔐 *YouTube exige une session pour cette vidéo* — cookies non configurés (owner : README §YouTube / NEBULA_YTDLP_COOKIES)."));
+        } else if (local.reason === "session_quota") {
+          // 9.6 : budget global 50 téléchargements authentifiés/heure.
+          return void (await context.reply("⏳ *Quota de session YouTube atteint* (50 téléchargements/heure, tous utilisateurs) — réessaie dans un instant."));
         } else {
           console.log(`[SONG] yt-dlp failed: ${local.reason}${local.detail ? ` — ${local.detail}` : ""}`);
         }

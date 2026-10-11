@@ -575,6 +575,26 @@ cmd_update() {
   hdr "Rotation du log (audit 8.51)"
   install_logrotate
 
+  hdr "Outils externes (9.6)"
+  # yt-dlp obsolète = plus de défis/captchas = signaux suspects pour le
+  # compte de session. Mise à jour systématique, NON FATALE si elle échoue.
+  if command -v yt-dlp >/dev/null 2>&1; then
+    local yt_old yt_new
+    yt_old="$(yt-dlp --version 2>/dev/null | head -1)"
+    if yt-dlp -U >/dev/null 2>&1; then
+      yt_new="$(yt-dlp --version 2>/dev/null | head -1)"
+      if [ -n "${yt_new}" ] && [ "${yt_old}" != "${yt_new}" ]; then
+        ok "yt-dlp ${yt_old:-?} → ${yt_new}"
+      else
+        ok "yt-dlp déjà à jour (${yt_new:-${yt_old:-?}})"
+      fi
+    else
+      warn "yt-dlp -U a échoué (non fatal) — version ${yt_old:-?}"
+    fi
+  else
+    warn "yt-dlp introuvable — ./manage.sh setup l'installe"
+  fi
+
   hdr "Redémarrage"
   if [ "${was_running}" = "yes" ]; then
     # 8.85 : ce bash exécute encore l'ANCIEN manage.sh — le git pull ci-dessus

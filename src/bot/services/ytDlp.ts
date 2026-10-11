@@ -31,11 +31,11 @@ import path from "path";
 
 export type YtDlpOutcome =
   | { ok: true; buffer: Buffer; title: string | null }
-  | { ok: false; reason: "no_id" | "missing" | "too_large" | "signin" | "failed"; detail?: string };
+  | { ok: false; reason: "no_id" | "missing" | "too_large" | "signin" | "session_quota" | "failed"; detail?: string };
 
 export type YtDlpVideoOutcome =
   | { ok: true; filePath: string; title: string | null }
-  | { ok: false; reason: "no_id" | "missing" | "too_large" | "signin" | "failed"; detail?: string };
+  | { ok: false; reason: "no_id" | "missing" | "too_large" | "signin" | "session_quota" | "failed"; detail?: string };
 
 const YT_ID_RE = /(?:youtu\.be\/|v=|shorts\/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/;
 
@@ -158,6 +158,44 @@ function refusedForSize(stderr: string): boolean {
   return /larger than max-filesize|File is larger than/i.test(stderr);
 }
 
+// ── 9.6 : protection du compte YouTube de session ──────────────────────────
+// Décisions owner 2026-10-11 : (1) ANONYME D'ABORD — les cookies ne sont
+// joints qu'en SECOURS, uniquement quand une vidéo exige une session (les
+// requêtes authentifiées depuis une IP datacenter sont ce que Google
+// surveille : on réduit ce volume au strict minimum) ; (2) budget global
+// 50 téléchargements AVEC session / heure, tous utilisateurs confondus
+// (au-delà : refus honnête session_quota — l'anonyme reste illimité).
+
+/** Téléchargements authentifiés autorisés par fenêtre d'une heure. */
+const COOKIE_DOWNLOADS_PER_HOUR = 50;
+const cookieDownloads: number[] = [];
+
+/** Combien de téléchargements authentifiés dans la dernière heure (fenêtre glissante). */
+export function cookieDownloadsUsed(now = Date.now()): number {
+  while (cookieDownloads.length > 0 && now - cookieDownloads[0] >= 3_600_000) cookieDownloads.shift();
+  return cookieDownloads.length;
+}
+
+/** Tests uniquement : remplace l'historique des téléchargements authentifiés. */
+export function __setCookieDownloadsForTests(list: number[]): void {
+  cookieDownloads.length = 0;
+  cookieDownloads.push(...list);
+}
+
+/**
+ * 9.6 : préférence H.264 (avc1) + AAC (mp4a). « bv* » choisit presque
+ * toujours du VP9/AV1 remballé en .mp4 par --merge-output-format —
+ * techniquement lisible par VLC, mais refusé par WhatsApp et la plupart
+ * des lecteurs natifs (« Cette vidéo n'est pas disponible car il y a eu
+ * un souci avec le fichier vidéo », constat prod 2026-10-11). YouTube
+ * sert de l'avc1 jusqu'à 1080p : toutes nos qualités passent en H.264/AAC
+ * VRAIMENT compatible, avec le comportement 8.87 en repli si la vidéo
+ * n'en propose pas. Fonction pure — testée unitairement.
+ */
+export function ytvFormatSpec(q: string): string {
+  return `bv*[vcodec^=avc1][height<=${q}]+ba[acodec^=mp4a]/bv*[height<=${q}]+ba/b[height<=${q}]`;
+}
+
 /**
  * `.ytm` : audio via yt-dlp → buffer en mémoire (plafond maxBytes, la
  * conversion AAC existante gère webm/m4a/mp3 en entrée). Le répertoire
@@ -170,7 +208,7 @@ export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<Y
   try {
     const outBase = path.join(dir, "out");
     const cookies = activeCookiesFile();
-    const r = await runYtDlp([
+    const buildArgs = (withCookies: boolean): string[] => [
       "-f", "ba/bestaudio/best",
       "--no-playlist", "--no-warnings", "--no-progress",
       // 8.86b : --print IMPLIQUE --simulate (aide officielle yt-dlp) — sans
@@ -179,15 +217,25 @@ export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<Y
       // --print seul → 0 fichier ; avec --no-simulate → fichier + titre.
       "--no-simulate",
       // 8.87 : runtime JS pour le défi du player (node déjà présent sur le
-      // VPS ; flag ADDITIF — deno resterait prioritaire s'il existait), et
-      // cookies de session si NEBULA_YTDLP_COOKIES pointe un fichier lisible.
+      // VPS ; flag ADDITIF — deno resterait prioritaire s'il existait).
       "--js-runtimes", "node",
-      ...(cookies ? ["--cookies", cookies] : []),
+      // 9.6 : anonyme d'abord — les cookies ne partent qu'en secours.
+      ...(withCookies && cookies ? ["--cookies", cookies] : []),
       "--max-filesize", String(maxBytes),
       "--print", "%(title)s",
       "-o", `${outBase}.%(ext)s`,
       url
-    ], 120000);
+    ];
+    let r = await runYtDlp(buildArgs(false), 120000);
+    // 9.6 : mur d'authentification → UN seul retry avec les cookies,
+    // dans la limite du budget global (50/h, tous utilisateurs).
+    if (!r.ok && SIGNIN_RE.test(r.stderr) && cookies) {
+      if (cookieDownloadsUsed() >= COOKIE_DOWNLOADS_PER_HOUR) {
+        return { ok: false, reason: "session_quota" };
+      }
+      cookieDownloads.push(Date.now());
+      r = await runYtDlp(buildArgs(true), 120000);
+    }
     // Refus de taille : yt-dlp peut sortir en erreur OU en code 0 (skip) —
     // on examine le message AVANT le code de sortie.
     if (refusedForSize(r.stderr)) return { ok: false, reason: "too_large", detail: stderrTail(r.stderr) };
@@ -229,20 +277,33 @@ export async function ytvViaYtDlp(rawInput: string, quality: string, maxBytes: n
   try {
     const outBase = path.join(dir, "out");
     const cookies = activeCookiesFile();
-    const r = await runYtDlp([
-      "-f", `bv*[height<=${q}]+ba/b[height<=${q}]`,
+    const buildArgs = (withCookies: boolean): string[] => [
+      // 9.6 : H.264+AAC d'abord (voir ytvFormatSpec) — repli 8.87 ensuite.
+      "-f", ytvFormatSpec(q),
       "--merge-output-format", "mp4",
       "--no-playlist", "--no-warnings", "--no-progress",
       // 8.86b : --print implique --simulate — voir ytmViaYtDlp ci-dessus.
       "--no-simulate",
-      // 8.87 : runtime JS + cookies — voir ytmViaYtDlp ci-dessus.
+      // 8.87 : runtime JS — voir ytmViaYtDlp ci-dessus.
       "--js-runtimes", "node",
-      ...(cookies ? ["--cookies", cookies] : []),
+      // 9.6 : anonyme d'abord — les cookies ne partent qu'en secours.
+      ...(withCookies && cookies ? ["--cookies", cookies] : []),
       "--max-filesize", String(maxBytes),
       "--print", "%(title)s",
       "-o", `${outBase}.%(ext)s`,
       url
-    ], 180000);
+    ];
+    let r = await runYtDlp(buildArgs(false), 180000);
+    // 9.6 : mur d'authentification → UN seul retry avec les cookies,
+    // dans la limite du budget global (50/h, tous utilisateurs).
+    if (!r.ok && SIGNIN_RE.test(r.stderr) && cookies) {
+      if (cookieDownloadsUsed() >= COOKIE_DOWNLOADS_PER_HOUR) {
+        release();
+        return { ok: false, reason: "session_quota" };
+      }
+      cookieDownloads.push(Date.now());
+      r = await runYtDlp(buildArgs(true), 180000);
+    }
     // Refus de taille : yt-dlp peut sortir en erreur OU en code 0 (skip) —
     // on examine le message AVANT le code de sortie.
     if (refusedForSize(r.stderr)) {

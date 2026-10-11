@@ -3,10 +3,13 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import {
+  __setCookieDownloadsForTests,
   __setYtDlpBinForTests,
   canonicalYoutubeUrl,
+  cookieDownloadsUsed,
   runYtDlp,
   ytmViaYtDlp,
+  ytvFormatSpec,
   ytvViaYtDlp
 } from "../src/bot/services/ytDlp.js";
 
@@ -35,10 +38,15 @@ function installFakeBin(): void {
     "#!/usr/bin/env node",
     "const fs = require('fs');",
     "const args = process.argv.slice(2);",
-    "fs.appendFileSync(" + JSON.stringify(argsLog) + ", JSON.stringify(args) + '\\n');",
+    "fs.appendFileSync(process.env.ARGS_LOG_PATH, JSON.stringify(args) + '\\n');",
     "if (process.env.FAKE_MODE === 'fail') { console.error('boom'); process.exit(1); }",
     "if (process.env.FAKE_MODE === 'toobig') { console.error('File is larger than max-filesize'); process.exit(0); }",
-    "if (process.env.FAKE_MODE === 'signin') { console.error('ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you are not a bot. Use --cookies for the authentication.'); process.exit(1); }",
+    "if (process.env.FAKE_MODE === 'signin') {",
+    "  // 9.6 : le 1er appel (anonyme) se heurte au mur ; le retry avec",
+    "  // cookies passe (compteur = lignes déjà journalisées).",
+    "  const seen = fs.readFileSync(process.env.ARGS_LOG_PATH, 'utf8').split('\\n').filter(Boolean).length;",
+    "  if (seen < 2) { console.error('ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you are not a bot. Use --cookies for the authentication.'); process.exit(1); }",
+    "}",
     "const oi = args.indexOf('-o');",
     "if (oi !== -1) {",
     "  const out = args[oi + 1].replace('%(ext)s', process.env.FAKE_EXT || 'webm');",
@@ -49,6 +57,7 @@ function installFakeBin(): void {
   ].join("\n");
   fs.writeFileSync(fakeBin, script);
   fs.chmodSync(fakeBin, 0o755);
+  process.env.ARGS_LOG_PATH = argsLog;
   process.env.FAKE_MODE = "";
   process.env.FAKE_SIZE = "4096";
   __setYtDlpBinForTests(fakeBin);
@@ -71,10 +80,13 @@ const CANNONICAL_RE = /^https:\/\/www\.youtube\.com\/watch\?v=[a-zA-Z0-9_-]{11}$
 
 beforeEach(() => {
   installFakeBin();
+  __setCookieDownloadsForTests([]);
 });
 
 afterEach(() => {
   __setYtDlpBinForTests(null);
+  __setCookieDownloadsForTests([]);
+  delete process.env.ARGS_LOG_PATH;
   delete process.env.FAKE_MODE;
   delete process.env.FAKE_SIZE;
   delete process.env.FAKE_EXT;
@@ -212,7 +224,7 @@ describe("8.86 — ytvViaYtDlp : vidéo plafonnée à la qualité demandée", ()
       expect(fs.existsSync(r.filePath)).toBe(false);
     }
     const args = readLoggedArgs().at(-1) as string[];
-    expect(args).toContain("bv*[height<=720]+ba/b[height<=720]");
+    expect(args).toContain(ytvFormatSpec("720"));
     expect(args).toContain("--merge-output-format");
     expect(args[args.length - 1]).toBe("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
   });
@@ -220,7 +232,7 @@ describe("8.86 — ytvViaYtDlp : vidéo plafonnée à la qualité demandée", ()
   it("qualité invalide → repli 720p dans le sélecteur de formats", async () => {
     await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "4320", 100 * 1024 * 1024);
     const args = readLoggedArgs().at(-1) as string[];
-    expect(args).toContain("bv*[height<=720]+ba/b[height<=720]");
+    expect(args).toContain(ytvFormatSpec("720"));
   });
 
   it("NON-RÉGRESSION 8.86b : les args contiennent --no-simulate (sinon --print bascule yt-dlp en simulation et ne télécharge RIEN)", async () => {
@@ -273,15 +285,14 @@ describe("8.87 — runtime JS node + cookies de session optionnels", () => {
     if (r.ok) fs.rmSync(path.dirname(r.filePath), { recursive: true, force: true });
   });
 
-  it("cookies actifs (env + fichier lisible) → paire --cookies <chemin>", async () => {
+  it("cookies configurés mais vidéo accessible → appel UNIQUEMENT anonyme (pas de --cookies)", async () => {
     const ck = path.join(fakeDir, "cookies.txt");
     fs.writeFileSync(ck, "# Netscape HTTP Cookie File\n");
     process.env.NEBULA_YTDLP_COOKIES = ck;
     await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
-    const args = readLoggedArgs().at(-1) as string[];
-    const i = args.indexOf("--cookies");
-    expect(i).toBeGreaterThan(-1);
-    expect(args[i + 1]).toBe(ck);
+    const calls = readLoggedArgs();
+    expect(calls.length).toBe(1); // pas de retry : l'anonyme a suffi
+    expect(calls[0]).not.toContain("--cookies");
   });
 
   it("env défini mais fichier ABSENT → pas de --cookies (mode anonyme)", async () => {
@@ -300,6 +311,72 @@ describe("8.87 — runtime JS node + cookies de session optionnels", () => {
     const r = await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
     expect(r).toMatchObject({ ok: false, reason: "signin" });
     expect((r as { detail?: string }).detail).toContain("Sign in");
+  });
+});
+
+// ── 9.6 : H.264 d'abord, anonyme d'abord, budget session 50/h ──────────────
+describe("9.6 — H.264/AAC, anonyme d'abord, budget de session", () => {
+  it("ytvFormatSpec : avc1+mp4a en tête, repli 8.87 ensuite", () => {
+    expect(ytvFormatSpec("720"))
+      .toBe("bv*[vcodec^=avc1][height<=720]+ba[acodec^=mp4a]/bv*[height<=720]+ba/b[height<=720]");
+    expect(ytvFormatSpec("480")).toContain("[vcodec^=avc1][height<=480]");
+  });
+
+  it("ytv : le -f passé au binaire est le format H.264/AAC", async () => {
+    process.env.FAKE_EXT = "mp4";
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "720", 100 * 1024 * 1024);
+    const args = readLoggedArgs().at(-1) as string[];
+    const i = args.indexOf("-f");
+    expect(args[i + 1]).toBe(ytvFormatSpec("720"));
+    if (r.ok) fs.rmSync(path.dirname(r.filePath), { recursive: true, force: true });
+  });
+
+  it("mur d'authentification + cookies → retry UNIQUE : 1er sans, 2e avec --cookies", async () => {
+    const ck = path.join(fakeDir, "cookies.txt");
+    fs.writeFileSync(ck, "# Netscape HTTP Cookie File\n");
+    process.env.NEBULA_YTDLP_COOKIES = ck;
+    process.env.FAKE_MODE = "signin";
+    const r = await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
+    expect(r.ok).toBe(true); // le retry avec cookies a passé le mur
+    const calls = readLoggedArgs();
+    expect(calls.length).toBe(2);
+    expect(calls[0]).not.toContain("--cookies");
+    const i = calls[1].indexOf("--cookies");
+    expect(i).toBeGreaterThan(-1);
+    expect(calls[1][i + 1]).toBe(ck);
+  });
+
+  it("budget session épuisé (50/h) → session_quota, AUCUN appel avec cookies", async () => {
+    const ck = path.join(fakeDir, "cookies.txt");
+    fs.writeFileSync(ck, "# Netscape HTTP Cookie File\n");
+    process.env.NEBULA_YTDLP_COOKIES = ck;
+    process.env.FAKE_MODE = "signin";
+    __setCookieDownloadsForTests(Array.from({ length: 50 }, (_, i) => Date.now() - i * 1000));
+    expect(cookieDownloadsUsed()).toBe(50);
+    const r = await ytmViaYtDlp("https://youtu.be/dQw4w9WgXcQ", 60 * 1024 * 1024);
+    expect(r).toMatchObject({ ok: false, reason: "session_quota" });
+    const calls = readLoggedArgs();
+    expect(calls.length).toBe(1); // l'anonyme seul — pas de retry authentifié
+    expect(calls[0]).not.toContain("--cookies");
+  });
+
+  it("cookieDownloadsUsed : fenêtre glissante d'une heure", () => {
+    const now = 10_000_000;
+    __setCookieDownloadsForTests([now - 3_600_001, now - 3_599_999, now - 60_000]);
+    expect(cookieDownloadsUsed(now)).toBe(2); // le plus vieux est tombé
+    expect(cookieDownloadsUsed(now + 3_600_000)).toBe(0); // tous tombés
+  });
+
+  it("ytvideo.ts et song.ts : refus honnête sur session_quota", () => {
+    const ytv = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/ytvideo.ts"), "utf-8");
+    const song = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/song.ts"), "utf-8");
+    expect(ytv).toContain('local.reason === "session_quota"');
+    expect(song).toContain('local.reason === "session_quota"');
+  });
+
+  it("manage.sh : nebula update met yt-dlp à jour (self-update non fatal)", () => {
+    const sh = fs.readFileSync(path.resolve(process.cwd(), "manage.sh"), "utf-8");
+    expect(sh).toContain("yt-dlp -U");
   });
 });
 
