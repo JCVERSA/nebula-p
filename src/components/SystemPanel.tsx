@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   Pause,
   Play,
+  KeyRound,
+  Settings2,
 } from "lucide-react";
 
 /**
@@ -32,6 +34,28 @@ interface SystemInfoData {
   uptimeSeconds?: number;
   updating?: boolean;
 }
+
+interface EnvVarView {
+  key: string;
+  label: string;
+  description: string;
+  type: "number" | "boolean" | "enum" | "string" | "path" | "secret";
+  group: "quotas" | "digest" | "keys";
+  choices?: string[];
+  default?: string;
+  set: boolean;
+  value: string;
+  restartRequired: boolean;
+}
+
+const ENV_GROUP_META: Record<EnvVarView["group"], { title: string; hint?: string }> = {
+  quotas: { title: "Quotas & moteur IA" },
+  digest: { title: "Digest & veille" },
+  keys: {
+    title: "Clés & accès (écriture seule)",
+    hint: "Les clés ne s'affichent jamais — colle la nouvelle valeur pour remplacer.",
+  },
+};
 
 type Phase = "idle" | "updating" | "restarting" | "stopping" | "uptodate";
 type ModalAction = "update" | "restart" | "stop" | null;
@@ -88,6 +112,12 @@ export default function SystemPanel() {
   const [actionError, setActionError] = useState<string | null>(null);
   // Le panneau est-il passé par l'état injoignable depuis le lancement ?
   const panelLostRef = useRef(false);
+  // 9.3 — éditeur .env
+  const [envVars, setEnvVars] = useState<EnvVarView[] | null>(null);
+  const [envEditing, setEnvEditing] = useState<string | null>(null);
+  const [envDraft, setEnvDraft] = useState("");
+  const [envFeedback, setEnvFeedback] = useState<string | null>(null);
+  const [envError, setEnvError] = useState<string | null>(null);
 
   const fetchJson = async (url: string): Promise<any | null> => {
     try {
@@ -114,12 +144,50 @@ export default function SystemPanel() {
     if (data && typeof data.lines === "string") setLogs(data.lines);
   }, []);
 
+  const refreshEnv = useCallback(async () => {
+    const data = await fetchJson("/api/system/env");
+    if (data?.vars) setEnvVars(data.vars);
+  }, []);
+
+  const saveEnvVar = async (key: string) => {
+    setEnvError(null);
+    setEnvFeedback(null);
+    try {
+      const res = await fetch("/api/system/env", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: envDraft }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setEnvError(data?.error || `HTTP ${res.status}`);
+        return;
+      }
+      setEnvEditing(null);
+      setEnvDraft("");
+      setEnvFeedback(
+        data?.restartRequired
+          ? `✓ ${key} enregistré — redémarrage requis pour l'appliquer`
+          : `✓ ${key} appliqué à chaud`
+      );
+      refreshEnv();
+    } catch {
+      setEnvError("Panneau injoignable — réessaie.");
+    }
+  };
+
   // ── Polling de fond (info + journal) ─────────────────────────────────────
   useEffect(() => {
     refreshInfo();
     const t = setInterval(refreshInfo, INFO_POLL_MS);
     return () => clearInterval(t);
   }, [refreshInfo]);
+
+  // 9.3 — configuration .env (chargée une fois, rechargée après édition)
+  useEffect(() => {
+    refreshEnv();
+  }, [refreshEnv]);
 
   useEffect(() => {
     if (logsPaused || phase === "stopping") return;
@@ -319,6 +387,96 @@ export default function SystemPanel() {
           <p className="mt-3 text-xs text-rose-300" data-testid="system-action-error">
             {actionError}
           </p>
+        )}
+      </div>
+
+      {/* ── Configuration .env (9.3) ───────────────────────────────────── */}
+      <div className="bg-white/5 border border-white/10 rounded-2xl p-5" data-testid="env-editor">
+        <div className="flex items-center gap-2 mb-1">
+          <Settings2 size={16} className="text-zinc-300" />
+          <h3 className="text-sm font-semibold text-zinc-100">Configuration (.env)</h3>
+        </div>
+        <p className="text-[11px] text-zinc-500 mb-4">
+          Les clés sont en écriture seule (masquées). La plupart des réglages s'appliquent après un
+          redémarrage — le bouton Redémarrer est juste au-dessus.
+        </p>
+
+        {envFeedback && (
+          <p className="mb-3 text-xs text-emerald-300" data-testid="env-feedback">{envFeedback}</p>
+        )}
+        {envError && (
+          <p className="mb-3 text-xs text-rose-300" data-testid="env-error">{envError}</p>
+        )}
+
+        {!envVars ? (
+          <p className="text-xs text-zinc-500">Chargement…</p>
+        ) : (
+          (["quotas", "digest", "keys"] as const).map((group) => {
+            const vars = envVars.filter((v) => v.group === group);
+            if (!vars.length) return null;
+            return (
+              <div key={group} className="mb-4 last:mb-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+                  {ENV_GROUP_META[group].title}
+                </p>
+                {ENV_GROUP_META[group].hint && (
+                  <p className="text-[11px] text-zinc-600 mb-2">{ENV_GROUP_META[group].hint}</p>
+                )}
+                <div className="space-y-2">
+                  {vars.map((v) => (
+                    <div
+                      key={v.key}
+                      className="flex flex-wrap items-center gap-2 justify-between bg-black/20 border border-white/5 rounded-xl px-3 py-2"
+                      data-testid={`env-var-${v.key}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs text-zinc-200 font-medium">
+                          {v.label}{" "}
+                          {v.type === "secret" && <KeyRound size={11} className="inline text-zinc-500" />}
+                        </p>
+                        <p className="text-[10.5px] text-zinc-500 truncate">{v.description}</p>
+                        <p className="text-[10.5px] font-mono text-zinc-400 mt-0.5">
+                          {v.set ? v.value : <span className="text-zinc-600">(défaut{v.default ? ` : ${v.default}` : ""})</span>}
+                        </p>
+                      </div>
+                      {envEditing === v.key ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type={v.type === "secret" ? "password" : "text"}
+                            value={envDraft}
+                            onChange={(e) => setEnvDraft(e.target.value)}
+                            placeholder={v.type === "secret" ? "colle la clé…" : v.default || ""}
+                            className="w-44 px-2 py-1 rounded-lg bg-black/40 border border-white/10 text-xs text-zinc-100 font-mono focus:outline-none focus:border-sky-500/50"
+                            data-testid={`env-input-${v.key}`}
+                          />
+                          <button
+                            onClick={() => saveEnvVar(v.key)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-sky-500 hover:bg-sky-400 text-sky-950 transition cursor-pointer"
+                            data-testid={`env-save-${v.key}`}
+                          >
+                            OK
+                          </button>
+                          <button
+                            onClick={() => { setEnvEditing(null); setEnvDraft(""); }}
+                            className="px-2 py-1 rounded-lg text-[11px] bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 transition cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => { setEnvEditing(v.key); setEnvDraft(""); setEnvFeedback(null); setEnvError(null); }}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 transition cursor-pointer"
+                        >
+                          {v.set ? "Modifier" : "Définir"}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
 

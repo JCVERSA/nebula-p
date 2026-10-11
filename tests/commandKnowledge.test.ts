@@ -53,6 +53,12 @@ describe("commandKnowledge — fiche .a (statique)", () => {
     const k = buildCommandKnowledge(".");
     expect(k).toContain("Tu ne peux pas télécharger ni envoyer de fichiers");
   expect(k).toContain("RECHERCHE D'INFO (9.0)");
+  // 9.3 — leçons du retour terrain (hallucination d'actualité, cible
+  // absente des args, titres français vs internationaux)
+  expect(k).toContain("ACTUALITÉ (règle absolue)");
+  expect(k).toContain("ne prétends JAMAIS avoir fait une recherche");
+  expect(k).toContain("CIBLE DANS LES ARGS");
+  expect(k).toContain("INTERNATIONAUX");
     expect(k).toContain("Détecte l'intention");
     expect(k).toContain("Ne promets jamais une capacité qui n'existe pas");
     expect(k).toContain("Que sais-tu faire ?");

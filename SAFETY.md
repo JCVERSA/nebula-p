@@ -103,6 +103,16 @@ et `stop`. Règles :
   le panneau lui-même ; sa sortie part dans un log dédié (nebula-manage.log) ;
 - le tail de bot.log est plafonné (1-300 lignes, jamais le fichier de
   150 Mo) et reste derrière l'authentification ;
+
+Éditeur .env (9.3) — mêmes routes, mêmes règles :
+- LISTE BLANCHE STRICTE des clés éditables (spécifications codées) ;
+- validation par type avant écriture : entiers bornés, énumérés, booléens,
+  et AUCUN retour ligne/guillemet (rien d'injectable dans le .env) ;
+- écriture atomique (tmp+rename) au format manage.sh (KEY="valeur"),
+  chmod 600 ;
+- les SECRETS ne sont jamais renvoyés en clair (masqués — écriture seule) ;
+- la réponse indique si la variable s'applique à chaud (quota web, Tavily)
+  ou nécessite un redémarrage ;
 - « Arrêter » affiche un avertissement explicite : rien ne redémarre
   tout seul, seule une relance SSH `nebula start` est possible.
 

@@ -5,16 +5,19 @@
  * Même harness que uiBots (fetch global stubbé).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import App from "../src/App";
 
 let calls: string[] = [];
 
 function stubFetch(responses: Record<string, unknown>) {
   const handler = (url: string, init?: any) => {
-    calls.push(url);
+    calls.push(init?.method === "POST" ? `POST ${url}` : url);
     if (init?.method === "POST") {
-      return Promise.resolve({ ok: true, status: 200, json: async () => ({ started: true }) });
+      const body = url.endsWith("/api/system/env")
+        ? { ok: true, restartRequired: true }
+        : { started: true };
+      return Promise.resolve({ ok: true, status: 200, json: async () => body });
     }
     const body = responses[url] ?? {};
     return Promise.resolve({ ok: true, status: 200, json: async () => body });
@@ -55,6 +58,13 @@ function makeResponses(): Record<string, unknown> {
     },
     "/api/system/update-status": { updating: true, logTail: "" },
     "/api/system/logs?lines=100": { lines: "[bot:nebula] moteur prêt\n[WATCH] planifié" },
+    "/api/system/env": {
+      vars: [
+        { key: "NEBULA_AI_DAILY_LIMIT", label: "Quota IA / jour / utilisateur", description: "Budget de requêtes IA par utilisateur et par jour.", type: "number", group: "quotas", default: "40", set: true, value: "40", restartRequired: true },
+        { key: "NEBULA_DIGEST_HOUR", label: "Heure du digest", description: "Heure d'envoi du digest, 0-23.", type: "number", group: "digest", default: "8", set: false, value: "", restartRequired: true },
+        { key: "TAVILY_API_KEY", label: "Clé Tavily", description: "Améliore .search — gratuite sur app.tavily.com.", type: "secret", group: "keys", set: true, value: "tvly…i789", restartRequired: false },
+      ],
+    },
   };
 }
 
@@ -95,7 +105,7 @@ describe("Section Système (9.2)", () => {
     expect(screen.getByText("Annuler")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("system-modal-confirm"));
-    await waitFor(() => expect(calls).toContain("/api/system/update"));
+    await waitFor(() => expect(calls).toContain("POST /api/system/update"));
     // Bannière de cycle de vie (update-status répond updating:true)
     await waitFor(() => expect(screen.getByTestId("system-lifecycle")).toBeTruthy());
     expect(screen.getByText(/Mise à jour en cours/)).toBeTruthy();
@@ -110,6 +120,30 @@ describe("Section Système (9.2)", () => {
     expect(screen.getByText(/nebula start/)).toBeTruthy();
     // Pas de POST sans confirmation explicite
     expect(calls).not.toContain("/api/system/stop");
+  });
+
+  it("9.3 — éditeur .env : variables affichées, clé secrète masquée, édition + feedback redémarrage", async () => {
+    render(<App />);
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
+    await clickNav("Système");
+    await waitFor(() => expect(screen.getByTestId("env-editor")).toBeTruthy());
+    // Les variables du serveur sont affichées, secret MASQUÉ (jamais en clair)
+    await waitFor(() => expect(screen.getByTestId("env-var-TAVILY_API_KEY")).toBeTruthy());
+    expect(screen.getByTestId("env-var-TAVILY_API_KEY").textContent).toContain("tvly…i789");
+    expect(screen.getByTestId("env-var-NEBULA_AI_DAILY_LIMIT").textContent).toContain("40");
+    expect(screen.getByTestId("env-var-NEBULA_DIGEST_HOUR").textContent).toContain("défaut");
+    expect(calls).toContain("/api/system/env");
+
+    // Édition d'une clé : Modifier → colle → OK → POST + feedback
+    fireEvent.click(within(screen.getByTestId("env-var-TAVILY_API_KEY")).getByText("Modifier"));
+    fireEvent.change(screen.getByTestId("env-input-TAVILY_API_KEY"), {
+      target: { value: "tvly-nouvelle-cle" },
+    });
+    fireEvent.click(screen.getByTestId("env-save-TAVILY_API_KEY"));
+    await waitFor(() => expect(calls).toContain("POST /api/system/env"));
+    await waitFor(() =>
+      expect(screen.getByTestId("env-feedback").textContent).toContain("redémarrage requis")
+    );
   });
 
   it("journal en direct : les lignes de bot.log sont affichées", async () => {

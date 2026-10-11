@@ -117,7 +117,7 @@ export async function handleAgentMessage(
       await setPresence("composing");
       try {
         const out = await exec(p.command, p.args, "agent");
-        if (!out.denied && out.vfFallbackHint && p.command === "anime") {
+        if (!out.denied && out.vfFallbackHint && p.command === "anime" && !suggestsTitleFix(out)) {
           await offerCatalogRetry(sock, msg, info, p.args, out.hadError);
         } else if (out.hadError && !out.denied) {
           await runErrorRecovery(sock, msg, info, exec, {
@@ -300,7 +300,10 @@ export async function handleAgentMessage(
       // (ex. l'utilisateur répond « le 2e ») saura à quoi ça se rapporte.
       setLastObservation(info.senderJid, canonical.name, out.texts);
 
-      if (!out.denied && out.vfFallbackHint && canonical.name === "anime") {
+      // 9.3 — zéro résultat de recherche : le problème est le TITRE (ex.
+      // titre français vs international), pas la langue → rattrapage IA
+      // (titre corrigé) prioritaire sur l'offre de bascule de catalogue.
+      if (!out.denied && out.vfFallbackHint && canonical.name === "anime" && !suggestsTitleFix(out)) {
         await offerCatalogRetry(sock, msg, info, args, out.hadError);
         return true;
       }
@@ -369,6 +372,16 @@ export async function handleAgentMessage(
 }
 
 /**
+ * 9.3 — La sortie signale-t-elle une recherche SANS RÉSULTAT ? (vrai
+ * problème = le titre, pas la langue — cf. searchEmptyMessage 9.3).
+ */
+function suggestsTitleFix(out: AgentCommandOutcome): boolean {
+  // « *Aucun résultat* pour … » — les astérisques de formatage WhatsApp
+  // peuvent séparer les mots : matcher sans eux.
+  return (out.texts || []).some((t) => /Aucun\s+résultat/i.test(t));
+}
+
+/**
  * 8.94 — Bascule déterministe de catalogue anime : la commande a signalé
  * « langue absente sur ce catalogue, essaie l'autre ». L'agent connaît le
  * retry EXACT (même one-liner, flag va basculé) : aucun appel IA, juste
@@ -425,7 +438,12 @@ async function runErrorRecovery(
       `ce qui s'est passé, sans jargon technique, et propose une suite utile.\n\n` +
       `Réponds par un UNIQUE objet JSON, rien d'autre :\n` +
       `{"say":"<explication courte>","offer":{"command":"<commande sans préfixe>","args":"<arguments corrigés>"} ou null}\n` +
-      `offer = null si aucune commande corrigée n'a de sens. Jamais .ai ni .agent dans offer.`;
+      `offer = null si aucune commande corrigée n'a de sens. Jamais .ai ni .agent dans offer.\n` +
+      `RÈGLES 9.3 : l'offre doit reprendre la DEMANDE RÉELLE de l'utilisateur (son titre, son URL, ` +
+      `le site qu'il a demandé) — JAMAIS un exemple de documentation (example.com, « foo »…) ni une ` +
+      `commande générique. Si l'erreur dit « Aucun résultat » pour un anime, propose le même one-liner ` +
+      `avec le titre INTERNATIONAL (anglais/romaji, ex. « attack des titans » → « attack on titan », ` +
+      `« shingeki no kyojin »).`
 
     const launched = `${info.prefix}${errContext.command}${errContext.args.length ? ` ${errContext.args.join(" ")}` : ""}`;
     const raw = await withAIConcurrency(() =>
@@ -440,6 +458,15 @@ async function runErrorRecovery(
     if (!fix) return; // erreur déjà visible — on ne rajoute pas de bruit
 
     let out = fix.say;
+    if (fix.offer) {
+      // 9.3 — garde anti-placeholder (déterministe, en plus du prompt) :
+      // l'IA recopiait parfois l'exemple de la doc (« .sweb
+      // https://example.com ») au lieu de la vraie cible de l'utilisateur.
+      const offerArgs = fix.offer.args || "";
+      if (/example\.com|exemple\.com|test\.com|\.example\b/i.test(offerArgs)) {
+        fix.offer = null;
+      }
+    }
     if (fix.offer) {
       const c = getCommand(fix.offer.command);
       if (c && !isAgentDeniedCommand(c.name)) {

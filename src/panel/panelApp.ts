@@ -14,6 +14,7 @@ import {
   createDefaultSystemActions,
   type SystemActions,
 } from "./systemRoutes.js";
+import { registerEnvRoutes, createEnvEditor, type EnvEditor } from "./envRoutes.js";
 
 /**
  * Multi-bots (8.75) — application panneau du process SUPERVISEUR.
@@ -43,7 +44,11 @@ export interface PanelSupervisor {
   describeConfig(): { source: "default" | "file"; file?: string; error?: string; total: number; enabled: number };
 }
 
-export function createPanelApp(supervisor: PanelSupervisor, systemActions?: SystemActions): express.Express {
+export function createPanelApp(
+  supervisor: PanelSupervisor,
+  systemActions?: SystemActions,
+  envEditor?: EnvEditor
+): express.Express {
   const app = express();
   app.set("trust proxy", true);
   app.use(express.json({ limit: "32mb" }));
@@ -109,6 +114,14 @@ export function createPanelApp(supervisor: PanelSupervisor, systemActions?: Syst
   registerSystemRoutes(app, {
     actions: systemActions || createDefaultSystemActions(),
     actionRateLimit: systemActionLimiter,
+  });
+
+  // 9.3 — éditeur .env : liste blanche stricte + validation par type,
+  // secrets masqués (écriture seule). Édition moins destructrice que les
+  // actions système → plafond plus souple (20/min).
+  registerEnvRoutes(app, {
+    editor: envEditor || createEnvEditor(),
+    limiter: rateLimit(20, 60_000, "sysenv"),
   });
 
   // ---------------------------------------------------------------------------

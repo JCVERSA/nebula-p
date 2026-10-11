@@ -66,6 +66,7 @@ const COMMANDS: Record<string, any> = {
   watch: { name: "watch" },
   ai: { name: "ai" },
   menu: { name: "menu" },
+  sweb: { name: "sweb" }, // 9.3 — test anti-placeholder example.com
 };
 
 const JID = "237999111222@s.whatsapp.net";
@@ -405,6 +406,56 @@ describe("9.1 — boucle d'observation (pilotage autonome)", () => {
     const systemPrompt = mAI.mock.calls[mAI.mock.calls.length - 1][1];
     expect(systemPrompt).toContain("Écran en attente dans ce chat");
     expect(exec.mock.calls[exec.mock.calls.length - 1][1]).toEqual(["2"]);
+  });
+});
+
+describe("9.3 — zéro résultat → rattrapage de TITRE (pas de bascule catalogue)", () => {
+  const EMPTY_SEARCH = [
+    '❌ *Aucun résultat* pour "attack des titans" sur ce catalogue.\n\n✍️ *Vérifie l\'orthographe* — sépare bien les mots du titre.\n\n💡 *Le catalogue complet est plus large :* `.a va <titre>`'
+  ];
+
+  it("l'échec de recherche déclenche le rattrapage IA (titre international), pas l'offre « autre catalogue »", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"attack des titans s2 e5 480p"}');
+    // Rattrapage : l'IA propose le titre international.
+    mAI.mockResolvedValueOnce('{"say":"Le titre français n\'est pas dans le catalogue — je réessaie avec le titre international.","offer":{"command":"anime","args":"attack on titan s2 e5 480p"}}');
+    const exec = mkExec({
+      hadError: true,
+      vfFallbackHint: true, // l'ancien message déclenchait ce hint à tort
+      lastText: EMPTY_SEARCH[0],
+      texts: EMPTY_SEARCH,
+    });
+    const ctx = mk("telecharge attack des titans saison 2 episode 5 en 480p");
+    await run(ctx, exec);
+
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(mAI).toHaveBeenCalledTimes(2); // décision + rattrapage
+    // Le prompt de rattrapage connaît la règle du titre international.
+    expect(mAI.mock.calls[1][1]).toContain("INTERNATIONAL");
+    // PAS d'offre de bascule de catalogue…
+    expect(texts(ctx.sent).some((t) => /autre catalogue/i.test(t))).toBe(false);
+    // …mais une offre confirmée avec le titre corrigé.
+    expect(texts(ctx.sent).some((t) => t.includes("attack on titan s2 e5 480p"))).toBe(true);
+    expect(texts(ctx.sent).some((t) => /OK/.test(t))).toBe(true);
+  });
+
+  it("garde anti-placeholder : l'offre example.com (doc) est rejetée, seul le message reste", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"sweb","args":""}');
+    // L'IA de rattrapage recopie l'exemple de la documentation — interdit.
+    mAI.mockResolvedValueOnce('{"say":"Il manque l\'adresse — je peux capturer un site.","offer":{"command":"sweb","args":"https://example.com"}}');
+    const exec = mkExec({
+      hadError: true,
+      lastText: "❌ *Il manque l'adresse du site.* Exemple : `.sweb https://github.com`",
+      texts: ["❌ *Il manque l'adresse du site.*"],
+    });
+    const ctx = mk("fait une capture d'ecran de wikipedia");
+    await run(ctx, exec);
+
+    expect(mAI).toHaveBeenCalledTimes(2);
+    // L'explication passe…
+    expect(texts(ctx.sent).some((t) => t.includes("adresse"))).toBe(true);
+    // …mais AUCUNE confirmation avec le placeholder de la doc.
+    expect(texts(ctx.sent).some((t) => /OK pour lancer/.test(t))).toBe(false);
+    expect(texts(ctx.sent).some((t) => t.includes("example.com"))).toBe(false);
   });
 });
 

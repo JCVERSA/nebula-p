@@ -225,10 +225,15 @@ export function exactEntryForLanguage(
 
 /** Search came back empty on the chosen catalog. */
 export function searchEmptyMessage(query: string, source: AnimeSourceId): string {
+  // 9.3 — VOLONTAIREMENT sans la formulation « l'autre catalogue » : elle
+  // déclenchait l'offre de bascule 8.94 alors qu'un échec de recherche
+  // révèle presque toujours un problème de TITRE (titre français vs
+  // international), pas de langue. Le rattrapage IA (titre international)
+  // est la bonne sortie ; l'astuce catalogue reste affichée, rewordée.
   return (
     `❌ *Aucun résultat* pour "${query}" sur ce catalogue.\n\n` +
     `✍️ *Vérifie l'orthographe* — sépare bien les mots du titre (ex : « solo leveling »).\n\n` +
-    `💡 *Tu peux aussi essayer l'autre catalogue :* \`.a ${otherFlagOf(source)} <titre>\``
+    `💡 *Le catalogue complet est plus large :* \`.a ${otherFlagOf(source)} <titre>\``
   );
 }
 
