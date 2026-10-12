@@ -5,7 +5,7 @@
  * Même harness que uiBots (fetch global stubbé).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within, cleanup } from "@testing-library/react";
 import App from "../src/App";
 
 let calls: string[] = [];
@@ -89,6 +89,10 @@ describe("Section Système (9.2)", () => {
     stubFetch(makeResponses());
   });
   afterEach(() => {
+    // 9.18d — cleanup() AVANT tout : unmount React propre, sinon le
+    // scheduler peut tirer après la fermeture jsdom (« window is not
+    // defined », erreur non capturée qui fait flaker la suite entière).
+    cleanup();
     vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });

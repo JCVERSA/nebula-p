@@ -83,3 +83,30 @@ describe("9.18c — update auto-réparant : build périmé détecté (manage.sh)
     expect(lines.slice(idx, idx + 4).join("\n")).toContain("npm install");
   });
 });
+
+describe("9.18d — échec de build : erreur visible + auto-réparation (manage.sh)", () => {
+  const src = fs.readFileSync(path.resolve(process.cwd(), "manage.sh"), "utf-8");
+
+  it("l'échec de build déclenche une réparation node_modules puis UNE seconde tentative", () => {
+    expect(src).toContain("réparation de node_modules");
+    expect(src).toContain("2ᵉ tentative");
+    // La réparation force le registre (pas de --prefer-offline : un cache
+    // npm local corrompu est précisément ce qu'on veut contourner).
+    const repair = src.split("\n").find((l) => l.includes("npm install --no-audit --no-fund 2>&1"));
+    expect(repair).toBeTruthy();
+    expect(repair).not.toContain("--prefer-offline");
+  });
+
+  it("la ligne d'erreur n'est plus tronquée : 30 lignes de build (le tail à 6 cachait « Cannot find module »)", () => {
+    expect(src).toContain("| tail -n 30 |");
+    expect(src).not.toContain("| tail -n 6 |");
+    expect(src).not.toContain("| tail -n 4 |");
+    // Installs élargis aussi (10 lignes) — plus aucun tail -n 2 d'install.
+    expect(src).toContain("| tail -n 10 |");
+    expect(src).not.toContain("| tail -n 2 |");
+  });
+
+  it("la réparation est NON destructive : aucun rm -rf de node_modules", () => {
+    expect(src).not.toMatch(/rm -rf[^\n]*node_modules/);
+  });
+});

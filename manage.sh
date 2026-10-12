@@ -614,16 +614,31 @@ cmd_update() {
   # prudent, quasi instantané quand rien n'a changé.
   if [ "${stale_rebuild}" = "yes" ]; then
     info "Build périmé — npm install prudent (état de node_modules inconnu)…"
-    ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 2 | sed 's/^/    /' ) || update_fail "npm install a échoué"
+    ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 10 | sed 's/^/    /' ) || update_fail "npm install a échoué"
   elif ( cd "${APP_DIR}" && git diff --name-only "${old_rev}" "${new_rev}" -- package.json package-lock.json | grep -q . ); then
     info "package*.json modifié → npm install…"
-    ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 2 | sed 's/^/    /' ) || update_fail "npm install a échoué"
+    ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 10 | sed 's/^/    /' ) || update_fail "npm install a échoué"
   else
     ok "Aucune dépendance modifiée — npm install sauté."
   fi
 
   hdr "Build"
-  ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 6 | sed 's/^/    /' ) || update_fail "Build échoué"
+  # 9.18d — le tail à 6 lignes ne gardait que les frames de stack ESM : la
+  # ligne d'erreur (« Cannot find module … ») était INVISIBLE — trois
+  # updates morts sans diagnostic (retour terrain 9.18 → 9.18c). 30 lignes.
+  if ! ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 30 | sed 's/^/    /' ); then
+    # 9.18d — node_modules peut être CASSÉ alors que le lock est inchangé
+    # (install interrompu, audit fix ayant retiré des optionnelles de
+    # plateforme — classique esbuild/rollup, ou cache npm corrompu).
+    # L'update SAUTE alors l'install (« Aucune dépendance modifiée ») et
+    # le build échoue à chaque clic. Réparation NON destructive puis UNE
+    # seconde tentative ; sans --prefer-offline pour forcer le registre
+    # au-delà d'un cache local suspect.
+    warn "Build échoué — réparation de node_modules puis nouvelle tentative…"
+    ( cd "${APP_DIR}" && npm install --no-audit --no-fund 2>&1 | tail -n 10 | sed 's/^/    /' ) || update_fail "npm install (réparation) a échoué"
+    hdr "Build — 2ᵉ tentative après réparation"
+    ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 30 | sed 's/^/    /' ) || update_fail "Build échoué (après réparation node_modules — erreur réelle dans les 30 lignes ci-dessus)"
+  fi
   # 9.18c — marqueur du rev réellement construit : c'est lui qui permet au
   # prochain update de détecter un build périmé, et au panneau Système
   # d'afficher la vérité (buildCommit ≠ commit = avertissement ambre).
@@ -724,7 +739,7 @@ cmd_setup() {
   else
     warn "yt-dlp non installé (root/curl requis) — manuel : curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp"
   fi
-  ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 2 | sed 's/^/    /' ) || die "npm install a échoué"
+  ( cd "${APP_DIR}" && npm install --no-audit --no-fund --prefer-offline 2>&1 | tail -n 10 | sed 's/^/    /' ) || die "npm install a échoué"
   hdr "Fichier .env"
   if [ ! -f "${ENV_FILE}" ]; then
     cp "${APP_DIR}/.env.example" "${ENV_FILE}" 2>/dev/null || true
@@ -733,7 +748,7 @@ cmd_setup() {
     ok ".env déjà présent (clés: $(grep -cE '^[A-Z]' "${ENV_FILE}" 2>/dev/null || echo 0))"
   fi
   hdr "Build"
-  ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 4 | sed 's/^/    /' ) || die "Build échoué"
+  ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 20 | sed 's/^/    /' ) || die "Build échoué"
   git -C "${APP_DIR}" rev-parse HEAD > "${APP_DIR}/dist/.nebula-build-rev" 2>/dev/null || true
   hdr "Rotation du log (audit 8.51)"
   install_logrotate

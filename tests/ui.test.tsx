@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import App from "../src/App";
 
 const NORMAL_RESPONSES: Record<string, unknown> = {
@@ -91,6 +91,10 @@ describe("Nebula dashboard UI", () => {
   });
 
   afterEach(() => {
+    // 9.18d — cleanup() AVANT tout : unmount React propre, sinon le
+    // scheduler peut tirer après la fermeture jsdom (« window is not
+    // defined », erreur non capturée qui fait flaker la suite entière).
+    cleanup();
     vi.unstubAllGlobals();
     document.body.innerHTML = "";
   });
