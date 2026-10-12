@@ -20,7 +20,7 @@ describe("persona — base prompt", () => {
       "# Identity",
       "# Origin",
       "Jcversa — Dark Neon",
-      "You are Nebula, the AI assistant",
+      "You are NOVA, the AI assistant",
       "Never invent facts",
       "default to French",
       "Do NOT use markdown headers, tables or double asterisks",
@@ -31,10 +31,29 @@ describe("persona — base prompt", () => {
     }
   });
 
-  it("replaces the {{BOT}} placeholder with the configured bot name", () => {
+  it("the bot name fills {{BOT}} — the agent stays NOVA (distinct names, 9.18g)", () => {
     const p = getPersonaPrompt("command", "DarkStar");
-    expect(p).toContain("You are DarkStar, the AI assistant");
+    expect(p).toContain("inside the DarkStar WhatsApp bot");
     expect(p).not.toContain("{{BOT}}");
+    expect(p).toContain("You are NOVA"); // le nom de l'agent ne change pas avec le bot
+    expect(p).not.toContain("You are DarkStar");
+  });
+
+  it("9.18g — asked for its name, the agent answers NOVA (never the bot's name)", () => {
+    const p = getPersonaPrompt("dm", "Nebula Bot");
+    expect(p).toContain("Your name is NOVA");
+    expect(p).toContain("you are NOVA, created by"); // le crédit d'origine aussi
+  });
+
+  it("9.18g — user-facing surfaces say NOVA (reply header, memory, dashboard)", () => {
+    const ai = fs.readFileSync("src/bot/commands/ai.ts", "utf-8");
+    expect(ai).toContain("🌌 *NOVA*");
+    expect(ai).not.toContain("Nebula AI Assistant");
+    const mem = fs.readFileSync("src/bot/services/aiMemory.ts", "utf-8");
+    expect(mem).toContain('"User" : "NOVA"');
+    const app = fs.readFileSync("src/App.tsx", "utf-8");
+    expect(app).toContain("🧬 NOVA is synthesizing");
+    expect(app).toContain("NOVA Engine");
   });
 
   it("adapts the context suffix to the surface (command vs dm)", () => {

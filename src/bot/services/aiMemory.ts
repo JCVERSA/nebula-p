@@ -132,7 +132,7 @@ export function getMemoryContext(chatJid: string, now = Date.now()): string | nu
     lines.push(`Summary of the oldest exchanges: ${memory.summary}`);
   }
   for (const turn of memory.turns) {
-    lines.push(`${turn.role === "user" ? "User" : "Nebula"}: ${turn.text}`);
+    lines.push(`${turn.role === "user" ? "User" : "NOVA"}: ${turn.text}`);
   }
   const block = lines.join("\n").slice(0, MAX_BLOCK_CHARS);
   return block.length > 0 ? block : null;
@@ -209,7 +209,7 @@ export async function compactIfNeeded(
  * the per-user daily AI quota (that quota gates user-facing requests).
  */
 export async function defaultMemorySummarizer(previousSummary: string, oldTurns: MemoryTurn[]): Promise<string> {
-  const transcript = oldTurns.map((t) => `${t.role === "user" ? "User" : "Nebula"}: ${t.text}`).join("\n");
+  const transcript = oldTurns.map((t) => `${t.role === "user" ? "User" : "NOVA"}: ${t.text}`).join("\n");
   const prompt =
     `Previous summary:\n${previousSummary || "(none)"}\n\nOlder conversation turns to merge into it:\n${transcript}\n\n` +
     `Rewrite the summary as 3 to 6 short factual lines (French if the conversation is French). Keep names, decisions, preferences and open questions. No preamble.`;

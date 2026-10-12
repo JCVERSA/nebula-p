@@ -63,7 +63,7 @@ describe("aiMemory — record & inject", () => {
     const block = getMemoryContext(CHAT)!;
     expect(block).toContain("# Conversation memory");
     expect(block).toContain("User: J'adore Dune");
-    expect(block).toContain("Nebula: Je note !");
+    expect(block).toContain("NOVA: Je note !");
   });
 
   it("chats are isolated from each other", () => {

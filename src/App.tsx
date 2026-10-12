@@ -1251,7 +1251,7 @@ export default function App() {
     e.preventDefault();
     if (!aiPrompt || !aiCmdName) return;
     setIsGeneratingCommand(true);
-    setAiGenMessage("🧬 Nebula AI is synthesizing the code...");
+    setAiGenMessage("🧬 NOVA is synthesizing the code...");
     try {
       const res = await fetch(botUrl("/api/bot/commands/generate"), {
         method: "POST",
@@ -2995,7 +2995,7 @@ export default function App() {
                         <Sparkles className="w-7 h-7" />
                       </div>
                       <div className="space-y-1">
-                        <h2 className="text-xl font-bold text-white tracking-tight">Nebula AI Engine</h2>
+                        <h2 className="text-xl font-bold text-white tracking-tight">NOVA Engine</h2>
                         <p className="text-xs text-zinc-400 max-w-xl">
                           Réponses en langage naturel, notes vocales et transcription pour WhatsApp.
                         </p>

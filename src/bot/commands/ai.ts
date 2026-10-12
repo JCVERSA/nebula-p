@@ -74,7 +74,7 @@ const aiCommand: BotCommand = {
           "gemini-3.7-flash"
         )
       );
-      await context.reply(`🌌 *Nebula AI Assistant*\n\n${answer}`);
+      await context.reply(`🌌 *NOVA*\n\n${answer}`);
       // Persist the exchange for the next message in this chat (sliding TTL),
       // then compact old turns into the rolling summary (internal call).
       recordExchange(chatJid, prompt, answer);
