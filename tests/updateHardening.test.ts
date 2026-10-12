@@ -110,3 +110,23 @@ describe("9.18d — échec de build : erreur visible + auto-réparation (manage.
     expect(src).not.toMatch(/rm -rf[^\n]*node_modules/);
   });
 });
+
+describe("9.18e — fuite de clés « Removing old closed session »", () => {
+  const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/suppressLibsignalNoise.ts"), "utf-8");
+
+  it("le dump de session supprimée est avalé sur log/info/warn (préfixe, deux-points optionnel)", () => {
+    expect(src).toContain('SUPPRESSED_DUMP_PREFIX = "Removing old closed session"');
+    expect(src).toContain("isSessionDump(args)");
+    expect(src).toContain("startsWith");
+    // console.log est hooké EN PLUS d'info/warn : la méthode exacte varie
+    // selon la version de libsignal.
+    expect(src).toContain("const originalLog = console.log.bind(console);");
+  });
+
+  it("la suppression reste un préfixe étroit — pas d'avalage au mot près", () => {
+    // startsWith sur le PRÉFIXE complet uniquement : « Removing old … » ne
+    // peut pas matcher d'autres messages, et rien d'autre n'est filtré.
+    const hook = src.split("\n").filter((l) => l.includes("isSessionDump(args)"));
+    expect(hook.length).toBeGreaterThanOrEqual(3); // log + info + warn
+  });
+});

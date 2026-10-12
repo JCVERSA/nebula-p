@@ -142,12 +142,21 @@ describe("9.0c — anti-fuite libsignal (clés de session hors des logs)", () =>
     // d'origine, on voit donc exactement ce qu'il laisse passer.
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     await import("../src/bot/suppressLibsignalNoise.js");
     console.info("Closing session:", { rootKey: Buffer.alloc(32) });
     console.warn("Session already closed", { privKey: Buffer.alloc(32) });
+    // 9.18e — dump de session supprimée (avec ET sans deux-points) : avalé
+    // sur les trois canaux, clés jamais imprimées.
+    console.log("Removing old closed session:", { privKey: Buffer.alloc(32) });
+    console.info("Removing old closed session: SessionEntry", { rootKey: Buffer.alloc(32) });
+    console.log("Removing old closed session", { chainKey: Buffer.alloc(32) });
+    console.log("Message légitime");
     console.info("Message légitime");
     console.warn("Avertissement légitime");
-    expect(infoSpy).toHaveBeenCalledTimes(1); // seul le message légitime passe
+    expect(logSpy).toHaveBeenCalledTimes(1); // seul le message légitime passe
+    expect(logSpy.mock.calls[0][0]).toBe("Message légitime");
+    expect(infoSpy).toHaveBeenCalledTimes(1);
     expect(infoSpy.mock.calls[0][0]).toBe("Message légitime");
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy.mock.calls[0][0]).toBe("Avertissement légitime");

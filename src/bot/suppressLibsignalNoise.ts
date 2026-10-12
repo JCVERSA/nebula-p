@@ -28,21 +28,46 @@ const SUPPRESSED_WARN = "Session already closed";
  *  la couche au-dessus gère (message abandonné). On n'avale QUE cette
  *  combinaison exacte (prefix + Bad MAC), tout le reste passe. */
 const SUPPRESSED_ERR_PREFIX = "Session error:";
+/**
+ * 9.18e — libsignal déverse AUSSI les sessions supprimées après une
+ * reconnexion (« Removing old closed session: SessionEntry {…} ») :
+ * même matériel cryptographique (privKey, rootKey, chainKey) que les
+ * deux messages de 9.0c, même fichier source (session_record.js),
+ * même destination (/root/bot.log) — constaté en production sur le VPS.
+ * Préfixe (avec ou sans deux-points selon le formatage) + hook de
+ * console.log en plus d'info/warn : la méthode exacte varie selon la
+ * version de la lib, on couvre les trois.
+ */
+const SUPPRESSED_DUMP_PREFIX = "Removing old closed session";
+
+function isSessionDump(args: unknown[]): boolean {
+  return (
+    args.length > 0 &&
+    typeof args[0] === "string" &&
+    args[0].startsWith(SUPPRESSED_DUMP_PREFIX)
+  );
+}
 
 const g = globalThis as { __nebulaLibsignalNoiseSuppressed?: boolean };
 
 if (!g.__nebulaLibsignalNoiseSuppressed) {
   g.__nebulaLibsignalNoiseSuppressed = true;
 
+  const originalLog = console.log.bind(console);
+  console.log = (...args: unknown[]) => {
+    if (isSessionDump(args)) return; // session complète (clés) → jetée
+    originalLog(...args);
+  };
+
   const originalInfo = console.info.bind(console);
   console.info = (...args: unknown[]) => {
-    if (args.length > 0 && args[0] === SUPPRESSED_INFO) return; // clé de session → jeté
+    if (args[0] === SUPPRESSED_INFO || isSessionDump(args)) return; // clé de session → jeté
     originalInfo(...args);
   };
 
   const originalWarn = console.warn.bind(console);
   console.warn = (...args: unknown[]) => {
-    if (args.length > 0 && args[0] === SUPPRESSED_WARN) return; // objet session → jeté
+    if (args[0] === SUPPRESSED_WARN || isSessionDump(args)) return; // objet session → jeté
     originalWarn(...args);
   };
 
