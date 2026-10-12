@@ -35,6 +35,7 @@ interface SystemInfoData {
   commit?: string;
   branch?: string;
   buildCommit?: string;
+  processStale?: boolean;
   uptimeSeconds?: number;
   updating?: boolean;
 }
@@ -452,6 +453,11 @@ export default function SystemPanel() {
         {info && info.commit && info.commit !== "unknown" && info.buildCommit && info.buildCommit !== info.commit ? (
           <p className="mt-2 text-xs text-amber-300" data-testid="system-build-warning">
             ⚠︎ Build périmé — code {info.commit} ≠ build {info.buildCommit}. « Mettre à jour » reconstruit puis redémarre.
+          </p>
+        ) : null}
+        {info?.processStale ? (
+          <p className="mt-1 text-xs text-amber-300" data-testid="system-process-warning">
+            ⚠︎ Processus antérieur au build — le bot tourne encore sur l'ancien code. « Redémarrer » ci-dessous applique le build actuel.
           </p>
         ) : null}
       </div>

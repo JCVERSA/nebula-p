@@ -72,6 +72,31 @@ engine_pids() { pgrep -f "${ENGINE_PATTERN}" 2>/dev/null || true; }
 
 is_running() { [ -n "$(bot_pids)" ]; }
 
+# 9.18f — le panneau tourne-t-il sur le bundle ACTUEL ? Un process survit à
+# la reconstruction de son binaire (Linux garde l'ancien inode ouvert) : un
+# build sans redémarrage (install.sh, build manuel) laisse donc le bot sur
+# l'ANCIEN code alors que dépôt et build sont à jour. Best-effort : on
+# compare le démarrage du panneau (lu dans /proc) au mtime de
+# dist/server.cjs. Toute lecture impossible → "non" : jamais de faux
+# positif, on retombe sur le comportement d'avant 9.18f.
+panel_older_than_bundle() {
+  local pid bundle_mtime start_epoch ticks hz boot
+  bundle_mtime="$(stat -c %Y "${APP_DIR}/dist/server.cjs" 2>/dev/null \
+    || date -r "${APP_DIR}/dist/server.cjs" +%s 2>/dev/null)" || return 1
+  [ -n "${bundle_mtime}" ] || return 1
+  pid="$(bot_pids | head -n 1)"
+  [ -n "${pid}" ] || return 1
+  [ -r "/proc/${pid}/stat" ] || return 1
+  ticks="$(awk '{print $22}' "/proc/${pid}/stat" 2>/dev/null)"
+  [ -n "${ticks}" ] || return 1
+  hz="$(getconf CLK_TCK 2>/dev/null || echo 100)"
+  boot="$(awk '{printf "%d", $1}' /proc/uptime 2>/dev/null)"
+  [ -n "${boot}" ] || return 1
+  start_epoch=$(( $(date +%s) - boot + ticks / hz ))
+  # +2 s de tolérance : build et redémarrage dans la même seconde ≠ périmé
+  [ "${bundle_mtime}" -gt $(( start_epoch + 2 )) ]
+}
+
 # --- Verrou de mise à jour (audit 8.30) -------------------------------------
 # Un watchdog cron (*/5 * * * * manage.sh start, voir docs/MIGRATION_NOUVEAU_VPS.md)
 # ne doit PAS relancer le bot pendant `nebula update` (install/build) : cela
@@ -562,9 +587,31 @@ cmd_update() {
   local head_full; head_full="$(git -C "${APP_DIR}" rev-parse HEAD)"
   local built_rev=""
   [ -f "${APP_DIR}/dist/.nebula-build-rev" ] && built_rev="$(tail -n 1 "${APP_DIR}/dist/.nebula-build-rev" 2>/dev/null || true)"
+  # 8.85 : chemin ABSOLU du script À JOUR sur disque (remonté ici en
+  # 9.18f : le redémarrage anti-process-périmé en a besoin AVANT le retour
+  # anticipé). BASH_SOURCE peut être relatif (ex. ./manage.sh) : un exec
+  # direct échouerait selon le cwd d'où l'owner a lancé la commande.
+  local self_path
+  self_path="$(cd "$(dirname "${NEBULA_SRC}")" && pwd)/$(basename "${NEBULA_SRC}")"
   local stale_rebuild="no"
   if [ "${old_rev}" = "${new_rev}" ]; then
     if [ -n "${built_rev}" ] && [ "${built_rev}" = "${head_full}" ]; then
+      # 9.18f — dernier maillon : code à jour, build à jour… mais le PROCESS
+      # peut être plus ancien que le bundle (install.sh ou build manuel sans
+      # redémarrage — le process survit sur l'ancien inode, constaté en
+      # production : installateur vert, bot toujours sur l'ancien code).
+      # Divergence démarrage/mtime → redémarrage, jamais de « pas de
+      # redémarrage nécessaire » mensonger.
+      if [ "${was_running}" = "yes" ] && panel_older_than_bundle; then
+        warn "Processus antérieur au build — redémarrage nécessaire…"
+        update_lock_release
+        if [ -f "${self_path}" ]; then
+          info "Redémarrage via le manage.sh à jour (exec)…"
+          exec bash "${self_path}" restart
+        fi
+        cmd_restart   # repli : script introuvable au chemin résolu
+        return 0
+      fi
       ok "Déjà à jour (${new_rev}) — build à jour."
       if [ "${was_running}" = "yes" ]; then
         info "Le bot tourne — pas de redémarrage nécessaire."
@@ -580,13 +627,6 @@ cmd_update() {
     ok "Code: ${old_rev} → ${new_rev}"
     ( cd "${APP_DIR}" && git log --oneline "${old_rev}..${new_rev}" 2>/dev/null | sed 's/^/    /' )
   fi
-
-  # 8.85 : chemin ABSOLU du script À JOUR sur disque. BASH_SOURCE peut être
-  # relatif (ex. ./manage.sh) : un exec direct échouerait selon le cwd d'où
-  # l'owner a lancé la commande. Calculé APRÈS le pull — si un futur update
-  # déplace manage.sh, le repli cmd_restart prend le relais.
-  local self_path
-  self_path="$(cd "$(dirname "${NEBULA_SRC}")" && pwd)/$(basename "${NEBULA_SRC}")"
 
   # Sur un conteneur ~1 Go, npm/vite en parallèle du bot vivant saturent la
   # mémoire du cgroup → throttling → updates de 20-30 min (audit 8.29).

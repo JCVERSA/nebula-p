@@ -41,6 +41,13 @@ export interface SystemInfo {
    * de laisser croire que tout est à jour (retour terrain 9.18).
    */
   buildCommit: string;
+  /**
+   * 9.18f — le process panneau lui-même est-il plus ancien que le bundle ?
+   * (build sans redémarrage : install.sh, build manuel — le process survit
+   * sur l'ancien inode.) Comparaison démarrage vs mtime de dist/server.cjs ;
+   * échec de lecture → false : jamais de faux positif.
+   */
+  processStale: boolean;
 }
 
 export interface SystemState {
@@ -119,11 +126,20 @@ export function createDefaultSystemActions(opts: SystemActionsOptions = {}): Sys
     } catch {
       /* marqueur absent — build antérieur à 9.18c : « ? » est honnête */
     }
+    let processStale = false;
+    try {
+      const bundleMs = fs.statSync(path.join(appDir, "dist", "server.cjs")).mtimeMs;
+      const startedMs = Date.now() - process.uptime() * 1000;
+      processStale = bundleMs > startedMs + 2000; // tolérance même-seconde
+    } catch {
+      /* pas de bundle lisible → rien à comparer, pas de faux positif */
+    }
     const info: SystemInfo = {
       version: readPackageVersion(),
       commit: commit || "unknown",
       branch: branch || "unknown",
       buildCommit,
+      processStale,
     };
     cache = { at: Date.now(), info };
     return info;

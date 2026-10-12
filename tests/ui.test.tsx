@@ -156,6 +156,41 @@ describe("Nebula dashboard UI", () => {
     expect(warn.textContent).toContain("a320964");
   });
 
+  it("Système : avertissement « process antérieur au build » indépendant du build (9.18f)", async () => {
+    // commit == buildCommit (pas d'avertissement build) MAIS processStale :
+    // seul l'avertissement process doit apparaître.
+    vi.stubGlobal(
+      "fetch",
+      mockFetch((rawUrl: string) => {
+        const url = rawUrl.split("?")[0];
+        const body =
+          url === "/api/system/info"
+            ? {
+                version: "9.18.6",
+                commit: "d0c01f1",
+                branch: "main",
+                buildCommit: "d0c01f1",
+                uptimeSeconds: 60,
+                updating: false,
+                processStale: true,
+              }
+            : NORMAL_RESPONSES[url] ?? {};
+        return Promise.resolve({ ok: true, status: 200, json: async () => body });
+      }),
+    );
+    render(<App />);
+    await screen.findAllByText("Overview", {}, { timeout: 5000 });
+    await clickNav("Système");
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("system-process-warning").textContent).toContain(
+          "ancien code",
+        ),
+      { timeout: 5000 },
+    );
+    expect(screen.queryByTestId("system-build-warning")).toBeNull();
+  });
+
   it("shows the login gate when every API call is rejected", async () => {
     // Simulate an auth failure: every API call returns 401
     vi.stubGlobal(

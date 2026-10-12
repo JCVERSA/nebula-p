@@ -156,3 +156,29 @@ describe("GET /api/system/info — buildCommit (9.18c)", () => {
     expect(res.body.buildCommit).toBe("?");
   });
 });
+
+describe("GET /api/system/info — processStale (9.18f)", () => {
+  it("pas de bundle sur disque → false (rien à comparer, pas de faux positif)", async () => {
+    const res = await request(buildApp()).get("/api/system/info").expect(200);
+    expect(res.body.processStale).toBe(false);
+  });
+
+  it("bundle PLUS RÉCENT que le process → true (build sans redémarrage)", async () => {
+    mkdirSync(join(dir, "dist"));
+    writeFileSync(join(dir, "dist", "server.cjs"), "// bundle", "utf-8");
+    // mtime dans le futur : le bundle a été écrit APRÈS le démarrage du process
+    const future = new Date(Date.now() + 120_000);
+    require("fs").utimesSync(join(dir, "dist", "server.cjs"), future, future);
+    const res = await request(buildApp()).get("/api/system/info").expect(200);
+    expect(res.body.processStale).toBe(true);
+  });
+
+  it("bundle plus ANCIEN que le process → false (process déjà à jour)", async () => {
+    mkdirSync(join(dir, "dist"));
+    writeFileSync(join(dir, "dist", "server.cjs"), "// bundle", "utf-8");
+    const past = new Date(Date.now() - 3_600_000);
+    require("fs").utimesSync(join(dir, "dist", "server.cjs"), past, past);
+    const res = await request(buildApp()).get("/api/system/info").expect(200);
+    expect(res.body.processStale).toBe(false);
+  });
+});

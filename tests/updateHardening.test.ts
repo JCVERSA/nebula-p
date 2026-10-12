@@ -130,3 +130,31 @@ describe("9.18e — fuite de clés « Removing old closed session »", () => {
     expect(hook.length).toBeGreaterThanOrEqual(3); // log + info + warn
   });
 });
+
+describe("9.18f — process antérieur au build (build sans redémarrage)", () => {
+  const src = fs.readFileSync(path.resolve(process.cwd(), "manage.sh"), "utf-8");
+
+  it("« Déjà à jour » vérifie AUSSI le process et redémarre si besoin", () => {
+    // Helper best-effort + branche dans le retour anticipé « build à jour »
+    expect(src).toContain("panel_older_than_bundle");
+    expect(src).toContain("Processus antérieur au build — redémarrage nécessaire");
+    const guard = src.indexOf('&& panel_older_than_bundle; then');
+    const okLine = src.indexOf("ok \"Déjà à jour (${new_rev}) — build à jour.\"");
+    expect(guard).toBeGreaterThan(-1);
+    expect(okLine).toBeGreaterThan(guard); // le garde-fou PRÉCÈDE le « rien à faire »
+    // Redémarrage via le script À JOUR (exec) avec verrou libéré avant
+    const branch = src.slice(guard, src.indexOf("return 0", guard));
+    expect(branch).toContain("update_lock_release");
+    expect(branch).toContain('exec bash "${self_path}" restart');
+  });
+
+  it("détection best-effort : lecture impossible → jamais de faux positif", () => {
+    const fn = src.slice(
+      src.indexOf("panel_older_than_bundle() {"),
+      src.indexOf("\n}", src.indexOf("panel_older_than_bundle() {")),
+    );
+    expect(fn).toContain("return 1"); // chaque lecture ratée sort en « non »
+    expect(fn).toContain("+ 2 "); // tolérance même-seconde
+    expect(fn).toContain("dist/server.cjs");
+  });
+});
