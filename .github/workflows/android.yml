@@ -16,16 +16,16 @@ jobs:
         working-directory: android
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Gradle 9.3.1
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.3.1"
 
@@ -35,7 +35,7 @@ jobs:
       # Keystore debug STABLE entre les runs (cache) : les APK successifs
       # s'installent l'un par-dessus l'autre sans désinstallation.
       - name: Cache du keystore debug
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: android/debug.keystore
           key: nova-debug-keystore-v1
@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload de l'APK
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nova-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
@@ -84,7 +84,7 @@ jobs:
       # plan B si les annotations sont insuffisantes.
       - name: Upload du log de build (toujours)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nova-build-log
           path: android/build.log

@@ -467,12 +467,28 @@ export function purgeStartupOrphans(): { cleanedItems: number; freedBytes: numbe
   let cleanedItems = 0;
   let freedBytes = 0;
 
+  // 9.18m (audit Novabox, flake CI récurrent) : le store réel est PARTAGÉ
+  // entre moteurs (et entre workers de test sur un même hôte) — la purge
+  // boot ne doit supprimer que ce qu'aucun claim vivant ne peut revendiquer.
+  // Un fichier créé APRÈS le début du batch le plus ancien appartient
+  // peut-être à un autre moteur en pleine exécution → épargné (il sera
+  // balayé au prochain boot sans claim, ou par le TTL du nettoyage
+  // périodique). Avant ce correctif, le redémarrage d'un bot supprimait les
+  // téléchargements en vol de l'autre (multi-bots), et en CI un worker
+  // pouvait voler les débris d'un autre → comptages flaky.
+  const liveClaims = listDiskClaims().map((c) => ({ jobId: c.jobId, createdAt: c.createdAt }));
+  const oldestClaimStart = liveClaims.length ? Math.min(...liveClaims.map((c) => c.createdAt)) : null;
+
   try {
     if (fs.existsSync(TEMP_DOWNLOAD_DIR)) {
       for (const file of fs.readdirSync(TEMP_DOWNLOAD_DIR)) {
         const fullPath = path.join(TEMP_DOWNLOAD_DIR, file);
         try {
-          freedBytes += fs.statSync(fullPath).size;
+          const st = fs.statSync(fullPath);
+          if (oldestClaimStart !== null && st.mtimeMs >= oldestClaimStart) {
+            continue; // fichier frais d'un batch vivant → épargné (conservateur)
+          }
+          freedBytes += st.size;
           fs.rmSync(fullPath, { recursive: true, force: true });
           cleanedItems++;
         } catch {}
@@ -486,7 +502,7 @@ export function purgeStartupOrphans(): { cleanedItems: number; freedBytes: numbe
   // respectée : un AUTRE moteur peut être en plein batch (multi-bots).
   try {
     const debrisPlan = planTmpRootDebris(scanTmpRoot(os.tmpdir()), {
-      liveClaims: listDiskClaims().map(c => ({ jobId: c.jobId, createdAt: c.createdAt })),
+      liveClaims,
       now: Date.now(),
       minAgeMs: 0
     });
