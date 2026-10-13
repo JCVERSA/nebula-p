@@ -1,6 +1,8 @@
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
 import { extractInstagramMedia } from "../services/instagramExtractor.js";
+import { getLinkTtlMinutes } from "../tempDownloadManager.js";
+import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
 
 /**
  * `.instagram` — portage natif de l'original neb (media/instagram.js, owner
@@ -13,6 +15,14 @@ import { extractInstagramMedia } from "../services/instagramExtractor.js";
 
 interface IgdlMedia { url?: string; type?: string }
 type Igdl = (url: string) => Promise<{ data?: IgdlMedia[] }>;
+
+/** 9.18r : mémoire du dernier backend qui a réussi — essayé en premier ensuite. */
+let lastWorkingIgBackend: "igdl" | "igdl2" | null = null;
+
+/** Pur : ordre d'essai des backends (le gagnant récent d'abord). */
+export function orderIgBackends(last: "igdl" | "igdl2" | null): Array<"igdl" | "igdl2"> {
+  return last === "igdl2" ? ["igdl2", "igdl"] : ["igdl", "igdl2"];
+}
 
 const processedMessages = new Set<string>();
 
@@ -82,12 +92,15 @@ const instagramCommand: BotCommand = {
 
       let scrapedMedia: IgdlMedia[] = [];
       let mediaSource = "";
-      for (const [label, fn] of [["igdl", mod.igdl], ["igdl2", mod.igdl2]] as Array<[string, Igdl]>) {
+      const backends = orderIgBackends(lastWorkingIgBackend); // 9.18r : le gagnant récent d'abord
+      for (const label of backends) {
+        const fn = label === "igdl" ? mod.igdl : mod.igdl2;
         try {
           const data = await withTimeout(fn(text), label);
           if (data?.data?.length) {
             scrapedMedia = data.data;
             mediaSource = label;
+            lastWorkingIgBackend = label;
             break;
           }
           console.warn(`[IG] ${label}: no media (backend tiers indisponible ou muet)`);
@@ -120,6 +133,7 @@ const instagramCommand: BotCommand = {
         return void (await context.reply("❌ Aucun média valide trouvé — post privé ou scraper indisponible."));
       }
 
+      const collectedLinks: string[] = [];
       for (let i = 0; i < mediaToDownload.length; i++) {
         try {
           const media = mediaToDownload[i];
@@ -129,15 +143,28 @@ const instagramCommand: BotCommand = {
             text.includes("/reel/") ||
             text.includes("/tv/");
 
+          // 9.18r : téléchargement local + lien durable (repli : URL distante).
+          let sendPath = mediaUrl;
+          const local = await fetchMediaToTempFile(mediaUrl);
+          if (local) {
+            const rec = registerMediaLink(local, `instagram_${Date.now()}_${i + 1}${isVideo ? ".mp4" : ".jpg"}`);
+            if (rec) {
+              sendPath = rec.filePath;
+              collectedLinks.push(rec.downloadUrl);
+            } else {
+              sendPath = local; // quota du store atteint : fichier local, sans lien
+            }
+          }
+
           if (isVideo) {
             await sock.sendMessage(chatId, {
-              video: { url: mediaUrl },
+              video: { url: sendPath },
               mimetype: "video/mp4",
               caption: `*DOWNLOADED BY ${getConfig().botName.toUpperCase()}*`
             }, { quoted: msg });
           } else {
             await sock.sendMessage(chatId, {
-              image: { url: mediaUrl },
+              image: { url: sendPath },
               caption: `*DOWNLOADED BY ${getConfig().botName.toUpperCase()}*`
             }, { quoted: msg });
           }
@@ -148,6 +175,16 @@ const instagramCommand: BotCommand = {
         } catch (mediaError) {
           console.error(`[IG] media ${i + 1} failed:`, mediaError);
         }
+      }
+
+      // 9.18r : UN SEUL message avec tous les liens — fini les .up manuels
+      // (retour terrain 14/10 : sept .up à la main pour sept reels).
+      if (collectedLinks.length) {
+        await context.reply(
+          `🔗 *Liens de téléchargement* (${collectedLinks.length})\n` +
+          `⏳ Valables ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)\n\n` +
+          collectedLinks.map((l, i) => `${i + 1}. ${l}`).join("\n")
+        );
       }
     } catch (error) {
       console.error("[IG] Error:", error);

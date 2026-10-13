@@ -397,7 +397,7 @@ export function cleanupExpiredZipFiles(): { cleanedFiles: number; freedBytes: nu
 
   const freedMB = Number((freedBytes / (1024 * 1024)).toFixed(2));
   if (cleanedFiles > 0) {
-    console.log(`[TempDownload] 🧹 Automated Cleanup Completed: ${cleanedFiles} ZIP file(s) deleted, ${freedMB} MB freed from server storage.`);
+    console.log(`[TempDownload] 🧹 Automated Cleanup Completed: ${cleanedFiles} expired file(s) deleted, ${freedMB} MB freed from server storage.`);
   }
 
   return { cleanedFiles, freedBytes, freedMB };

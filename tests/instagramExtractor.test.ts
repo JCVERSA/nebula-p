@@ -64,12 +64,13 @@ describe("9.18p — chaîne de repli de la commande (structure)", () => {
   const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/instagram.ts"), "utf-8");
 
   it("les trois étages sont branchés dans l'ordre igdl → igdl2 → extracteur maison", () => {
-    const igdl = src.indexOf('["igdl", mod.igdl]');
-    const igdl2 = src.indexOf('["igdl2", mod.igdl2]');
+    // 9.18r : la boucle backend itère orderIgBackends() (mémoire du gagnant)
+    // — l'ordre structurel reste igdl/igdl2 PUIS extracteur maison.
+    const loop = src.indexOf("for (const label of backends)");
     const own = src.indexOf("await extractInstagramMedia(text)");
-    expect(igdl).toBeGreaterThan(-1);
-    expect(igdl2).toBeGreaterThan(igdl);
-    expect(own).toBeGreaterThan(igdl2);
+    expect(loop).toBeGreaterThan(-1);
+    expect(own).toBeGreaterThan(loop);
+    expect(src).toContain('label === "igdl" ? mod.igdl : mod.igdl2');
   });
 
   it("l'échec total reste honnête (rate-limit mentionné, pas de promesse)", () => {

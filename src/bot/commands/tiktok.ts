@@ -2,6 +2,8 @@ import axios from "axios";
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
 import { extractTikTokMedia } from "../services/tiktokExtractor.js";
+import { getLinkTtlMinutes } from "../tempDownloadManager.js";
+import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
 
 /**
  * `.tiktok` — portage natif de l'original neb (media/tiktok.js, owner request
@@ -91,8 +93,21 @@ const tiktokCommand: BotCommand = {
       if (title) caption += `📝 ${title}\n`;
       caption += `\n> _Downloaded by ${getConfig().botName}_`;
 
+      // 9.18r : téléchargement local + lien durable (repli : URL distante).
+      let sendPath = videoUrl;
+      const local = await fetchMediaToTempFile(videoUrl);
+      if (local) {
+        const rec = registerMediaLink(local, `tiktok_${Date.now()}.mp4`);
+        if (rec) {
+          sendPath = rec.filePath;
+          caption += `\n\n🔗 *Lien :* ${rec.downloadUrl}\n⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_`;
+        } else {
+          sendPath = local; // quota du store : fichier local, sans lien
+        }
+      }
+
       await sock.sendMessage(msg.key.remoteJid!, {
-        video: { url: videoUrl },
+        video: { url: sendPath },
         mimetype: "video/mp4",
         caption
       }, { quoted: msg });
