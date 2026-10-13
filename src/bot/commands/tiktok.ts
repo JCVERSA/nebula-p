@@ -1,11 +1,16 @@
 import axios from "axios";
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
+import { extractTikTokMedia } from "../services/tiktokExtractor.js";
 
 /**
  * `.tiktok` — portage natif de l'original neb (media/tiktok.js, owner request
  * 8.59) : API publique tikwm.com (hd=1), sans watermark. Fidèle à l'original,
  * messages déjà FR.
+ *
+ * 9.18q — filet préventif (leçon de la mort igdl/9.18p) : si tikwm échoue
+ * ou ne répond plus, l'extracteur maison lit la page TikTok elle-même
+ * (services/tiktokExtractor.ts — JSON d'hydratation, zéro site tiers).
  */
 
 const tiktokCommand: BotCommand = {
@@ -31,21 +36,54 @@ const tiktokCommand: BotCommand = {
 
       await sock.sendMessage(msg.key.remoteJid!, { react: { text: "⏳", key: msg.key } });
 
-      const apiRes = await axios.post(
-        "https://www.tikwm.com/api/",
-        new URLSearchParams({ url, hd: "1" }),
-        { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 20000 }
-      );
+      // 9.18q — chaîne à 2 étages : tikwm (API publique, sans watermark,
+      // HD) puis, s'il échoue ou ne répond plus, l'extracteur maison
+      // (page TikTok elle-même). Chacun borné par son timeout axios.
+      let videoUrl = "";
+      let title = "";
+      let author = "";
+      let duration = "";
+      let mediaSource = "";
 
-      const data = apiRes.data?.data;
-      if (!data || !data.play) {
-        return void (await context.reply("❌ Impossible de télécharger cette vidéo TikTok — essaie un autre lien."));
+      try {
+        const apiRes = await axios.post(
+          "https://www.tikwm.com/api/",
+          new URLSearchParams({ url, hd: "1" }),
+          { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 20000 }
+        );
+        const data = apiRes.data?.data;
+        if (data?.play) {
+          videoUrl = data.hdplay || data.play;
+          title = data.title || "";
+          author = data.author?.nickname || "";
+          duration = data.duration ? `${data.duration}s` : "";
+          mediaSource = "tikwm";
+        }
+      } catch (err: any) {
+        console.warn(`[TT] tikwm failed: ${err?.message || err}`);
       }
 
-      const videoUrl = data.hdplay || data.play;
-      const title = data.title || "";
-      const author = data.author?.nickname || "";
-      const duration = data.duration ? `${data.duration}s` : "";
+      if (!videoUrl) {
+        try {
+          const own = await extractTikTokMedia(url);
+          if (own?.videoUrl) {
+            videoUrl = own.videoUrl;
+            title = own.title || "";
+            author = own.author || "";
+            duration = own.durationSec ? `${own.durationSec}s` : "";
+            mediaSource = `extractor:${own.strategy}`;
+          }
+        } catch (err: any) {
+          console.warn(`[TT] extractor failed: ${err?.message || err}`);
+        }
+      }
+
+      if (!videoUrl) {
+        return void (await context.reply(
+          "❌ Impossible de télécharger cette vidéo TikTok — elle est peut-être privée, supprimée, ou TikTok limite le serveur _(réessaie dans quelques minutes)_."
+        ));
+      }
+      console.log(`[TT] media source: ${mediaSource}`);
 
       let caption = "🎵 *TikTok*\n";
       if (author) caption += `👤 ${author}\n`;
