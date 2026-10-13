@@ -945,8 +945,14 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           }
         }
 
-        // Direct AI response in private chat when not starting with prefix
-        if (!isGroup && !isFromMe && !text.startsWith(prefix)) {
+        // Direct AI response in private chat when not starting with prefix.
+        // 9.18j (retour terrain 13/10) : text.trim() obligatoire — un média
+        // sans caption (sticker, image, document) produisait un tour IA à
+        // PROMPT VIDE : Gemini répondait n'importe quoi (« Je suis NOVA… »,
+        // « Je suis à ton écoute ! »), brûlait le quota IA et remplissait
+        // les logs d'erreurs NIM « Textless prompt ». Les notes vocales
+        // restent gérées plus haut (ASR) ; un sticker n'a rien à dire.
+        if (!isGroup && !isFromMe && text.trim() && !text.startsWith(prefix)) {
           // 8.95b : question novabox en attente (« continuer en VOSTFR ? ») —
           // un « oui »/« non » nu doit RÉPONDRE À CETTE QUESTION, pas partir
           // dans l'agent IA (qui reformulerait une nouvelle demande).

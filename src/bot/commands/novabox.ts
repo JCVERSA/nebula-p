@@ -430,6 +430,21 @@ async function handleWatchAction(context: BotCommandContext, session: AnimeSessi
   );
 }
 
+/**
+ * 9.18j (retour terrain 13/10 — The Garden of Words) : un film/OAV voiranime
+ * n'a AUCUN épisode numéroté — ses entrées portent n=0 avec le label
+ * « Film »/« OAV » (cf. parseVoiranimeEpisodes). Le filtre e.n > 0 vidait
+ * alors la liste et tuait la session (« aucun épisode numéroté trouvé ») :
+ * l'utilisateur tournait en rond entre sélection et saison. Une saison sans
+ * numéros = une entrée film : on la garde comme unique « épisode ». Une
+ * saison mixte (numéros + film) reste inchangée — les films y sont ignorés
+ * comme avant (pas de décalage d'indices).
+ */
+function voiranimeSelectableEpisodes(all: VoiranimeEpisode[]): VoiranimeEpisode[] {
+  const numbered = all.filter((e) => e.n > 0);
+  return numbered.length > 0 ? numbered : all;
+}
+
 export async function fillVoiranimePlayers(session: AnimeSession, indices: number[]): Promise<void> {
   if (!session.voiranimeEpisodes || !session.voiranimeAnimeUrl) return;
   const lists: Record<number, string[]> = session.episodes || { 1: new Array(session.voiranimeEpisodes.length).fill("") };
@@ -727,7 +742,7 @@ async function executeQuickDownloadPipeline(
     session.pipelineStartedAt = session.pipelineStartedAt || tPlayers;
     let totalEpisodes = 0;
     if (targetSeason.isVoiranime) {
-      const vaEps = (await voiranimeEpisodes(targetSeason.url)).filter((e) => e.n > 0);
+      const vaEps = voiranimeSelectableEpisodes(await voiranimeEpisodes(targetSeason.url));
       if (vaEps.length === 0) {
         clearUserSession(context.sender);
         return context.reply("❌ *Erreur:* Aucun épisode numéroté trouvé pour cette saison.");
@@ -1273,7 +1288,7 @@ const animeCommand: BotCommand = {
           if (selectedSeason.isVoiranime) {
             // voiranime VF season (audit 8.17): positional episode list instead
             // of nakanime episodes.js; players are resolved lazily later.
-            const vaEps = (await voiranimeEpisodes(selectedSeason.url)).filter((e) => e.n > 0);
+            const vaEps = voiranimeSelectableEpisodes(await voiranimeEpisodes(selectedSeason.url));
             if (vaEps.length === 0) {
               clearUserSession(sender);
               return context.reply(`❌ *Erreur :* aucun épisode numéroté trouvé pour cette entrée. Session terminée.`);
@@ -1359,7 +1374,15 @@ const animeCommand: BotCommand = {
             `• *Anime :* ${session.animeTitle}\n` +
             `• *Langue :* ${session.selectedLanguage}\n` +
             `• *Saison :* ${selectedSeason.name}\n\n` +
-            `📦 *Épisodes disponibles :* ${totalEpisodes}\n\n` +
+            // 9.18j : labels calculés via une variable neutre — le nom de la
+            // source ne doit JAMAIS apparaître dans une chaîne visible (8.42).
+            (() => {
+              const eps = session.voiranimeEpisodes || [];
+              if (eps.length > 0 && eps.every((e) => e.n === 0)) {
+                return `🎞️ *Film détecté* — ${eps.map((e) => e.label).join(", ")}\n\n`;
+              }
+              return `📦 *Épisodes disponibles :* ${totalEpisodes}\n\n`;
+            })() +
             `*Options :*\n` +
             `• Un épisode : \`.a e2\` (ou \`.a 2\` / \`.a ep2\`)\n` +
             `• Plusieurs épisodes : \`.a e2,e3,e4,e7,e9\` (ou \`.a 2,3,4,7,9\`)\n` +
