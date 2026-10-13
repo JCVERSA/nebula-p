@@ -101,3 +101,24 @@ describe("9.18l — agent : le tour INITIAL n'annonce pas ce que la commande aff
     expect(ck).toContain("l'écran suivant les propose");
   });
 });
+
+describe("9.18n — agent : l'auto-sélection reprend le dessus sur le relais (Mushoku s1)", () => {
+  const runner = fs.readFileSync(path.resolve(process.cwd(), "src/bot/services/agentRunner.ts"), "utf-8");
+
+  it("la règle « exécute le choix » est marquée PRIORITAIRE et précède la règle du relais", () => {
+    const execRule = runner.indexOf("PRIORITAIRE — La demande initiale de l'utilisateur désigne CLAIREMENT");
+    const relayRule = runner.indexOf("L'écran observé se termine DÉJÀ par une consigne");
+    expect(execRule).toBeGreaterThan(-1);
+    expect(relayRule).toBeGreaterThan(-1);
+    expect(execRule).toBeLessThan(relayRule); // la priorité se lit EN PREMIER dans le prompt
+  });
+
+  it("une consigne en fin d'écran n'interdit plus l'auto-sélection (conflit 9.1 × 9.18k résolu)", () => {
+    expect(runner).toContain("ne t'empêche PAS de choisir toi-même");
+    expect(runner).toContain("si sa demande contient DÉJÀ la réponse, tu exécutes son choix");
+  });
+
+  it("la règle du relais ne vaut QUE lorsque la demande ne désigne pas l'information", () => {
+    expect(runner).toContain("ET sa demande ne désigne PAS l'information demandée : il sait quoi faire");
+  });
+});

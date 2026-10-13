@@ -417,9 +417,9 @@ export async function handleAgentMessage(
         `Tu as exécuté \`${info.prefix}${canonical.name}${args.length ? ` ${args.join(" ")}` : ""}\` pour l'utilisateur.\n` +
         `Le bot a répondu dans WhatsApp :\n\n${observation}\n\n` +
         `Décide de la suite par un UNIQUE objet JSON {"action":…} :\n` +
-        `- La demande de l'utilisateur désigne CLAIREMENT une entrée de la liste (titre/numéro/saison/qualité demandés) → \"execute\" avec la commande qui choisit (ex. commande \"a\", args \"2\").\n` +
-        `- Vraiment ambigu → \"ask\" avec UNE question courte qui liste les options pertinentes (numérotées).\n` +
-        `- L'écran observé se termine DÉJÀ par une consigne pour l'utilisateur (👉 Réponds avec…) : il sait quoi faire → \"reply\" très courte. Ne redemande JAMAIS une information que l'écran affiche déjà (numéro d'entrée, saison, qualité) — retour terrain 13/10 : « Quel numéro d'anime choisir ? » posé deux fois alors que la liste était affichée.\n` +
+        `- PRIORITAIRE — La demande initiale de l'utilisateur désigne CLAIREMENT une entrée de la liste (titre exact, numéro, ou saison demandée qui tranche : « s1 » quand les autres entrées sont « Saison 2 », « Saison 3 »…) → \"execute\" avec la commande qui choisit (ex. commande \"a\", args \"1\"). Une consigne en fin d'écran (👉 Réponds avec…) ne t'empêche PAS de choisir toi-même : elle s'adresse à l'utilisateur, mais si sa demande contient DÉJÀ la réponse, tu exécutes son choix — retour terrain 14/10 : « donne-moi mushoku tensei s1 e1 » a exigé un « .a 1 » manuel alors que « s1 » désignait l'entrée 1.\n` +
+        `- Vraiment ambigu (deux entrées également plausibles, rien pour trancher) → \"ask\" avec UNE question courte qui liste les options pertinentes (numérotées).\n` +
+        `- L'écran observé se termine DÉJÀ par une consigne pour l'utilisateur (👉 Réponds avec…) ET sa demande ne désigne PAS l'information demandée : il sait quoi faire → \"reply\" très courte. Ne redemande JAMAIS une information que l'écran affiche déjà (numéro d'entrée, saison, qualité) — retour terrain 13/10 : « Quel numéro d'anime choisir ? » posé deux fois alors que la liste était affichée.\n` +
         `- Préférence utilisateur (VF/VOSTFR, qualité non demandée, « tout la saison ? ») → TOUJOURS \"ask\", jamais à sa place.\n` +
         `- Si tout est déjà terminé (lien envoyé) → \"reply\" avec une phrase très courte.\n` +
         `Interdits : relancer la même commande avec les mêmes arguments ; inventer un numéro absent de la liste.`;
