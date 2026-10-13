@@ -100,9 +100,21 @@ export async function slimVideoIfNeeded(
   );
   console.log(`[SLIM] ${MB(originalBytes)} Mo → cible ~${targetMB} Mo, même résolution (${fit.videoKbps} kbps plafonnés, ${fit.note})...`);
 
+  // 9.18k — durcissement pour les entrées issues de TS consolidés (sortie
+  // Cat-Catch) : leurs timestamps non monotones font ABORTER le muxer MP4
+  // en ré-encodage (« non monotonically increasing dts »), un échec
+  // classique et déterministe. genpts régénère les PTS à la lecture,
+  // aresample=async resynchronise l'audio, make_zero décale les timestamps
+  // négatifs. Sans effet sur les fichiers sains.
   const r = await enqueue(() =>
     runFfmpegKit(
-      ["-y", "-threads", "0", "-i", inputPath, ...fit.options, "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", outPath],
+      [
+        "-y", "-fflags", "+genpts", "-threads", "0", "-i", inputPath,
+        ...fit.options,
+        "-af", "aresample=async=1:first_pts=0",
+        "-avoid_negative_ts", "make_zero",
+        "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", outPath
+      ],
       opts.timeoutMs ?? 15 * 60_000
     )
   );

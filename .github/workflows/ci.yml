@@ -21,4 +21,15 @@ jobs:
       - name: Lint (eslint, errors only)
         run: npx eslint . --quiet
       - name: Tests (vitest)
-        run: npx vitest run --reporter=dot
+        run: |
+          # 9.18k — en cas d'échec, les NOMS des tests sont émis en
+          # annotations ::error:: (les logs GitHub sont inaccessibles
+          # depuis certains réseaux : seul canal de diagnostic).
+          set +e
+          npx vitest run --reporter=dot --reporter=json --outputFile=/tmp/vitest.json
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ -f /tmp/vitest.json ]; then
+            python3 scripts/ci-vitest-annotations.py /tmp/vitest.json
+          fi
+          exit "$status"

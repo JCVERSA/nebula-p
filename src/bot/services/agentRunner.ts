@@ -419,6 +419,7 @@ export async function handleAgentMessage(
         `Décide de la suite par un UNIQUE objet JSON {"action":…} :\n` +
         `- La demande de l'utilisateur désigne CLAIREMENT une entrée de la liste (titre/numéro/saison/qualité demandés) → \"execute\" avec la commande qui choisit (ex. commande \"a\", args \"2\").\n` +
         `- Vraiment ambigu → \"ask\" avec UNE question courte qui liste les options pertinentes (numérotées).\n` +
+        `- L'écran observé se termine DÉJÀ par une consigne pour l'utilisateur (👉 Réponds avec…) : il sait quoi faire → \"reply\" très courte. Ne redemande JAMAIS une information que l'écran affiche déjà (numéro d'entrée, saison, qualité) — retour terrain 13/10 : « Quel numéro d'anime choisir ? » posé deux fois alors que la liste était affichée.\n` +
         `- Préférence utilisateur (VF/VOSTFR, qualité non demandée, « tout la saison ? ») → TOUJOURS \"ask\", jamais à sa place.\n` +
         `- Si tout est déjà terminé (lien envoyé) → \"reply\" avec une phrase très courte.\n` +
         `Interdits : relancer la même commande avec les mêmes arguments ; inventer un numéro absent de la liste.`;

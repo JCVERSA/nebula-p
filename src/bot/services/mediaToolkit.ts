@@ -273,7 +273,14 @@ export function runFfmpegKit(args: string[], timeoutMs = 240000): Promise<{ ok: 
       const p = spawn(bin, args);
       let stderr = "";
       p.stderr.on("data", (d: Buffer) => {
-        if (stderr.length < 8000) stderr += d.toString();
+        // 9.18k — FENÊTRE GLISSANTE : garder la FIN, pas le début. L'ancien
+        // cap (« n'accumule plus après 8000 ») figeait le DÉBUT (bannière +
+        // premières frames de progression) et jetait la fin — précisément
+        // là où ffmpeg imprime l'erreur fatale. Production : deux échecs
+        // SLIM « identiques » (frame=3, time=0.64s) alors que le vrai
+        // motif, en fin d'encodage, n'avait jamais été capturé.
+        stderr += d.toString();
+        if (stderr.length > 8000) stderr = stderr.slice(-4000);
       });
       p.on("error", err => resolve({ ok: false, stderr: String(err) }));
       const timer = setTimeout(() => {

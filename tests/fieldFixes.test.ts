@@ -64,3 +64,29 @@ describe("9.18j — films voiranime : une saison sans numéros n'est plus une er
     expect(src).toMatch(/map\(\(e\) => e\.label\)/);
   });
 });
+
+describe("9.18k — SLIM : l'erreur ffmpeg enfin visible + durcissement TS", () => {
+  const kit = fs.readFileSync(path.resolve(process.cwd(), "src/bot/services/mediaToolkit.ts"), "utf-8");
+  const slim = fs.readFileSync(path.resolve(process.cwd(), "src/bot/services/videoSlim.ts"), "utf-8");
+
+  it("runFfmpegKit garde la FIN de stderr (fenêtre glissante), pas le début figé", () => {
+    // L'ancien cap arrêtait l'accumulation à 8000 : la bannière + les
+    // premières frames figeaient le buffer et l'erreur fatale (toujours en
+    // FIN d'encodage) n'était jamais capturée — deux échecs « identiques »
+    // en production (frame=3, time=0.64s) venaient de ce artefact.
+    expect(kit).toContain("stderr = stderr.slice(-4000)");
+    expect(kit).not.toContain("if (stderr.length < 8000) stderr +=");
+  });
+
+  it("SLIM durcit ffmpeg pour les entrées issues de TS consolidés (DTS non monotones)", () => {
+    expect(slim).toContain('"+genpts"');
+    expect(slim).toContain('"aresample=async=1:first_pts=0"');
+    expect(slim).toContain('"make_zero"');
+  });
+
+  it("agent : un écran qui se termine par « Réponds avec » ne déclenche plus de question redondante", () => {
+    const runner = fs.readFileSync(path.resolve(process.cwd(), "src/bot/services/agentRunner.ts"), "utf-8");
+    expect(runner).toContain("il sait quoi faire");
+    expect(runner).toContain("Ne redemande JAMAIS une information que l'écran affiche déjà");
+  });
+});
