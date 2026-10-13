@@ -4,6 +4,13 @@ import { getConfig } from "../config.js";
 import { extractTikTokMedia } from "../services/tiktokExtractor.js";
 import { getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
+import {
+  tiktokReuseKey,
+  lookupMediaReuse,
+  storeMediaReuse,
+  SOCIAL_REUSE_TTL_MS
+} from "../services/mediaReuseStore.js";
+import { registerTempDownload } from "../tempDownloadManager.js";
 
 /**
  * `.tiktok` — portage natif de l'original neb (media/tiktok.js, owner request
@@ -46,6 +53,9 @@ const tiktokCommand: BotCommand = {
       let author = "";
       let duration = "";
       let mediaSource = "";
+      // 9.18t : identifiant vidéo (clé du cache 5 h) — depuis l'URL longue,
+      // la réponse tikwm, ou l'extracteur maison (liens courts résolus).
+      let ttId = (url.match(/\/video\/(\d+)/) || [])[1] || "";
 
       try {
         const apiRes = await axios.post(
@@ -60,6 +70,7 @@ const tiktokCommand: BotCommand = {
           author = data.author?.nickname || "";
           duration = data.duration ? `${data.duration}s` : "";
           mediaSource = "tikwm";
+          if (data.id) ttId = String(data.id);
         }
       } catch (err: any) {
         console.warn(`[TT] tikwm failed: ${err?.message || err}`);
@@ -74,6 +85,7 @@ const tiktokCommand: BotCommand = {
             author = own.author || "";
             duration = own.durationSec ? `${own.durationSec}s` : "";
             mediaSource = `extractor:${own.strategy}`;
+            if (own.videoId) ttId = own.videoId;
           }
         } catch (err: any) {
           console.warn(`[TT] extractor failed: ${err?.message || err}`);
@@ -95,17 +107,42 @@ const tiktokCommand: BotCommand = {
 
       // 9.18r : téléchargement local + lien durable (repli : URL distante).
       // 9.18s : nom lisible — le titre (ou l'auteur) au lieu de tiktok_<timestamp>.
+      // 9.18t : cache 5 h — une vidéo redemandée repart du disque, zéro
+      // re-téléchargement (même principe que le cache anime, fenêtre 5 h).
+      const safeTitle = (title || author || "tiktok").replace(/[^\w\s-]/g, "").trim().slice(0, 60) || "tiktok";
+      const ttFilename = `${safeTitle}.mp4`;
+      const ttCacheKey = tiktokReuseKey(ttId);
       let sendPath = videoUrl;
-      const local = await fetchMediaToTempFile(videoUrl);
-      if (local) {
-        const safeTitle = (title || author || "tiktok").replace(/[^\w\s-]/g, "").trim().slice(0, 60) || "tiktok";
-        const rec = registerMediaLink(local, `${safeTitle}.mp4`);
-        if (rec) {
-          sendPath = rec.filePath;
-          caption += `\n\n🔗 *Lien :* ${rec.downloadUrl}\n⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_`;
-        } else {
-          sendPath = local; // quota du store : fichier local, sans lien
+      let ttLink = "";
+      let ttCacheNote = "";
+      const ttHit = ttCacheKey ? lookupMediaReuse(ttCacheKey) : null;
+      if (ttHit) {
+        try {
+          const rec = registerTempDownload(ttHit.filePath, ttFilename, { noCopy: true });
+          if (rec?.filePath) {
+            sendPath = rec.filePath;
+            ttLink = rec.downloadUrl;
+            ttCacheNote = "\n⚡ Déjà en cache (5 h) — aucun re-téléchargement";
+          }
+        } catch {}
+      }
+      if (!ttCacheNote) {
+        const local = await fetchMediaToTempFile(videoUrl);
+        if (local) {
+          const rec = registerMediaLink(local, ttFilename);
+          if (rec) {
+            sendPath = rec.filePath;
+            ttLink = rec.downloadUrl;
+            if (ttCacheKey) {
+              try { storeMediaReuse(ttCacheKey, rec.filePath, ttFilename, { ttlMs: SOCIAL_REUSE_TTL_MS }); } catch {}
+            }
+          } else {
+            sendPath = local; // quota du store : fichier local, sans lien
+          }
         }
+      }
+      if (ttLink) {
+        caption += `\n\n🔗 *Lien :* ${ttLink}\n⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_` + ttCacheNote;
       }
 
       await sock.sendMessage(msg.key.remoteJid!, {

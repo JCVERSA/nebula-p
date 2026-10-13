@@ -5,6 +5,12 @@ import os from "os";
 import { BotCommand } from "../types.js";
 import { runFfmpegKit } from "../services/mediaToolkit.js";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
+import {
+  songReuseKey,
+  lookupMediaReuse,
+  storeMediaReuse,
+  SOCIAL_REUSE_TTL_MS
+} from "../services/mediaReuseStore.js";
 import { activeCookiesFile, ytmViaYtDlp } from "../services/ytDlp.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 
@@ -141,6 +147,30 @@ const songCommand: BotCommand = {
         videoDuration = v.timestamp;
       }
 
+      // 9.18t : cache 5 h — une chanson redemandée part du disque, zéro
+      // re-téléchargement ni conversion (même principe que le cache anime).
+      const mKey = songReuseKey(videoUrl);
+      const cachedSong = mKey ? lookupMediaReuse(mKey) : null;
+      if (cachedSong) {
+        try {
+          const rec = registerTempDownload(cachedSong.filePath, cachedSong.filename, { noCopy: true });
+          if (rec?.filePath) {
+            await sock.sendMessage(chatId, {
+              audio: fs.readFileSync(rec.filePath),
+              mimetype: "audio/mp4",
+              ptt: false,
+              fileName: cachedSong.filename
+            }, { quoted: msg });
+            await context.reply(
+              `⚡ *Déjà en cache (5 h)* — aucun re-téléchargement\n` +
+              `🔗 *Lien :* ${rec.downloadUrl}\n` +
+              `⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_`
+            );
+            return;
+          }
+        } catch {}
+      }
+
       const initialCaption = `🎵 *${videoTitle}*\n⏱ ${videoDuration || ""}\n\n⏳ Téléchargement en cours...`;
       try {
         if (videoThumb) {
@@ -215,6 +245,11 @@ const songCommand: BotCommand = {
           if (rec?.filePath) {
             sendFile = rec.filePath;
             songLink = rec.downloadUrl;
+            // 9.18t : entrée au cache 5 h (lien physique — le unlink du
+            // finally sur tmpOut ne touche pas la copie du cache).
+            if (mKey) {
+              try { storeMediaReuse(mKey, rec.filePath, `${safeName}.m4a`, { ttlMs: SOCIAL_REUSE_TTL_MS }); } catch {}
+            }
           }
         } catch {}
         await sock.sendMessage(chatId, {

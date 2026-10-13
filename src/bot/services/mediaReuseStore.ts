@@ -46,6 +46,10 @@ export interface MediaReuseEntry {
   createdAt: number;
   /** Dernière utilisation (lookup réussi ou insertion) — fenêtre glissante. */
   lastHitAt: number;
+  /** 9.18t : TTL propre à cette entrée (ms) — défaut global si absent.
+   * Les caches « sociaux » (Instagram/TikTok/musique) vivent 5 h au lieu
+   * des 24 h des anime, décision owner 14/10. */
+  ttlMs?: number;
 }
 
 export interface MediaReuseHit {
@@ -160,6 +164,35 @@ export function ytvReuseKey(
   return `y|${id}|${q}|${a}|${s}`;
 }
 
+// ── 9.18t : caches « sociaux » (IG / TikTok / musique) — 5 h glissantes ────
+
+/** Durée de vie des entrées sociales (owner 14/10 : 5 h, pas 24 h). */
+export const SOCIAL_REUSE_TTL_MS = 5 * 60 * 60 * 1000;
+
+/** Instagram : un média par shortcode + index (carrousels). */
+export function igReuseKey(shortcode: string, index: number): string {
+  const sc = String(shortcode || "").trim();
+  if (!/^[A-Za-z0-9_-]{5,}$/.test(sc)) return ""; // pas d'identité fiable → pas de cache
+  return `i|${sc}|${Number(index) || 0}`;
+}
+
+/** TikTok : identifiant numérique de la vidéo (/video/<id>). */
+export function tiktokReuseKey(videoId: string): string {
+  const id = String(videoId || "").replace(/\D/g, "");
+  if (id.length < 8) return ""; // pas d'identité fiable → pas de cache
+  return `t|${id}`;
+}
+
+/**
+ * Musique : identifiant YouTube (11 caractères) extrait d'une URL sous
+ * n'importe quelle forme (watch?v=, youtu.be/, shorts/, embed/).
+ */
+export function songReuseKey(url: string): string {
+  const m = String(url || "").match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/)([a-zA-Z0-9_-]{11})/);
+  if (!m) return "";
+  return `m|${m[1]}`;
+}
+
 // ── Éviction / purge ───────────────────────────────────────────────────────
 /** Un fichier est-il actuellement servi par un lien vivant du coffre ? */
 function isServedByVault(filePath: string): boolean {
@@ -178,13 +211,14 @@ function removeEntryFile(filePath: string): void {
 export function pruneMediaReuse(): { expired: number; missing: number; evicted: number; freedBytes: number } {
   const map = loadIndex();
   const now = Date.now();
-  const ttlMs = reuseTtlHours() * 3600 * 1000;
+  const defaultTtlMs = reuseTtlHours() * 3600 * 1000;
   let expired = 0;
   let missing = 0;
   let evicted = 0;
   let freedBytes = 0;
 
   for (const [key, e] of [...map.entries()]) {
+    const ttlMs = e.ttlMs && e.ttlMs > 0 ? e.ttlMs : defaultTtlMs;
     if (now - e.lastHitAt > ttlMs) {
       removeEntryFile(e.filePath);
       map.delete(key);
@@ -250,7 +284,8 @@ export function lookupMediaReuse(key: string): MediaReuseHit | null {
   const map = loadIndex();
   const e = map.get(key);
   if (!e) return null;
-  if (now - e.lastHitAt > reuseTtlHours() * 3600 * 1000) return null; // expiré (le prune le nettoiera)
+  const ttlMs = e.ttlMs && e.ttlMs > 0 ? e.ttlMs : reuseTtlHours() * 3600 * 1000;
+  if (now - e.lastHitAt > ttlMs) return null; // expiré (le prune le nettoiera)
   let size = 0;
   try { size = fs.statSync(e.filePath).size; } catch { return null; } // parti → chemin normal
   if (size <= 0) return null;
@@ -265,7 +300,12 @@ export function lookupMediaReuse(key: string): MediaReuseHit | null {
  * supplémentaire). Best-effort : tout échec est silencieux, le téléchargement
  * vient de réussir, rien ne doit le bloquer.
  */
-export function storeMediaReuse(key: string, sourcePath: string, filename: string): MediaReuseHit | null {
+export function storeMediaReuse(
+  key: string,
+  sourcePath: string,
+  filename: string,
+  opts?: { ttlMs?: number }
+): MediaReuseHit | null {
   if (!isReuseEnabled() || !key) return null;
   try {
     const size = fs.statSync(sourcePath).size;
@@ -294,7 +334,8 @@ export function storeMediaReuse(key: string, sourcePath: string, filename: strin
       filename: String(filename || "media"),
       bytes: size,
       createdAt: previous?.createdAt || now,
-      lastHitAt: now
+      lastHitAt: now,
+      ttlMs: opts?.ttlMs && opts.ttlMs > 0 ? opts.ttlMs : undefined
     };
     map.set(key, entry);
     saveIndex(map);

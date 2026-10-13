@@ -1,7 +1,13 @@
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
 import { extractInstagramMedia, instagramShortcode } from "../services/instagramExtractor.js";
-import { getLinkTtlMinutes } from "../tempDownloadManager.js";
+import {
+  igReuseKey,
+  lookupMediaReuse,
+  storeMediaReuse,
+  SOCIAL_REUSE_TTL_MS
+} from "../services/mediaReuseStore.js";
+import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
 
 /**
@@ -133,7 +139,7 @@ const instagramCommand: BotCommand = {
         return void (await context.reply("❌ Aucun média valide trouvé — post privé ou scraper indisponible."));
       }
 
-      const collectedLinks: string[] = [];
+      const collectedLinks: Array<{ url: string; cached: boolean }> = [];
       // 9.18s : nom lisible — reel_<shortcode> (au lieu d'instagram_<timestamp>).
       const shortcode = instagramShortcode(text) || `${Date.now()}`;
       for (let i = 0; i < mediaToDownload.length; i++) {
@@ -146,18 +152,38 @@ const instagramCommand: BotCommand = {
             text.includes("/tv/");
 
           // 9.18r : téléchargement local + lien durable (repli : URL distante).
+          // 9.18t : cache 5 h par média — un reel redemandé repart du disque,
+          // zéro re-téléchargement (même principe que le cache anime 24 h).
+          const ext = isVideo ? ".mp4" : ".jpg";
+          const base = `${isVideo ? "reel" : "post"}_${shortcode}`;
+          const linkName = mediaToDownload.length > 1 ? `${base}_${i + 1}${ext}` : `${base}${ext}`;
+          const cacheKey = igReuseKey(shortcode, i);
           let sendPath = mediaUrl;
-          const local = await fetchMediaToTempFile(mediaUrl);
-          if (local) {
-            const ext = isVideo ? ".mp4" : ".jpg";
-            const base = `${isVideo ? "reel" : "post"}_${shortcode}`;
-            const linkName = mediaToDownload.length > 1 ? `${base}_${i + 1}${ext}` : `${base}${ext}`;
-            const rec = registerMediaLink(local, linkName);
-            if (rec) {
-              sendPath = rec.filePath;
-              collectedLinks.push(rec.downloadUrl);
-            } else {
-              sendPath = local; // quota du store atteint : fichier local, sans lien
+          let servedFromCache = false;
+          const cachedHit = cacheKey ? lookupMediaReuse(cacheKey) : null;
+          if (cachedHit) {
+            try {
+              const rec = registerTempDownload(cachedHit.filePath, linkName, { noCopy: true });
+              if (rec?.filePath) {
+                sendPath = rec.filePath;
+                collectedLinks.push({ url: rec.downloadUrl, cached: true });
+                servedFromCache = true;
+              }
+            } catch {}
+          }
+          if (!servedFromCache) {
+            const local = await fetchMediaToTempFile(mediaUrl);
+            if (local) {
+              const rec = registerMediaLink(local, linkName);
+              if (rec) {
+                sendPath = rec.filePath;
+                if (cacheKey) {
+                  try { storeMediaReuse(cacheKey, rec.filePath, linkName, { ttlMs: SOCIAL_REUSE_TTL_MS }); } catch {}
+                }
+                collectedLinks.push({ url: rec.downloadUrl, cached: false });
+              } else {
+                sendPath = local; // quota du store atteint : fichier local, sans lien
+              }
             }
           }
 
@@ -185,10 +211,13 @@ const instagramCommand: BotCommand = {
       // 9.18r : UN SEUL message avec tous les liens — fini les .up manuels
       // (retour terrain 14/10 : sept .up à la main pour sept reels).
       if (collectedLinks.length) {
+        const anyCached = collectedLinks.some((l) => l.cached);
         await context.reply(
           `🔗 *Liens de téléchargement* (${collectedLinks.length})\n` +
-          `⏳ Valables ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)\n\n` +
-          collectedLinks.map((l, i) => `${i + 1}. ${l}`).join("\n")
+          `⏳ Valables ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)\n` +
+          (anyCached ? `⚡ _Marqué déjà en cache (5 h) — aucun re-téléchargement_\n` : "") +
+          `\n` +
+          collectedLinks.map((l, i) => `${i + 1}. ${l.cached ? "⚡ " : ""}${l.url}`).join("\n")
         );
       }
     } catch (error) {

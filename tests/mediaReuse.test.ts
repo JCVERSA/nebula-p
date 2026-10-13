@@ -1,10 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import {
   __resetMediaReuseForTests,
   animeReuseKey,
+  igReuseKey,
+  tiktokReuseKey,
+  songReuseKey,
+  SOCIAL_REUSE_TTL_MS,
   lookupMediaReuse,
   normalizeTitleForReuse,
   pruneMediaReuse,
@@ -205,5 +209,52 @@ describe("9.15 — wiring", () => {
     const src = fs.readFileSync("src/bot/tempDownloadManager.ts", "utf-8");
     expect(src).toContain("noCopy?: boolean;");
     expect(src).toContain("!options?.noCopy && currentTotal + sizeBytes > getTempMaxTotalBytes()");
+  });
+});
+
+describe("9.18t — TTL par entrée : 5 h social, 24 h défaut", () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("une entrée sociale (5 h) est vivante à 4 h 59 et expirée à 5 h 01", () => {
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+    const f = path.join(staging, "social.mp4");
+    fs.writeFileSync(f, "x".repeat(64));
+    const key = igReuseKey("DeZL1mfhKjw", 0);
+    expect(storeMediaReuse(key, f, "reel_DeZL1mfhKjw.mp4", { ttlMs: SOCIAL_REUSE_TTL_MS })).not.toBeNull();
+
+    // Les deux entrées sont posées à 12 h 00 (avant TOUT lookup).
+    const keyB = igReuseKey("DeQB206hsYX", 0);
+    expect(storeMediaReuse(keyB, f, "reel_DeQB206hsYX.mp4", { ttlMs: SOCIAL_REUSE_TTL_MS })).not.toBeNull();
+
+    // Scénario A : vivante à 4 h 59 (aucun lookup intermédiaire — la fenêtre
+    // est glissante, un lookup rafraîchit la vie).
+    vi.setSystemTime(new Date("2026-10-14T16:59:00Z"));
+    expect(lookupMediaReuse(key)).not.toBeNull();
+
+    // Scénario B : jamais touchée depuis 12 h 00 → expirée à 5 h 01.
+    vi.setSystemTime(new Date("2026-10-14T17:01:00Z"));
+    expect(lookupMediaReuse(keyB)).toBeNull();
+  });
+
+  it("une entrée SANS ttlMs garde le défaut 24 h — vivante à 23 h", () => {
+    vi.setSystemTime(new Date("2026-10-14T12:00:00Z"));
+    const f = path.join(staging, "anime.mp4");
+    fs.writeFileSync(f, "y".repeat(64));
+    const key = animeReuseKey("Mushoku Tensei", "01", 1, "VF", "480P");
+    expect(storeMediaReuse(key, f, "ep.mp4")).not.toBeNull(); // sans opts → 24 h
+    vi.setSystemTime(new Date("2026-10-15T11:00:00Z")); // +23 h
+    expect(lookupMediaReuse(key)).not.toBeNull();
+  });
+
+  it("helpers : identités fiables uniquement (clé vide sinon)", () => {
+    expect(igReuseKey("DeZL1mfhKjw", 2)).toBe("i|DeZL1mfhKjw|2");
+    expect(igReuseKey("ab", 0)).toBe(""); // shortcode trop court
+    expect(tiktokReuseKey("7401234567890123456")).toBe("t|7401234567890123456");
+    expect(tiktokReuseKey("123")).toBe(""); // pas un id réel
+    expect(songReuseKey("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).toBe("m|dQw4w9WgXcQ");
+    expect(songReuseKey("https://youtu.be/dQw4w9WgXcQ?t=30")).toBe("m|dQw4w9WgXcQ");
+    expect(songReuseKey("https://www.youtube.com/shorts/abcdefghijk")).toBe("m|abcdefghijk");
+    expect(songReuseKey("https://m.tiktok.com/x")).toBe(""); // pas YouTube → pas de cache
   });
 });

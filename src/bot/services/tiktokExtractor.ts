@@ -26,6 +26,8 @@ export interface TikTokExtraction {
   title?: string;
   author?: string;
   durationSec?: number;
+  /** 9.18t : identifiant numérique — clé du cache 5 h. */
+  videoId?: string;
   strategy: "page";
 }
 
@@ -75,6 +77,7 @@ interface ParsedTikTokItem {
   title?: string;
   author?: string;
   durationSec?: number;
+  videoId?: string;
 }
 
 /** Extrait l'item vidéo du JSON d'hydratation — gère les deux schémas TikTok. */
@@ -89,7 +92,8 @@ function pickItem(payload: any): ParsedTikTokItem | null {
       coverUrl: universal.video.cover || universal.video.originCover,
       title: universal.desc,
       author: universal.author?.nickname,
-      durationSec: universal.video.duration
+      durationSec: universal.video.duration,
+      videoId: universal.id ? String(universal.id) : undefined
     };
   }
 
@@ -103,7 +107,8 @@ function pickItem(payload: any): ParsedTikTokItem | null {
         coverUrl: first.video.cover || first.video.originCover,
         title: first.desc,
         author: first.author?.nickname,
-        durationSec: first.video.duration
+        durationSec: first.video.duration,
+        videoId: first.id ? String(first.id) : undefined
       };
     }
   }
@@ -165,6 +170,7 @@ export async function extractTikTokMedia(rawUrl: string): Promise<TikTokExtracti
       title: item.title,
       author: item.author,
       durationSec: item.durationSec,
+      videoId: item.videoId,
       strategy: "page"
     };
   } catch (err: any) {
