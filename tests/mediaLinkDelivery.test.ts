@@ -87,3 +87,36 @@ describe("9.18r — log de nettoyage honnête (un mp4 n'est pas un ZIP)", () => 
     expect(mgr).toContain("expired file(s) deleted");
   });
 });
+
+describe("9.18s — parité complète : noms lisibles + liens sur YT seul et musique", () => {
+  const ig = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/instagram.ts"), "utf-8");
+  const tt = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/tiktok.ts"), "utf-8");
+  const ytv = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/ytvideo.ts"), "utf-8");
+  const song = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/song.ts"), "utf-8");
+
+  it("IG : fichier nommé reel_<shortcode> (plus d'instagram_<timestamp>)", () => {
+    expect(ig).toContain("instagramShortcode(text)");
+    expect(ig).toContain('`${isVideo ? "reel" : "post"}_${shortcode}`');
+    expect(ig).not.toContain("instagram_${Date.now()}");
+  });
+
+  it("TikTok : fichier nommé du titre nettoyé (plus de tiktok_<timestamp>)", () => {
+    expect(tt).toContain("const safeTitle = (title || author || \"tiktok\")");
+    expect(tt).toContain("registerMediaLink(local, `${safeTitle}.mp4`)");
+    expect(tt).not.toContain("tiktok_${Date.now()}.mp4");
+  });
+
+  it("YTV vidéo seule : lien dans la caption, cache servi sans copie, fichier frais mové", () => {
+    expect(ytv).toContain("let singleLink");
+    expect(ytv).toContain("reusedHit ? { noCopy: true } : { moveFile: true }");
+    expect(ytv).toContain("mediaUrl = rec.filePath");
+    expect(ytv).toContain("🔗 *Lien :* ${singleLink}");
+  });
+
+  it("Musique : l'audio converti part du store et le lien suit l'envoi", () => {
+    expect(song).toContain("let songLink");
+    expect(song).toContain("registerTempDownload(tmpOut, `${safeName}.m4a`, { moveFile: true })");
+    expect(song).toContain("audio: fs.readFileSync(sendFile)");
+    expect(song).toContain("if (songLink) {");
+  });
+});

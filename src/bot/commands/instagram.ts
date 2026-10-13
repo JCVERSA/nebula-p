@@ -1,6 +1,6 @@
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
-import { extractInstagramMedia } from "../services/instagramExtractor.js";
+import { extractInstagramMedia, instagramShortcode } from "../services/instagramExtractor.js";
 import { getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
 
@@ -134,6 +134,8 @@ const instagramCommand: BotCommand = {
       }
 
       const collectedLinks: string[] = [];
+      // 9.18s : nom lisible — reel_<shortcode> (au lieu d'instagram_<timestamp>).
+      const shortcode = instagramShortcode(text) || `${Date.now()}`;
       for (let i = 0; i < mediaToDownload.length; i++) {
         try {
           const media = mediaToDownload[i];
@@ -147,7 +149,10 @@ const instagramCommand: BotCommand = {
           let sendPath = mediaUrl;
           const local = await fetchMediaToTempFile(mediaUrl);
           if (local) {
-            const rec = registerMediaLink(local, `instagram_${Date.now()}_${i + 1}${isVideo ? ".mp4" : ".jpg"}`);
+            const ext = isVideo ? ".mp4" : ".jpg";
+            const base = `${isVideo ? "reel" : "post"}_${shortcode}`;
+            const linkName = mediaToDownload.length > 1 ? `${base}_${i + 1}${ext}` : `${base}${ext}`;
+            const rec = registerMediaLink(local, linkName);
             if (rec) {
               sendPath = rec.filePath;
               collectedLinks.push(rec.downloadUrl);

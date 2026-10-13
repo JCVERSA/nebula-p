@@ -94,10 +94,12 @@ const tiktokCommand: BotCommand = {
       caption += `\n> _Downloaded by ${getConfig().botName}_`;
 
       // 9.18r : téléchargement local + lien durable (repli : URL distante).
+      // 9.18s : nom lisible — le titre (ou l'auteur) au lieu de tiktok_<timestamp>.
       let sendPath = videoUrl;
       const local = await fetchMediaToTempFile(videoUrl);
       if (local) {
-        const rec = registerMediaLink(local, `tiktok_${Date.now()}.mp4`);
+        const safeTitle = (title || author || "tiktok").replace(/[^\w\s-]/g, "").trim().slice(0, 60) || "tiktok";
+        const rec = registerMediaLink(local, `${safeTitle}.mp4`);
         if (rec) {
           sendPath = rec.filePath;
           caption += `\n\n🔗 *Lien :* ${rec.downloadUrl}\n⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_`;

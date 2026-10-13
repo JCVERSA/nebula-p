@@ -7,7 +7,7 @@ import { activeCookiesFile, isPlaylistLink, probeYoutubeEntry, ytvViaYtDlp } fro
 import { slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus, completeBatchJob } from "../batchDownloadManager.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
-import { registerTempDownload } from "../tempDownloadManager.js";
+import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { lookupMediaReuse, storeMediaReuse, ytvReuseKey } from "../services/mediaReuseStore.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 
@@ -553,7 +553,7 @@ const ytvideoCommand: BotCommand = {
         }
       }
 
-      const mediaUrl = videoPath || downloadUrl;
+      let mediaUrl = videoPath || downloadUrl;
       if (!mediaUrl) {
         return void (await context.reply("❌ Impossible de télécharger cette vidéo — toutes les sources ont échoué.\n🔄 Réessaie dans un instant."));
       }
@@ -578,6 +578,22 @@ const ytvideoCommand: BotCommand = {
       }
 
       const safeName = (finalTitle || "video").replace(/[^\w\s-]/g, "").trim().slice(0, 60);
+      // 9.18s : lien haut-débit sur la vidéo SEULE aussi (parité anime —
+      // les playlists l'avaient déjà). Cache hit → noCopy (le fichier du
+      // cache est servi tel quel) ; fichier frais → move vers le store.
+      let singleLink = "";
+      if (videoPath) {
+        try {
+          const rec = registerTempDownload(videoPath, `${safeName}.mp4`, reusedHit ? { noCopy: true } : { moveFile: true });
+          if (rec?.filePath) {
+            mediaUrl = rec.filePath;
+            singleLink = rec.downloadUrl;
+          }
+        } catch {}
+      }
+      const linkNote = singleLink
+        ? `\n\n🔗 *Lien :* ${singleLink}\n⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_`
+        : "";
       await sock.sendMessage(chatId, {
         video: { url: mediaUrl },
         mimetype: "video/mp4",
@@ -586,6 +602,7 @@ const ytvideoCommand: BotCommand = {
           (audioLang ? `\n🎚️ Audio : ${langLabel(audioLang)}` : "") +
           (subs ? `\n💬 Sous-titres ${subs.auto ? "automatiques " : ""}${subs.lang.split("-")[0].toUpperCase()} intégrés` : "") +
           (reusedHit ? `\n⚡ Servie depuis le cache — aucun re-téléchargement` : "") +
+          linkNote +
           `\n\n> *_Downloaded by ${getConfig().botName}_*`
       }, { quoted: msg });
     } catch (error: any) {

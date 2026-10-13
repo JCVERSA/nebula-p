@@ -4,6 +4,7 @@ import path from "path";
 import os from "os";
 import { BotCommand } from "../types.js";
 import { runFfmpegKit } from "../services/mediaToolkit.js";
+import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { activeCookiesFile, ytmViaYtDlp } from "../services/ytDlp.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 
@@ -205,12 +206,26 @@ const songCommand: BotCommand = {
       // Conversion AAC (WhatsApp) via le runner sécurisé partagé — plus d'execSync.
       const r = await runFfmpegKit(["-y", "-i", tmpIn, "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", tmpOut], 60000);
       if (r.ok && fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 1000) {
+        // 9.18s : lien haut-débit sur la musique aussi (parité anime) —
+        // l'audio converti part du store à TTL glissant.
+        let songLink = "";
+        let sendFile = tmpOut;
+        try {
+          const rec = registerTempDownload(tmpOut, `${safeName}.m4a`, { moveFile: true });
+          if (rec?.filePath) {
+            sendFile = rec.filePath;
+            songLink = rec.downloadUrl;
+          }
+        } catch {}
         await sock.sendMessage(chatId, {
-          audio: fs.readFileSync(tmpOut),
+          audio: fs.readFileSync(sendFile),
           mimetype: "audio/mp4",
           ptt: false,
           fileName: `${safeName}.m4a`
         }, { quoted: msg });
+        if (songLink) {
+          await context.reply(`🔗 *Lien :* ${songLink}\n⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_`);
+        }
       } else {
         console.warn("[SONG] conversion AAC échouée — envoi brut");
         await sock.sendMessage(chatId, {
