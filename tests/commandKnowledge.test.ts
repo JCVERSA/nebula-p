@@ -51,7 +51,10 @@ describe("commandKnowledge — fiche .a (statique)", () => {
 
   it("raconte des règles de guidage proactives mais honnêtes", () => {
     const k = buildCommandKnowledge(".");
-    expect(k).toContain("Tu ne peux pas télécharger ni envoyer de fichiers");
+    // 9.18o : règle réécrite — l'ancienne « Tu ne peux pas télécharger »
+    // contredisait le pilotage autonome 9.1 dans le même prompt.
+    expect(k).toContain("Rien ne sert sa demande");
+    expect(k).toContain("exécute-la (pilotage autonome)");
   expect(k).toContain("RECHERCHE D'INFO (9.0)");
   // 9.3 — leçons du retour terrain (hallucination d'actualité, cible
   // absente des args, titres français vs internationaux)

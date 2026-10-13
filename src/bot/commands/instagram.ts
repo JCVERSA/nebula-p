@@ -1,10 +1,13 @@
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
+import { extractInstagramMedia } from "../services/instagramExtractor.js";
 
 /**
  * `.instagram` — portage natif de l'original neb (media/instagram.js, owner
- * request 8.59) : scraper npm `ruhend-scraper` (igdl), dédoublonnage par URL
- * exacte, max 20 médias, délai 1 s entre envois. Adaptations : messages FR,
+ * request 8.59) : scraper npm `ruhend-scraper` (igdl puis igdl2, chaîne
+ * 9.18p), dédoublonnage par URL exacte, max 20 médias, délai 1 s entre
+ * envois. Si les deux backends tiers échouent : extracteur maison
+ * (instagramExtractor.ts — embed public + API web Instagram). Messages FR,
  * import dynamique (le paquet n'a pas de types).
  */
 
@@ -63,19 +66,56 @@ const instagramCommand: BotCommand = {
       await sock.sendMessage(chatId, { react: { text: "📥", key: msg.key } });
       await context.reply("📥 *Téléchargement...* ⏳ Patiente quelques secondes.");
 
-      const mod = (await import("ruhend-scraper")) as unknown as { igdl: Igdl };
+      // 9.18p (retour terrain reel DeZL1mfhKjw) : chaîne de repli à 3 étages.
+      // igdl et igdl2 sont les deux backends obfusqués du paquet (sites
+      // tiers snapsave/fapper — muets le jour où ces sites changent leur
+      // HTML) ; l'extracteur maison (embed public + API web Instagram,
+      // zéro site tiers) ferme la marche en filet de sécurité.
       // 8.84 (audit commandes C5) : le scraper n'a aucun timeout intégré —
       // sans cette borne, un appel qui pend bloquait la commande indéfiniment.
-      const downloadData = await Promise.race([
-        mod.igdl(text),
-        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("igdl timeout")), 30000)),
-      ]);
+      const mod = (await import("ruhend-scraper")) as unknown as { igdl: Igdl; igdl2: Igdl };
+      const withTimeout = (p: Promise<{ data?: IgdlMedia[] }>, label: string) =>
+        Promise.race([
+          p,
+          new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${label} timeout`)), 30000)),
+        ]);
 
-      if (!downloadData?.data?.length) {
-        return void (await context.reply("❌ Aucun média trouvé — le post est peut-être privé ou le lien invalide."));
+      let scrapedMedia: IgdlMedia[] = [];
+      let mediaSource = "";
+      for (const [label, fn] of [["igdl", mod.igdl], ["igdl2", mod.igdl2]] as Array<[string, Igdl]>) {
+        try {
+          const data = await withTimeout(fn(text), label);
+          if (data?.data?.length) {
+            scrapedMedia = data.data;
+            mediaSource = label;
+            break;
+          }
+          console.warn(`[IG] ${label}: no media (backend tiers indisponible ou muet)`);
+        } catch (err: any) {
+          console.warn(`[IG] ${label} failed: ${err?.message || err}`);
+        }
       }
 
-      const mediaToDownload = extractUniqueMedia(downloadData.data).slice(0, 20);
+      if (!scrapedMedia.length) {
+        try {
+          const own = await extractInstagramMedia(text);
+          if (own && own.items.length) {
+            scrapedMedia = own.items;
+            mediaSource = `extractor:${own.strategy}`;
+          }
+        } catch (err: any) {
+          console.warn(`[IG] extractor failed: ${err?.message || err}`);
+        }
+      }
+
+      if (!scrapedMedia.length) {
+        return void (await context.reply(
+          "❌ Aucun média trouvé — le post est peut-être privé, le lien invalide, ou Instagram limite le serveur _(réessaie dans quelques minutes)_."
+        ));
+      }
+      console.log(`[IG] media source: ${mediaSource} (${scrapedMedia.length} item(s))`);
+
+      const mediaToDownload = extractUniqueMedia(scrapedMedia).slice(0, 20);
       if (!mediaToDownload.length) {
         return void (await context.reply("❌ Aucun média valide trouvé — post privé ou scraper indisponible."));
       }

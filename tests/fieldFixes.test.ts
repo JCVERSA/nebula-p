@@ -122,3 +122,21 @@ describe("9.18n — agent : l'auto-sélection reprend le dessus sur le relais (M
     expect(runner).toContain("ET sa demande ne désigne PAS l'information demandée : il sait quoi faire");
   });
 });
+
+describe("9.18o — audit agent : contradictions du prompt réconciliées", () => {
+  const ck = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commandKnowledge.ts"), "utf-8");
+
+  it("A2 : la règle 8.79 « tu ne peux pas télécharger » ne contredit plus le pilotage autonome 9.1", () => {
+    expect(ck).not.toContain("Tu ne peux pas télécharger ni envoyer de fichiers");
+    expect(ck).not.toContain("ex. « ${p}a solo leveling »)");
+    // nouvelle règle : exécute si commande existe, commande à taper SEULEMENT si aucune commande ne sert la demande
+    expect(ck).toContain("exécute-la (pilotage autonome)");
+    expect(ck).toContain("Rien ne sert sa demande");
+  });
+
+  it("A3 : « Décide » est cadré à ytv/ytm, l'anime reste TOUJOURS à l'utilisateur", () => {
+    expect(ck).not.toContain("Choix laissé ? Décide.");
+    expect(ck).toContain("anime : préférences à l'utilisateur");
+    expect(ck).toContain("vont TOUJOURS à l'utilisateur");
+  });
+});

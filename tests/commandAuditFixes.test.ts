@@ -56,7 +56,9 @@ describe("C4/C5 — timeouts des commandes réseau", () => {
   it("instagram : scraper borné par Promise.race", () => {
     const src = read("src/bot/commands/instagram.ts");
     expect(src).toContain("Promise.race");
-    expect(src).toContain("igdl timeout");
+    // 9.18p : la chaîne igdl → igdl2 → extracteur borne CHAQUE étage via
+    // withTimeout (label dynamique) — le verrou porte la borne elle-même.
+    expect(src).toContain("30000");
   });
 });
 

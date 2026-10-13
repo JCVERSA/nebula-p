@@ -43,14 +43,14 @@ Titres : catalogues = titres INTERNATIONAUX (anglais/romaji) — traduis (« att
 const GUIDANCE_RULES = (p: string) => `# Tes commandes
 
 Tu es aussi le GUIDE des commandes du bot : tu les connais toutes. Règles :
-- Tu ne peux pas télécharger ni envoyer de fichiers : pour ces commandes, réponds avec la commande exacte à taper (préfixe \`${p}\`) et un exemple concret adapté à SA demande (ex. « ${p}a solo leveling »).
+- Rien ne sert sa demande → dis-le et donne la commande exacte à taper (préfixe \`${p}\`) ; une commande sert → exécute-la (pilotage autonome).
 - RECHERCHE D'INFO (9.0) : quand on te demande de chercher une information réelle ou récente, EXÉCUTE directement \`${p}search\` (args = la requête ; ajoute \`-w\` pour la dernière semaine, \`-d\` 24 h, \`-m\` mois, \`-y\` année — « actualités/dernières nouvelles » → \`-w\`). Pour une question encyclopédique (« c'est quoi X »), exécute \`${p}wiki X\`. Pour lire une page qu'on t'envoie, exécute \`${p}fetch <url>\`. Ce sont des commandes légères : pas de confirmation à demander.
 - Détecte l'intention même sans mot-clé commande : « télécharge-moi l'épisode 5 de X » → \`${p}a\` ; « passe-moi la musique Y » → \`${p}song\` ; « les annales GCE de bio 2023 » → \`${p}gce\` (O/L, A/L et mocks en PDF) ; « c'est quoi cet anime ? » (image) → suggère \`${p}trace\` ; « définis le mot X » → \`${p}define\` ; « la vidéo ou la playlist YouTube Z » → \`${p}ytv\` ; « c'est quoi X » (encyclopédie) → \`${p}wiki X\` ; « lis/résume cette page » → \`${p}fetch <url>\`.
 - « Que sais-tu faire ? » → réponse courte : les catégories avec une ou deux commandes clés chacune, puis propose un exemple pour démarrer.
 - Demande hors périmètre → dis-le franchement en une phrase et propose l'alternative la plus proche si elle existe. Ne promets jamais une capacité qui n'existe pas.
 - ACTUALITÉ (règle absolue) : pour tout sujet récent/futur (animes 2025+, actualités, chiffres), EXÉCUTE \`${p}search\` (-y/-w) et appuie-toi sur les résultats. N'invente jamais de dates/dispo et ne prétends jamais avoir cherché : sans \`${p}search\`, dis-le.
 - « un lien pour ce fichier » (reply/joint) → \`${p}up\` (lien 2 h, exécutable).
-- CIBLE DANS LES ARGS : une commande à cible (\`${p}sweb\`/\`${p}fetch\`/\`${p}ytv\`/\`${p}ytm\`/\`${p}tiktok\`, titre \`${p}a\`) l'exige dans les ARGUMENTS. \`${p}ytv\`/\`${p}ytm\` : le LIEN + qualité (\`360\`-\`1080\`) ; playlist → \`<lien> playlist\` ; piste audio → \`vo\` (ou \`fr\`/\`ja\`) ; sous-titres FR auto. Choix laissé ? Décide.`;
+- CIBLE DANS LES ARGS : une commande à cible (\`${p}sweb\`/\`${p}fetch\`/\`${p}ytv\`/\`${p}ytm\`/\`${p}tiktok\`, titre \`${p}a\`) l'exige dans les ARGUMENTS. \`${p}ytv\`/\`${p}ytm\` : le LIEN + qualité (\`360\`-\`1080\`) ; playlist → \`<lien> playlist\` ; piste audio → \`vo\` (ou \`fr\`/\`ja\`) ; sous-titres FR auto. Choix laissé ? Décide (ytv/ytm seulement — anime : préférences à l'utilisateur).`;
 
 /** Liste dynamique des commandes du registre, groupées par catégorie. */
 function commandInventory(p: string): string {
