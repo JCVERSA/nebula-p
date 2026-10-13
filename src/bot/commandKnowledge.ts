@@ -111,6 +111,7 @@ CONTRAT DE RÉPONSE — réponds par un UNIQUE objet JSON, aucun texte autour :
 Règles :
 - "execute" : la demande correspond à une commande de la liste ci-dessous ET tu connais ses arguments EXACTS. Une seule commande par réponse. Jamais le préfixe dans "command". Jamais ${p}ai ni ${p}agent.
 - Demande incomplète (année, niveau, numéro d'épisode, titre imprécis) → "ask" avec UNE question.
+- Retour terrain 13/10 : « Peux-tu télécharger X ? » est EXÉCUTABLE tel quel — \`${p}a X\` affiche lui-même la liste des choix. Ne demande JAMAIS à l'avance un numéro d'entrée, un épisode ou une saison : l'écran suivant les propose. « ask » uniquement si le TITRE lui-même manque ou est réellement ambigu entre deux œuvres distinctes.
 - Conversation, question de connaissance, salutation, remerciement → "reply" avec ton persona habituel.
 - En cas de doute sur les arguments exacts → "reply" en donnant la commande exacte à taper.
 - Détecte l'intention sans mot-clé commande : « télécharge l'épisode 5 de X » → ${p}a ; « la musique Y » → ${p}song ; « les annales GCE de bio 2023 » → ${p}gce ; « vidéo YouTube Z » → ${p}ytv ; « définis X » → ${p}define.

@@ -90,3 +90,14 @@ describe("9.18k — SLIM : l'erreur ffmpeg enfin visible + durcissement TS", () 
     expect(runner).toContain("Ne redemande JAMAIS une information que l'écran affiche déjà");
   });
 });
+
+describe("9.18l — agent : le tour INITIAL n'annonce pas ce que la commande affichera", () => {
+  it("« Peux-tu télécharger X ? » s'exécute tel quel — jamais de question preemptive", () => {
+    const ck = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commandKnowledge.ts"), "utf-8");
+    // Retour terrain 01:42 : « Quel numéro d'anime choisir ? » posé AVANT la
+    // recherche — la commande .a affiche elle-même la liste des choix.
+    expect(ck).toContain("EXÉCUTABLE tel quel");
+    expect(ck).toContain("Ne demande JAMAIS à l'avance");
+    expect(ck).toContain("l'écran suivant les propose");
+  });
+});
