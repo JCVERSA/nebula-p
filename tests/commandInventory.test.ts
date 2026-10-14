@@ -42,6 +42,9 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "fetch", aliases: ["read", "lire"] },
   { name: "wiki", aliases: ["wikipedia", "encyclopedie"] },
   { name: "upload", aliases: ["up", "tr", "lu", "opload", "opl", "upl"] },
+  // 9.18u : traduction one-shot (décision owner 14/10, analyse repos —
+  // .tr était déjà pris par upload → nom primaire `trad`)
+  { name: "trad", aliases: ["traduis", "tl"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

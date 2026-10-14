@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import pingCommand from "./commands/ping.js";
+import tradCommand from "./commands/trad.js";
 import ytvideoCommand from "./commands/ytvideo.js";
 import songCommand from "./commands/song.js";
 import ytlinkCommand from "./commands/ytlink.js";
@@ -84,6 +85,7 @@ const diskCommandCache = new Map<string, BotCommand>();
 function getBuiltinCommands(): BotCommand[] {
   return [
     pingCommand,
+    tradCommand,
     menuCommand,
     helpCommand,
     aiCommand,

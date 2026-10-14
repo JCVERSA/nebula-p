@@ -6,6 +6,15 @@ on:
       - "android/**"
       - ".github/workflows/android.yml"
   workflow_dispatch:
+  # 9.18v : à la publication d'une release, l'APK est reconstruit AU TAG
+  # et attaché à la release en pièce jointe — zéro manipulation manuelle
+  # (les artifacts Actions restent aussi disponibles, rétention 90 j).
+  release:
+    types: [published]
+
+# gh release upload (étape release uniquement) nécessite contents: write.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -89,3 +98,14 @@ jobs:
           name: nova-build-log
           path: android/build.log
           if-no-files-found: ignore
+
+      # 9.18v : publication de release → l'APK rejoint la release en pièce
+      # jointe (ce build tourne AU TAG — source de vérité de la release).
+      - name: Attach APK to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk "Nova-${RELEASE_TAG}-debug.apk"
+          gh release upload "$RELEASE_TAG" "Nova-${RELEASE_TAG}-debug.apk" --clobber
