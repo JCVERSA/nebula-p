@@ -49,6 +49,8 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "resume", aliases: ["résume", "sum"] },
   // 9.18bb : rappels programmés (P7 du plan owner — heure Cameroun)
   { name: "remind", aliases: ["rappel", "rappelle"] },
+  // 9.18dd : lecture à voix haute (P6 — voix Edge sans clé, reply ou texte)
+  { name: "tts", aliases: ["voix", "dis"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

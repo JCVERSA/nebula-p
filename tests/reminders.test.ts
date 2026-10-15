@@ -87,6 +87,26 @@ describe("9.18bb (P7) — parseReminderSpec (pur)", () => {
     expect(parseReminderSpec("annule 1")).toEqual({ kind: "cancel", index: 1 });
   });
 
+  it("audit 9.18 : « 18h » tapé juste avant/après 18h (±2 min) → borné à +30 s, pas rejeté", () => {
+    // 17:59:50 Douala (16:59:50 UTC) : 18h00 est à +10 s → clamp +30 s
+    const avant = Date.UTC(2026, 9, 15, 16, 59, 50);
+    const r1 = parseReminderSpec("18h télécharger mushoku", avant);
+    expect(r1 && r1.kind === "set").toBe(true);
+    if (r1 && r1.kind === "set") expect(r1.dueAt).toBe(avant + 30_000);
+    // 18:01:30 Douala (17:01:30 UTC) : 18h00 est passé d'1 min 30 → clamp +30 s
+    const apres = Date.UTC(2026, 9, 15, 17, 1, 30);
+    const r2 = parseReminderSpec("18h télécharger mushoku", apres);
+    expect(r2 && r2.kind === "set").toBe(true);
+    if (r2 && r2.kind === "set") expect(r2.dueAt).toBe(apres + 30_000);
+    // 17h55 tapé à 18:01 (passé de 6 min > 2 min) → demain 17h55, pas de clamp
+    const loin = Date.UTC(2026, 9, 15, 17, 1, 0); // 18:01 Douala
+    const r3 = parseReminderSpec("17h55 x", loin);
+    expect(r3 && r3.kind === "set").toBe(true);
+    if (r3 && r3.kind === "set") expect(r3.dueAt).toBeGreaterThan(loin + 20 * 3_600_000);
+    // « dans 0 min » explicite reste rejeté (pas un cas horloge)
+    expect(parseReminderSpec("dans 0 min x", avant)).toBeNull();
+  });
+
   it("rejets honnêtes : vide, sans texte, invalide, trop tôt, trop loin, heure impossible", () => {
     expect(parseReminderSpec("")).toBeNull();
     expect(parseReminderSpec("18h")).toBeNull(); // pas de texte

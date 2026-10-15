@@ -469,7 +469,9 @@ export async function handleAgentMessage(
         // contenait PLUSIEURS demandes liées → UN tour de relance pour
         // enchaîner la deuxième (éco tokens : détection déterministe, une
         // seule fois, sous les mêmes plafonds/quota que le reste).
-        if (multiIntentPending && !multiFollowUpUsed && decisionsUsed < MAX_AI_DECISIONS) {
+        // Audit 9.18 (P8) : si la première commande a été REFUSÉE (RoleGuard),
+        // on ne tente pas la deuxième — un refus termine le pilotage du message.
+        if (multiIntentPending && !multiFollowUpUsed && !out.denied && decisionsUsed < MAX_AI_DECISIONS) {
           const quotaChain = checkAIQuota(info.actorJid);
           if (quotaChain.allowed) {
             consumeAIQuota(info.actorJid);

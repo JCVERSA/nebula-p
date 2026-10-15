@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { buildCommandKnowledge } from "../src/bot/commandKnowledge.js";
+import { buildCommandKnowledge, buildAgentKnowledge } from "../src/bot/commandKnowledge.js";
 import { getPersonaPrompt } from "../src/bot/persona.js";
 import { registerCommand, removeCommand } from "../src/bot/commandRegistry.js";
 import type { BotCommand } from "../src/bot/types.js";
@@ -143,5 +143,21 @@ describe("commandKnowledge — injection dans le persona", () => {
     expect(p).toContain("# Identity");
     expect(p).toContain("Jcversa — Dark Neon");
     expect(p.indexOf("# Identity")).toBeLessThan(p.indexOf("# Tes commandes"));
+  });
+});
+
+describe("9.18ff — contrat agent : chaîne générique + continuité (retour terrain 15/10)", () => {
+  it("l'agent sait télécharger un générique sans demander le lien", () => {
+    const k = buildAgentKnowledge(".");
+    expect(k).toContain("générique/opening/ending de X");
+    expect(k).toContain("ne demande JAMAIS un lien YouTube à l'utilisateur");
+  });
+
+  it("les réponses aux questions de l'agent complètent la demande en cours", () => {
+    const k = buildAgentKnowledge(".");
+    expect(k).toContain("COMPLETE la demande en cours");
+    expect(k).toContain("ne redemande JAMAIS une information déjà donnée");
+    expect(k).toContain("n'est JAMAIS un titre d'anime");
+    expect(k).toContain("UNIQUEMENT sur un écran de sélection Novabox");
   });
 });

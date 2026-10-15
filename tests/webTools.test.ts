@@ -24,7 +24,7 @@ import {
   capText,
   domainOf,
 } from "../src/bot/services/webText.js";
-import { parseSearchArgs } from "../src/bot/commands/search.js";
+import { parseSearchArgs, isDegenerateSearchQuery } from "../src/bot/commands/search.js";
 import { checkWebQuota, consumeWebQuota, getWebDailyLimit } from "../src/bot/webQuota.js";
 
 const read = (p: string) => readFileSync(join(__dirname, p), "utf-8");
@@ -260,5 +260,19 @@ describe("wiring 9.0 — commandes enregistrées et sures", () => {
     const manage = read("../manage.sh");
     expect(manage).toContain("TAVILY_API_KEY|");
     expect(manage).toContain("NEBULA_WEB_DAILY_LIMIT|");
+  });
+});
+
+describe("9.18ff — isDegenerateSearchQuery (retour terrain : « 2 » → Tavily HTTP 400)", () => {
+  it("requêtes dégénérées reconnues", () => {
+    expect(isDegenerateSearchQuery("")).toBe(true);
+    expect(isDegenerateSearchQuery(" ")).toBe(true);
+    expect(isDegenerateSearchQuery("2")).toBe(true); // le cas terrain exact
+    expect(isDegenerateSearchQuery("a")).toBe(true);
+  });
+
+  it("vraies requêtes acceptées", () => {
+    expect(isDegenerateSearchQuery("to your eternity opening 3")).toBe(false);
+    expect(isDegenerateSearchQuery("loto cameroun")).toBe(false);
   });
 });

@@ -35,6 +35,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["agent", "L'agent IA exécute tes demandes (beta, privé)"],
       ["define", "Définition d'un mot ou concept"],
       ["trad", "Traduction (ex: .trad en Bonjour — par reply aussi)"],
+      ["tts", "Lit un texte en note vocale (reply, ou .tts <texte>)"],
       ["search", "Recherche web (sources récentes : -w semaine, -d 24 h)"],
       ["fetch", "Lire une page web en texte"],
       ["resume", "Résumé IA d'une page (reply à un lien, ou .resume <url>)"],

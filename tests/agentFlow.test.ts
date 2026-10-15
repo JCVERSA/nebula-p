@@ -784,3 +784,16 @@ describe("9.18cc (P8) — demandes doubles liées (enchaînement borné)", () =>
     expect(exec).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("audit 9.18 (P8) — refus RoleGuard = fin du pilotage", () => {
+  it("première commande refusée → AUCUN tour de chaîne pour la deuxième intention", async () => {
+    mAI.mockResolvedValueOnce(
+      JSON.stringify({ action: "execute", command: "song", args: "générique mushoku", say: "Je cherche !" })
+    );
+    const ctx = mk("télécharge la chanson du générique et l'épisode 1 de mushoku tensei");
+    const exec = mkExec({ denied: true, texts: ["⛔ Commande réservée au owner."] });
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(1); // la commande a bien été lancée (refus RoleGuard simulé)
+    expect(mAI).toHaveBeenCalledTimes(1); // décision initiale seulement, pas de chaîne
+  });
+});

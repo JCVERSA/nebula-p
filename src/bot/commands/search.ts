@@ -35,6 +35,11 @@ export function parseSearchArgs(args: string[]): { query: string; freshness?: Se
   return { query: rest.join(" ").trim(), freshness };
 }
 
+/** True quand la requête est trop courte pour mériter un appel moteur (retour terrain 15/10 : « 2 » → Tavily HTTP 400). Pur. */
+export function isDegenerateSearchQuery(query: string): boolean {
+  return String(query || "").trim().length < 2;
+}
+
 const USAGE = (p: string) => `🔍 *Recherche web*
 
 ${p}search <requête> — recherche sur le web (toutes années)
@@ -55,7 +60,8 @@ const searchCommand: BotCommand = {
   usage: ".search [-d|-w|-m|-y] <requête>",
   execute: async (sock, msg, context) => {
     const { query, freshness } = parseSearchArgs(context.args);
-    if (!query) {
+    if (!query || isDegenerateSearchQuery(query)) {
+      // Retour terrain 15/10 : « 2 » partait chez Tavily → HTTP 400.
       await context.reply(USAGE(context.prefix));
       return;
     }

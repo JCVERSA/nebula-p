@@ -167,6 +167,9 @@ export function parseReminderSpec(input: string, now = Date.now()): ReminderSpec
     } else {
       humanWhen = `à ${fmtTime(h, min)}`;
     }
+    // Audit 9.18 (P7) : « 18h » tapé à 17:59:50 (ou juste après 18h) est une
+    // demande légitime — la borner à +30 s plutôt que la rejeter avec l'aide.
+    if (ts < now + MIN_FUTURE_MS) ts = now + MIN_FUTURE_MS;
     dueAt = ts;
     rest = t.slice(m[0].length).trim();
   } else if ((m = t.match(/^demain\s+(?:à\s+|a\s+)?(\d{1,2})h(\d{2})?\b/i))) {
@@ -241,6 +244,12 @@ export function markReminderAttempt(id: string): void {
   const rec = all.find((r) => r.id === id);
   if (!rec) return;
   rec.attempts += 1;
+  // Audit terrain 15/10 : la livraison était invisible dans les logs.
+  // Aucun jid ni contenu — id + compteurs uniquement (§ vie privée).
+  console.warn(`[REMIND] échec d'envoi rappel ${rec.id} (tentative ${rec.attempts}/${MAX_ATTEMPTS})`);
+  if (rec.attempts >= MAX_ATTEMPTS) {
+    console.warn(`[REMIND] rappel ${rec.id} abandonné après ${MAX_ATTEMPTS} tentatives`);
+  }
   saveAll(rec.attempts >= MAX_ATTEMPTS ? all.filter((r) => r.id !== id) : all);
 }
 
@@ -258,6 +267,7 @@ async function deliverDueReminders(getSock: () => any): Promise<void> {
       try {
         await sock.sendMessage(r.chatJid, { text: `⏰ *Rappel*\n\n${r.text}` });
         removeReminder(r.id);
+        console.log(`[REMIND] ⏰ rappel ${r.id} livré (${r.text.length} caractères)`);
       } catch {
         markReminderAttempt(r.id);
       }
