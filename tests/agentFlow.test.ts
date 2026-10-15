@@ -849,7 +849,7 @@ describe("9.18ii (P6b) — mode vocal : réponses conversationnelles en voix", (
     mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Salut ! Je vais très bien, et toi ?" }));
     const ctx = mk("salut ça va ?");
     await run(ctx, mkExec());
-    expect(mSynth).toHaveBeenCalledWith("Salut ! Je vais très bien, et toi ?");
+    expect(mSynth).toHaveBeenCalledWith("Salut ! Je vais très bien, et toi ?", { sender: JID });
     const payloads = ctx.sent;
     const audio = payloads.find((p: any) => p.audio);
     expect(audio).toBeTruthy();

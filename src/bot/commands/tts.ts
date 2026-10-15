@@ -61,7 +61,7 @@ const ttsCommand: BotCommand = {
 
     await context.react("🔊");
     try {
-      const ogg = await synthesizeVoiceNote(raw);
+      const ogg = await synthesizeVoiceNote(raw, { sender: context.sender });
       consumeWebQuota(context.sender);
       await sock.sendMessage(
         context.sender,

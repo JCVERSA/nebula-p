@@ -45,7 +45,7 @@ export async function sendAgentTextOrVoice(
   chatJid: string,
   quoted: any,
   text: string,
-  opts: { voice?: boolean; force?: boolean } = {}
+  opts: { voice?: boolean; force?: boolean; sender?: string } = {}
 ): Promise<"voice" | "text"> {
   const t = String(text || "");
   const wantsVoice = !!opts.voice && (opts.force === true || isVoiceModeEnabled(chatJid)) && isVoiceEligibleText(t);
@@ -57,7 +57,7 @@ export async function sendAgentTextOrVoice(
           await sock.sendPresenceUpdate("recording", chatJid);
         }
       } catch {}
-      const ogg = await synthesizeVoiceNote(t);
+      const ogg = await synthesizeVoiceNote(t, { sender: opts.sender });
       await sock.sendMessage(
         chatJid,
         { audio: ogg, mimetype: "audio/ogg; codecs=opus", ptt: true },

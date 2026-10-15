@@ -1,6 +1,8 @@
 import { spawn } from "child_process";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
+import { getAIClient } from "../geminiClient.js";
+import { checkAIQuota, consumeAIQuota } from "../aiQuota.js";
 
 /**
  * 9.18dd (P6, décision owner 15/10) — synthèse vocale (TTS) pour notes
@@ -13,9 +15,22 @@ import { resolvedFfmpegPath } from "../ffmpeg.js";
  * commande répond honnêtement « voix indisponible » (jamais de crash,
  * même leçon que tikwm/igdl : dépendance tierce isolée derrière un module).
  *
- * Chaîne : texte nettoyé → mp3 (Edge) → ffmpeg (libopus 48 kHz mono, ogg)
- * → note vocale WhatsApp (ptt). Zéro fichier temporaire : tout en mémoire,
- * borné par le cap de texte (≈ 1 min d'audio max). Aucun nouvel env.
+ * Chaîne (9.18kk, retour owner 15/10 : « la voix Edge est trop TTS, pas
+ * naturelle comme Gemini/ChatGPT ») :
+ *   1. GEMINI TTS en PRIMAIRE — les voix naturelles type Gemini Live,
+ *      via la clé GEMINI_API_KEY EXISTANTE (recherche 2026 : Gemini 3.1
+ *      Flash TTS classé au-dessus d'ElevenLabs, Elo 1206 vs 1178 ; free
+ *      tier). Sortie PCM 24 kHz → WAV en mémoire → ffmpeg ogg. Un appel
+ *      TTS consomme 1 unité du quota IA (owner illimité depuis 9.18gg).
+ *   2. EDGE HENRI en REPLI gratuit — si pas de clé, quota épuisé ou erreur
+ *      (même pattern que generateTextWithFallback NIM→Gemini).
+ *
+ * Zéro fichier temporaire : tout en mémoire, borné par le cap de texte
+ * (≈ 1 min d'audio max). Env (manage.sh ENV_KEYS) :
+ *   NEBULA_TTS_MODEL (défaut gemini-3.1-flash-tts-preview — celle avec
+ *   free tier ; repli possible : gemini-2.5-flash-preview-tts) et
+ *   NEBULA_TTS_VOICE (défaut Charon, voix masculine informative ; ex
+ *   Kore, Puck, Sulafat, Fenrir — 30 préconstruites, 90+ langues).
  */
 
 // 9.18ii : Henri (masculine) — choix owner 15/10 (Denise avant).
@@ -67,6 +82,78 @@ async function collectCapped(stream: import("stream").Readable, maxBytes: number
   return Buffer.concat(chunks);
 }
 
+/** Voix Gemini TTS (env NEBULA_TTS_VOICE, défaut Charon — masculine informative). */
+export function geminiTtsVoice(): string {
+  const v = String(process.env.NEBULA_TTS_VOICE || "").trim();
+  return /^[A-Za-z]+$/.test(v) ? v : "Charon";
+}
+
+/** Modèle Gemini TTS (env NEBULA_TTS_MODEL, défaut : celle avec free tier). */
+export function geminiTtsModel(): string {
+  const m = String(process.env.NEBULA_TTS_MODEL || "").trim();
+  return /^gemini-[\w.-]+$/.test(m) ? m : "gemini-3.1-flash-tts-preview";
+}
+
+/**
+ * PCM brut (16 bits, mono) → WAV : simple ajout de l'en-tête RIFF de 44
+ * octets en mémoire. Pur — ffmpeg accepte le WAV nativement. sampleRate
+ * lu du mimeType Gemini (audio/L16;codec=pcm;rate=24000) sinon 24 kHz.
+ */
+export function pcmToWav(pcm: Buffer, sampleRate = 24000): Buffer {
+  const rate = Number.isFinite(sampleRate) && sampleRate > 0 ? Math.floor(sampleRate) : 24000;
+  const bitsPerSample = 16;
+  const channels = 1;
+  const blockAlign = (channels * bitsPerSample) / 8;
+  const byteRate = rate * blockAlign;
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8, "ascii");
+  header.write("fmt ", 12, "ascii");
+  header.writeUInt32LE(16, 16); // taille du bloc fmt
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+/**
+ * Synthèse Gemini TTS → WAV en mémoire (PCM extrait d'inlineData).
+ * Aucune confiance : formes validées champ par champ, tout écart → throw
+ * (le repli Edge prend le relais).
+ */
+async function geminiTtsToWav(text: string): Promise<Buffer> {
+  const ai = getAIClient();
+  if (!ai) throw new Error("Gemini non configuré");
+  const response = await ai.models.generateContent({
+    model: geminiTtsModel(),
+    contents: text,
+    config: {
+      responseModalities: ["AUDIO"],
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: geminiTtsVoice() } } },
+      httpOptions: { timeout: 30_000 }
+    }
+  });
+  const parts = (response as any)?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) throw new Error("réponse TTS sans candidat");
+  for (const part of parts) {
+    const data = part?.inlineData?.data;
+    if (typeof data === "string" && data.length > 0) {
+      const mime = String(part.inlineData.mimeType || "");
+      const rate = /rate=(\d+)/.exec(mime)?.[1];
+      const pcm = Buffer.from(data, "base64");
+      if (pcm.length < 100) throw new Error("audio TTS vide");
+      return pcmToWav(pcm, rate ? Number(rate) : 24000);
+    }
+  }
+  throw new Error("réponse TTS sans audio");
+}
+
 /** Synthèse Edge → mp3 en mémoire. Aucun fichier disque. */
 async function synthesizeMp3(text: string): Promise<Buffer> {
   const tts = new MsEdgeTTS({ connectionTimeoutMs: 15_000, synthesisTimeoutMs: 60_000 });
@@ -108,13 +195,32 @@ async function transcodeToVoiceOgg(mp3: Buffer): Promise<Buffer> {
 }
 
 /**
- * Texte → note vocale ogg/opus prête à l'envoi (ptt). Échecs honnêtes :
- * toute erreur remonte à la commande qui explique (service voix ou
- * conversion), jamais de crash moteur.
+ * Texte → note vocale ogg/opus prête à l'envoi (ptt). Chaîne Gemini TTS
+ * (naturel, via la clé existante) → Edge Henri (gratuit). opts.sender :
+ * clé de quota IA pour l'appel Gemini (owner illimité) — quota épuisé ou
+ * absent → Edge directement, jamais de blocage. Échecs honnêtes : toute
+ * erreur remonte à la commande qui explique, jamais de crash moteur.
  */
-export async function synthesizeVoiceNote(rawText: string): Promise<Buffer> {
+export async function synthesizeVoiceNote(rawText: string, opts: { sender?: string } = {}): Promise<Buffer> {
   const v = validateTtsText(rawText);
   if (!v.ok) throw new Error(v.reason === "empty" ? "rien à lire" : "texte trop long");
+
+  // 1. Gemini TTS — voix naturelle (recherche 2026 : Gemini TTS > ElevenLabs
+  //    en Elo ; free tier ; l'owner a déjà la clé).
+  const geminiQuotaOk = !opts.sender || checkAIQuota(opts.sender).allowed;
+  if (getAIClient() && geminiQuotaOk) {
+    try {
+      const wav = await geminiTtsToWav(v.text);
+      const ogg = await transcodeToVoiceOgg(wav);
+      if (opts.sender) consumeAIQuota(opts.sender); // après succès seulement
+      console.log(`[TTS] 🎙️ voix Gemini (${geminiTtsVoice()}) — ${v.text.length} caractères`);
+      return ogg;
+    } catch (e: any) {
+      console.warn(`[TTS] Gemini échoué (${String(e?.message || e).slice(0, 120)}) → repli Edge Henri`);
+    }
+  }
+
+  // 2. Repli gratuit : Edge Henri.
   const mp3 = await synthesizeMp3(v.text);
   if (mp3.length === 0) throw new Error("réponse vocale vide");
   return transcodeToVoiceOgg(mp3);

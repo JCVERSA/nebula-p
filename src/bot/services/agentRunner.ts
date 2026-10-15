@@ -158,7 +158,7 @@ export async function handleAgentMessage(
   // intégral si la synthèse échoue (jamais de réponse perdue).
   const sendText = async (t: string, opts: { voice?: boolean; force?: boolean } = {}) => {
     try {
-      await sendAgentTextOrVoice(sock, info.senderJid, msg, t, opts);
+      await sendAgentTextOrVoice(sock, info.senderJid, msg, t, { ...opts, sender: info.actorJid });
     } catch {
       try {
         await sock.sendMessage(info.senderJid, { text: t }, { quoted: msg });
@@ -692,7 +692,7 @@ async function runErrorRecovery(
     }
     try {
       // 9.18ii : le rattrapage est conversationnel (explication + offre).
-      await sendAgentTextOrVoice(sock, info.senderJid, msg, out, { voice: true, force: !!info.voiceNote });
+      await sendAgentTextOrVoice(sock, info.senderJid, msg, out, { voice: true, force: !!info.voiceNote, sender: info.actorJid });
     } catch {}
   } catch {
     // L'erreur de la commande est déjà chez l'utilisateur : silence ici.
