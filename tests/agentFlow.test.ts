@@ -37,6 +37,19 @@ vi.mock("../src/bot/services/animeChoices.js", () => ({
   // 9.18x (P1) : dernier choix du chat pour le chemin déterministe.
   getAnimeChoice: vi.fn(() => null)
 }));
+// 9.18ii (P6b) : mode vocal — synthèse TTS mockée (réseau), sanitize réel ;
+// le store du mode vocal est mocké (IO disque).
+vi.mock("../src/bot/services/ttsService.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/bot/services/ttsService.js")>();
+  return {
+    ...actual,
+    synthesizeVoiceNote: vi.fn(async () => Buffer.from("OGG-AUDIO")),
+  };
+});
+vi.mock("../src/bot/services/voiceModeStore.js", () => ({
+  isVoiceModeEnabled: vi.fn(() => false),
+  setVoiceMode: vi.fn(),
+}));
 // 9.18aa (P2) : fonctions pures réelles, IO disque mockées (aucune écriture).
 vi.mock("../src/bot/services/userPreferences.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/bot/services/userPreferences.js")>();
@@ -65,11 +78,15 @@ import { recordAgentExecution, __resetAgentStateForTests } from "../src/bot/serv
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory, getAnimeChoice } from "../src/bot/services/animeChoices.js";
 import { __resetObservationsForTests } from "../src/bot/services/agentObservation.js";
 import { getChatPreference, setChatPreference, clearChatPreference } from "../src/bot/services/userPreferences.js";
+import { isVoiceModeEnabled } from "../src/bot/services/voiceModeStore.js";
+import { synthesizeVoiceNote } from "../src/bot/services/ttsService.js";
 
 const mAI = vi.mocked(generateTextWithFallback);
 const mChoices = vi.mocked(getAnimeChoiceContext);
 const mLastChoice = vi.mocked(getAnimeChoice);
 const mPref = vi.mocked(getChatPreference);
+const mVoiceMode = vi.mocked(isVoiceModeEnabled);
+const mSynth = vi.mocked(synthesizeVoiceNote);
 const mPrefSet = vi.mocked(setChatPreference);
 const mPrefClear = vi.mocked(clearChatPreference);
 const mConfigured = vi.mocked(isAIConfigured);
@@ -124,6 +141,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mLastChoice.mockReturnValue(null);
   mPref.mockReturnValue(null);
+  mVoiceMode.mockReturnValue(false);
+  mSynth.mockResolvedValue(Buffer.from("OGG-AUDIO"));
   __resetAgentStateForTests();
   __resetObservationsForTests();
   mConfigured.mockReturnValue(true);
@@ -821,5 +840,98 @@ describe("9.18gg — owner illimité : budget d'exécutions de l'agent contourn�
     await run(ctx, exec);
     expect(exec).not.toHaveBeenCalled();
     expect(texts(ctx.sent).some((t: string) => t.includes("beaucoup d'actions"))).toBe(true);
+  });
+});
+
+describe("9.18ii (P6b) — mode vocal : réponses conversationnelles en voix", () => {
+  it("mode ON → une réponse reply arrive en NOTE VOCALE (ptt), pas en texte", async () => {
+    mVoiceMode.mockReturnValue(true);
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Salut ! Je vais très bien, et toi ?" }));
+    const ctx = mk("salut ça va ?");
+    await run(ctx, mkExec());
+    expect(mSynth).toHaveBeenCalledWith("Salut ! Je vais très bien, et toi ?");
+    const payloads = ctx.sent;
+    const audio = payloads.find((p: any) => p.audio);
+    expect(audio).toBeTruthy();
+    expect(audio.ptt).toBe(true);
+    expect(audio.mimetype).toContain("audio/ogg");
+    expect(payloads.some((p: any) => p.text)).toBe(false); // pas de doublon texte
+  });
+
+  it("mode OFF (défaut) → réponse en texte, aucune synthèse", async () => {
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Salut !" }));
+    const ctx = mk("salut");
+    await run(ctx, mkExec());
+    expect(mSynth).not.toHaveBeenCalled();
+    expect(ctx.sent.some((p: any) => p.text === "Salut !")).toBe(true);
+  });
+
+  it("mode ON mais TTS en échec → REPLI TEXTE intégral (jamais de silence)", async () => {
+    mVoiceMode.mockReturnValue(true);
+    mSynth.mockRejectedValueOnce(new Error("service vocal indisponible"));
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Réponse importante." }));
+    const ctx = mk("salut");
+    await run(ctx, mkExec());
+    expect(ctx.sent.some((p: any) => p.text === "Réponse importante.")).toBe(true);
+  });
+
+  it("mode ON + réponse longue (> 500 chars) → texte", async () => {
+    mVoiceMode.mockReturnValue(true);
+    const long = "C'est une très longue réponse. ".repeat(25); // ~825 chars
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: long }));
+    const ctx = mk("raconte-moi une histoire");
+    await run(ctx, mkExec());
+    expect(mSynth).not.toHaveBeenCalled();
+    // parseAgentDecision trim() le texte : comparer à la version trimée.
+    expect(ctx.sent.some((p: any) => p.text === long.trim())).toBe(true);
+  });
+
+  it("mode ON + réponse avec URL → texte (un lien ne s'écoute pas)", async () => {
+    mVoiceMode.mockReturnValue(true);
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Voici : https://exemple.com/page" }));
+    const ctx = mk("donne-moi le lien");
+    await run(ctx, mkExec());
+    expect(mSynth).not.toHaveBeenCalled();
+  });
+
+  it("mode ON : les gardes système restent en TEXTE (quota IA atteint)", async () => {
+    mVoiceMode.mockReturnValue(true);
+    mQuota.mockReturnValue({ allowed: false, error: "Limite atteinte" } as any);
+    const ctx = mk("salut");
+    await run(ctx, mkExec());
+    expect(mSynth).not.toHaveBeenCalled();
+    expect(ctx.sent.some((p: any) => typeof p.text === "string" && p.text.includes("Limite"))).toBe(true);
+  });
+});
+
+describe("9.18jj (B) — la voix appelle la voix (note vocale entrante)", () => {
+  it("note vocale + mode vocal OFF → réponse QUAND MÊME en voix", async () => {
+    mVoiceMode.mockReturnValue(false); // .off ou jamais activé
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Salut ! Bien reçu, je te réponds en voix." }));
+    const ctx = mk("salut ça va ?");
+    (ctx.info as any).voiceNote = true; // message transcrit d'une note vocale
+    await run(ctx, mkExec());
+    expect(mSynth).toHaveBeenCalledTimes(1);
+    const audio = ctx.sent.find((p: any) => p.audio);
+    expect(audio).toBeTruthy();
+    expect(audio.ptt).toBe(true);
+  });
+
+  it("note vocale mais réponse avec URL → texte (un lien ne s'écoute pas)", async () => {
+    mVoiceMode.mockReturnValue(true);
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Voici : https://exemple.com/a" }));
+    const ctx = mk("donne-moi le lien");
+    (ctx.info as any).voiceNote = true;
+    await run(ctx, mkExec());
+    expect(mSynth).not.toHaveBeenCalled();
+    expect(ctx.sent.some((p: any) => p.text === "Voici : https://exemple.com/a")).toBe(true);
+  });
+
+  it("message TAPÉ (pas vocal) + mode OFF → texte, aucune synthèse (comportement inchangé)", async () => {
+    mVoiceMode.mockReturnValue(false);
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Salut !" }));
+    const ctx = mk("salut");
+    await run(ctx, mkExec());
+    expect(mSynth).not.toHaveBeenCalled();
   });
 });

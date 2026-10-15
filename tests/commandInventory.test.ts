@@ -51,6 +51,9 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "remind", aliases: ["rappel", "rappelle"] },
   // 9.18dd : lecture à voix haute (P6 — voix Edge sans clé, reply ou texte)
   { name: "tts", aliases: ["voix", "dis"] },
+  // 9.18ii : mode vocal de l'agent (P6b — .on/.off, par chat, voix Henri)
+  { name: "on", aliases: [] },
+  { name: "off", aliases: [] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

@@ -60,6 +60,7 @@ import {
   deterministicNextEpisodeDecision,
   messageSuggestsMultiIntent
 } from "./agentBrain.js";
+import { sendAgentTextOrVoice } from "./agentVoice.js";
 import {
   parsePreferenceDeclaration,
   getChatPreference,
@@ -151,10 +152,18 @@ export async function handleAgentMessage(
     return true;
   }
 
-  const sendText = async (t: string) => {
+  // 9.18ii (P6b) : entonnoir unique des réponses de l'agent. Les sites
+  // conversationnels passent { voice: true } — le mode vocal du chat (via
+  // .on/.off) décide alors note vocale (Henri) ou texte, avec repli texte
+  // intégral si la synthèse échoue (jamais de réponse perdue).
+  const sendText = async (t: string, opts: { voice?: boolean; force?: boolean } = {}) => {
     try {
-      await sock.sendMessage(info.senderJid, { text: t }, { quoted: msg });
-    } catch {}
+      await sendAgentTextOrVoice(sock, info.senderJid, msg, t, opts);
+    } catch {
+      try {
+        await sock.sendMessage(info.senderJid, { text: t }, { quoted: msg });
+      } catch {}
+    }
   };
   const setPresence = async (state: "composing" | "paused") => {
     try {
@@ -324,7 +333,7 @@ export async function handleAgentMessage(
       const raw = await withAIConcurrency(() =>
         generateTextWithFallback(text, persona, "gemini-3.7-flash")
       );
-      await sendText(raw);
+      await sendText(raw, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B) : voix appelle voix
       recordExchange(info.senderJid, text, raw);
       compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
       return true;
@@ -362,7 +371,7 @@ export async function handleAgentMessage(
 
     while (true) {
       if (current.action === "reply" || current.action === "ask") {
-        await sendText(current.text);
+        await sendText(current.text, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B)
         recordExchange(info.senderJid, text, current.text);
         compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
         return true;
@@ -388,7 +397,7 @@ export async function handleAgentMessage(
             : close
               ? `🤖 Je n'ai pas \`${info.prefix}${current.command}\` — voulais-tu dire \`${info.prefix}${close}\` ?`
               : `🤖 Je n'ai pas de commande pour cette demande — tape \`${info.prefix}menu\` pour voir ce que je sais faire.`;
-        await sendText(honest);
+        await sendText(honest, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B)
         recordExchange(info.senderJid, text, honest);
         return true;
       }
@@ -505,7 +514,7 @@ export async function handleAgentMessage(
               continue;
             }
             if (chained && (chained.action === "reply" || chained.action === "ask")) {
-              await sendText(chained.text);
+              await sendText(chained.text, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B)
               recordExchange(info.senderJid, text, chained.text);
               compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
               return true;
@@ -682,7 +691,8 @@ async function runErrorRecovery(
       }
     }
     try {
-      await sock.sendMessage(info.senderJid, { text: out }, { quoted: msg });
+      // 9.18ii : le rattrapage est conversationnel (explication + offre).
+      await sendAgentTextOrVoice(sock, info.senderJid, msg, out, { voice: true, force: !!info.voiceNote });
     } catch {}
   } catch {
     // L'erreur de la commande est déjà chez l'utilisateur : silence ici.

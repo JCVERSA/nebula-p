@@ -18,7 +18,8 @@ import { resolvedFfmpegPath } from "../ffmpeg.js";
  * borné par le cap de texte (≈ 1 min d'audio max). Aucun nouvel env.
  */
 
-const TTS_VOICE = "fr-FR-DeniseNeural";
+// 9.18ii : Henri (masculine) — choix owner 15/10 (Denise avant).
+const TTS_VOICE = "fr-FR-HenriNeural";
 /** Cap du texte lu aloud — ~1 minute d'audio, cohérent avec .trad/.resume. */
 export const TTS_MAX_TEXT_CHARS = 1000;
 /** Minimum pour qu'il y ait quelque chose à lire. */

@@ -37,6 +37,7 @@ import { setWatchSender, startWatchScheduler } from "./services/episodeWatchServ
 import { setDigestSender, startDigestScheduler } from "./services/digestService.js";
 import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
 import { handleAgentMessage, messageAddressesBot } from "./services/agentRunner.js";
+import { handleIncomingCalls } from "./services/callGate.js";
 import { describeMessageMedia, extractQuotedText } from "./utils/quotedMedia.js";
 import { getRecentMessage, recordRecentMessage } from "./services/recentMessages.js";
 import { peekPendingConfirmation } from "./services/agentBrain.js";
@@ -726,6 +727,11 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
     });
 
     // Message handler with memory guards
+    // 9.18jj (A) — décrochage honnête : rejet propre + guidage note vocale.
+    sock.ev.on("call", (calls: any[]) => {
+      void handleIncomingCalls(sock, calls, { prefix: getConfig().prefix || "." });
+    });
+
     sock.ev.on("messages.upsert", async (m: any) => {
       if (m.type !== "notify") return;
 

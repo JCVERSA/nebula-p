@@ -7,6 +7,7 @@ import tradCommand from "./commands/trad.js";
 import resumeCommand from "./commands/resume.js";
 import remindCommand from "./commands/remind.js";
 import ttsCommand from "./commands/tts.js";
+import { onCommand, offCommand } from "./commands/voiceMode.js";
 import ytvideoCommand from "./commands/ytvideo.js";
 import songCommand from "./commands/song.js";
 import ytlinkCommand from "./commands/ytlink.js";
@@ -92,6 +93,8 @@ function getBuiltinCommands(): BotCommand[] {
     resumeCommand,
     remindCommand,
     ttsCommand,
+    onCommand,
+    offCommand,
     menuCommand,
     helpCommand,
     aiCommand,
