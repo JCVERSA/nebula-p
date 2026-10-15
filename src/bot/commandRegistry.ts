@@ -5,6 +5,7 @@ import { pathToFileURL } from "url";
 import pingCommand from "./commands/ping.js";
 import tradCommand from "./commands/trad.js";
 import resumeCommand from "./commands/resume.js";
+import remindCommand from "./commands/remind.js";
 import ytvideoCommand from "./commands/ytvideo.js";
 import songCommand from "./commands/song.js";
 import ytlinkCommand from "./commands/ytlink.js";
@@ -88,6 +89,7 @@ function getBuiltinCommands(): BotCommand[] {
     pingCommand,
     tradCommand,
     resumeCommand,
+    remindCommand,
     menuCommand,
     helpCommand,
     aiCommand,

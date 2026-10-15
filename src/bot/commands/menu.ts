@@ -73,6 +73,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["whois", "Profil d'un membre du groupe"],
       ["purge", "Purge de l'espace disque (owner)"],
       ["gce", "Annales GCE Cameroun en PDF"],
+      ["remind", "Rappel programmé (ex: .remind 18h texte)"],
     ],
   },
   {

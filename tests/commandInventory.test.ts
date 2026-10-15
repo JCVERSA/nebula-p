@@ -47,6 +47,8 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "trad", aliases: ["traduis", "tl"] },
   // 9.18z : résumé de page web par l'IA (P5 du plan owner — reply à un lien)
   { name: "resume", aliases: ["résume", "sum"] },
+  // 9.18bb : rappels programmés (P7 du plan owner — heure Cameroun)
+  { name: "remind", aliases: ["rappel", "rappelle"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

@@ -37,6 +37,16 @@ vi.mock("../src/bot/services/animeChoices.js", () => ({
   // 9.18x (P1) : dernier choix du chat pour le chemin déterministe.
   getAnimeChoice: vi.fn(() => null)
 }));
+// 9.18aa (P2) : fonctions pures réelles, IO disque mockées (aucune écriture).
+vi.mock("../src/bot/services/userPreferences.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/bot/services/userPreferences.js")>();
+  return {
+    ...actual,
+    getChatPreference: vi.fn(() => null),
+    setChatPreference: vi.fn(() => true),
+    clearChatPreference: vi.fn(() => true),
+  };
+});
 vi.mock("../src/bot/services/aiMemory.js", () => ({
   getMemoryContext: vi.fn(() => null),
   recordExchange: vi.fn(),
@@ -54,10 +64,14 @@ import { checkAIQuota } from "../src/bot/aiQuota.js";
 import { recordAgentExecution, __resetAgentStateForTests } from "../src/bot/services/agentBrain.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory, getAnimeChoice } from "../src/bot/services/animeChoices.js";
 import { __resetObservationsForTests } from "../src/bot/services/agentObservation.js";
+import { getChatPreference, setChatPreference, clearChatPreference } from "../src/bot/services/userPreferences.js";
 
 const mAI = vi.mocked(generateTextWithFallback);
 const mChoices = vi.mocked(getAnimeChoiceContext);
 const mLastChoice = vi.mocked(getAnimeChoice);
+const mPref = vi.mocked(getChatPreference);
+const mPrefSet = vi.mocked(setChatPreference);
+const mPrefClear = vi.mocked(clearChatPreference);
 const mConfigured = vi.mocked(isAIConfigured);
 const mGetCommand = vi.mocked(getCommand);
 const mQuota = vi.mocked(checkAIQuota);
@@ -109,6 +123,7 @@ const run = (ctx: ReturnType<typeof mk>, exec: any, text?: string) =>
 beforeEach(() => {
   vi.clearAllMocks();
   mLastChoice.mockReturnValue(null);
+  mPref.mockReturnValue(null);
   __resetAgentStateForTests();
   __resetObservationsForTests();
   mConfigured.mockReturnValue(true);
@@ -647,5 +662,125 @@ describe("9.18x (P1) — « épisode suivant » déterministe (zéro token IA)",
     const ctx = mk("l'épisode suivant");
     await run(ctx, mkExec());
     expect(mAI).toHaveBeenCalled();
+  });
+});
+
+describe("9.18aa (P2) — préférences déclarées (déterministe, zéro token)", () => {
+  it("« à partir de maintenant toujours en 720p » → enregistré et confirmé SANS appel IA", async () => {
+    const ctx = mk("à partir de maintenant toujours en 720p");
+    await run(ctx, mkExec());
+    expect(mAI).not.toHaveBeenCalled();
+    expect(mPrefSet).toHaveBeenCalledWith(ctx.info.senderJid, "720p");
+    expect(texts(ctx.sent).some((t: string) => t.includes("C'est noté") && t.includes("720p"))).toBe(true);
+  });
+
+  it("« annule ma préférence » → retirée (message honnête)", async () => {
+    mPref.mockReturnValue({ quality: "720p", ts: Date.now() } as any);
+    const ctx = mk("annule ma préférence");
+    await run(ctx, mkExec());
+    expect(mAI).not.toHaveBeenCalled();
+    expect(mPrefClear).toHaveBeenCalledWith(ctx.info.senderJid);
+    expect(texts(ctx.sent).some((t: string) => t.includes("retirée"))).toBe(true);
+  });
+
+  it("préférence 720p → ajoutée aux args anime sans qualité + mention honnête", async () => {
+    mPref.mockReturnValue({ quality: "720p", ts: Date.now() } as any);
+    mAI.mockResolvedValueOnce(
+      JSON.stringify({ action: "execute", command: "anime", args: "va mushoku tensei s1 e5", say: "C'est parti !" })
+    );
+    const ctx = mk("télécharge mushoku tensei s1 e5");
+    const exec = mkExec({ texts: ["Lien envoyé"] });
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledWith("anime", ["va", "mushoku", "tensei", "s1", "e5", "720p"], "agent");
+    expect(texts(ctx.sent).some((t: string) => t.includes("720p") && t.includes("ta préférence"))).toBe(true);
+  });
+
+  it("demande avec qualité explicite → préférence ignorée (1080p conservé)", async () => {
+    mPref.mockReturnValue({ quality: "720p", ts: Date.now() } as any);
+    mAI.mockResolvedValueOnce(
+      JSON.stringify({ action: "execute", command: "anime", args: "va mushoku tensei s1 e5 1080p", say: "C'est parti !" })
+    );
+    const ctx = mk("mushoku tensei s1 e5 en 1080p");
+    const exec = mkExec();
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledWith("anime", ["va", "mushoku", "tensei", "s1", "e5", "1080p"], "agent");
+  });
+
+  it("demande normale sans rapport → aucune déclaration déclenchée", async () => {
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "ok" }));
+    const ctx = mk("salut ça va ?");
+    await run(ctx, mkExec());
+    expect(mPrefSet).not.toHaveBeenCalled();
+    expect(mPrefClear).not.toHaveBeenCalled();
+  });
+});
+
+describe("9.18aa (P4) — rattrapage élargi aux recherches (musique, ytv…)", () => {
+  it("échec .song « Aucun résultat » → rattrapage avec guidance musique + offre derrière OK", async () => {
+    mAI
+      .mockResolvedValueOnce(
+        JSON.stringify({ action: "execute", command: "song", args: "la vie en rose dalida", say: "Je cherche !" })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          say: "Je n'ai pas trouvé cette chanson — je réessaie avec le titre original.",
+          offer: { command: "song", args: "La Vie en rose Dalida" }
+        })
+      );
+    const ctx = mk("télécharge la chanson la vie en rose de dalida");
+    const exec = mkExec({ hadError: true, lastText: '❌ Aucun résultat pour *"la vie en rose dalida"*', texts: ['❌ Aucun résultat pour *"la vie en rose dalida"*'] });
+    await run(ctx, exec);
+    // 2 appels IA : décision initiale + rattrapage
+    expect(mAI).toHaveBeenCalledTimes(2);
+    const recoverySystem = mAI.mock.calls[1][1] as string;
+    expect(recoverySystem).toContain("musique");
+    expect(recoverySystem).toContain("titre corrigé");
+    expect(recoverySystem).toContain("artiste");
+    // l'offre est proposée derrière un OK explicite (fail-closed)
+    expect(texts(ctx.sent).some((t: string) => t.includes("OK") && t.includes("song"))).toBe(true);
+  });
+});
+
+describe("9.18cc (P8) — demandes doubles liées (enchaînement borné)", () => {
+  it("« l'épisode 1 ET la chanson » → deux exécutions enchaînées, un seul message", async () => {
+    mAI
+      .mockResolvedValueOnce(
+        JSON.stringify({ action: "execute", command: "anime", args: "va mushoku tensei s1 e1", say: "C'est parti !" })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({ action: "execute", command: "song", args: "générique mushoku tensei", say: "Et la chanson !" })
+      );
+    const ctx = mk("télécharge l'épisode 1 de mushoku tensei et la chanson du générique");
+    const exec = mkExec({ texts: ["✅ Lien envoyé"] });
+    await run(ctx, exec);
+    expect(mAI).toHaveBeenCalledTimes(2); // décision initiale + relance P8
+    const chainSystem = mAI.mock.calls[1][1] as string;
+    expect(chainSystem).toContain("demande double");
+    expect(exec).toHaveBeenCalledWith("anime", ["va", "mushoku", "tensei", "s1", "e1"], "agent");
+    expect(exec).toHaveBeenCalledWith("song", ["générique", "mushoku", "tensei"], "agent");
+  });
+
+  it("relance P8 → reply « tout est fait » : une seule exécution, réponse courte", async () => {
+    mAI
+      .mockResolvedValueOnce(
+        JSON.stringify({ action: "execute", command: "anime", args: "va x s1 e1", say: "C'est parti !" })
+      )
+      .mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Tout est livré !" }));
+    const ctx = mk("télécharge l'épisode 1 de x et la chanson du générique");
+    const exec = mkExec({ texts: ["✅ Lien envoyé"] });
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(1);
+    expect(texts(ctx.sent).some((t: string) => t.includes("Tout est livré"))).toBe(true);
+  });
+
+  it("demande simple → AUCUN tour de relance (éco tokens)", async () => {
+    mAI.mockResolvedValueOnce(
+      JSON.stringify({ action: "execute", command: "anime", args: "va mushoku s1 e5", say: "C'est parti !" })
+    );
+    const ctx = mk("télécharge mushoku tensei s1 e5");
+    const exec = mkExec({ texts: ["✅ Lien envoyé"] });
+    await run(ctx, exec);
+    expect(mAI).toHaveBeenCalledTimes(1);
+    expect(exec).toHaveBeenCalledTimes(1);
   });
 });

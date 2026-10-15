@@ -4,6 +4,7 @@ import { spawnSync } from "child_process";
 import { createApp } from "./app.js";
 import { initRegistry } from "./src/bot/commandRegistry.js";
 import { initAgentStatePersistence } from "./src/bot/services/agentStateStore.js";
+import { startReminderScheduler } from "./src/bot/services/reminderService.js";
 import { addLog, startLiveBot, stopLiveBot } from "./src/bot/botEngine.js";
 import { hasRegisteredCreds } from "./src/bot/botsConfig.js";
 import { resolvedFfmpegPath } from "./src/bot/ffmpeg.js";
@@ -109,6 +110,9 @@ async function main(): Promise<void> {
   // 9.18w : état volatil de l'agent (confirmations + budget/h) restauré au
   // boot du moteur, puis persisté à chaque mutation (dataDir dédié au slot).
   initAgentStatePersistence();
+  // 9.18bb (P7) : livraison des rappels programmés (sock lu à chaque tick).
+  const { getBotState } = await import("./src/bot/botEngine.js");
+  startReminderScheduler(() => (getBotState() as { socket?: any }).socket);
   verifyFfmpegAtBoot();
 
   if (!fs.existsSync(AUTH_DIR)) {

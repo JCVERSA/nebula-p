@@ -436,6 +436,43 @@ export function deterministicNextEpisodeDecision(
   };
 }
 
+// ── 9.18cc (P8) : demandes doubles liées (« X ET Y ») ───────────────────────
+
+/** Familles d'intention détectables par mots-clés (une par domaine). */
+// NB : \b (ASCII) ne coupe pas autour des accents (é ∉ \w) — frontières
+// Unicode via lookarounds \p{L}\p{N}, sinon « épisode »/« chanson » ne
+// matchaient pas et « et » matchait dans « été ».
+const MULTI_INTENT_FAMILIES: Array<{ name: string; re: RegExp }> = [
+  { name: "anime", re: /(?<![\p{L}\p{N}])(animes?|épisodes?|episodes?|ép|ep|saisons?|novabox)(?![\p{L}\p{N}])/iu },
+  { name: "musique", re: /(?<![\p{L}\p{N}])(chansons?|musiques?|génériques?|generiques?|song|audio|mp3)(?![\p{L}\p{N}])/iu },
+  { name: "youtube", re: /(?<![\p{L}\p{N}])(youtube|vidéos?|videos?|yt)(?![\p{L}\p{N}])/iu },
+  { name: "social", re: /(?<![\p{L}\p{N}])(tiktok|instagram|reels?|insta)(?![\p{L}\p{N}])/iu },
+  { name: "web", re: /(?<![\p{L}\p{N}])(résume|resume|article|pages?)(?![\p{L}\p{N}])/iu },
+  { name: "traduction", re: /(?<![\p{L}\p{N}])(traduis|traduction)(?![\p{L}\p{N}])/iu }
+];
+
+/** Mots qui lient deux demandes dans une même phrase. */
+const MULTI_INTENT_LINKERS = /(?<![\p{L}\p{N}])(et|puis|ensuite|aussi|également|en plus)(?![\p{L}\p{N}])/iu;
+
+/**
+ * 9.18cc (P8, plan owner) — « télécharge l'épisode 1 ET la chanson du
+ * générique » : vrai quand le message contient un mot de liaison ET des
+ * mots-clés d'AU MOINS DEUX familles d'intention distinctes. Pur, éco :
+ * une seule famille (« mushoku s1 e5 et e6 ») ou pas de liaison → false,
+ * aucun tour IA de relance inutile.
+ */
+export function messageSuggestsMultiIntent(text: string): boolean {
+  const t = String(text || "");
+  if (!t || t.length > 400) return false;
+  if (!MULTI_INTENT_LINKERS.test(t)) return false;
+  let families = 0;
+  for (const f of MULTI_INTENT_FAMILIES) {
+    if (f.re.test(t)) families++;
+    if (families >= 2) return true;
+  }
+  return false;
+}
+
 // ── Observation compacte : la queue des écrans interactifs ─────────────────
 
 /**

@@ -7,6 +7,7 @@ import {
   isConfirmationAffirmative,
   deterministicNextEpisodeDecision,
   isHeavyAgentCommand,
+  messageSuggestsMultiIntent,
   keepHeadAndTail,
   parseAgentDecision,
   parseAgentFix,
@@ -317,5 +318,24 @@ describe("9.18x (P1) — « épisode suivant » déterministe (zéro token)", ()
     expect(deterministicNextEpisodeDecision("épisode suivant", { ...LAST, source: "xx" })).toBeNull();
     expect(deterministicNextEpisodeDecision("épisode suivant", { ...LAST, title: "" })).toBeNull();
     expect(deterministicNextEpisodeDecision("épisode suivant", { ...LAST, lastEpisode: 999 })).toBeNull();
+  });
+});
+
+describe("9.18cc (P8) — messageSuggestsMultiIntent (pur)", () => {
+  it("deux familles + liaison → true", () => {
+    expect(messageSuggestsMultiIntent("télécharge l'épisode 1 de mushoku et la chanson du générique")).toBe(true);
+    expect(messageSuggestsMultiIntent("résume cet article puis traduis le titre")).toBe(true);
+    expect(messageSuggestsMultiIntent("la vidéo youtube et aussi le reel instagram")).toBe(true);
+  });
+
+  it("une seule famille (même avec « et ») → false — éco tokens", () => {
+    expect(messageSuggestsMultiIntent("mushoku tensei s1 e5 et e6")).toBe(false);
+    expect(messageSuggestsMultiIntent("l'épisode 1 et l'épisode 2 de naruto")).toBe(false);
+  });
+
+  it("deux familles sans liaison → false ; texte vide → false", () => {
+    expect(messageSuggestsMultiIntent("télécharge l'épisode 1. la chanson du générique aussi")).toBe(true); // « aussi » = liaison
+    expect(messageSuggestsMultiIntent("l'épisode 1 la chanson")).toBe(false);
+    expect(messageSuggestsMultiIntent("")).toBe(false);
   });
 });
