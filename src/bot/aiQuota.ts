@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { getConfig } from "./config.js";
 
 /**
  * Per-user AI budget.
@@ -38,7 +39,26 @@ export function setAIQuotaOverrideGetter(fn: (sender: string) => number | null |
     }
   };
 }
+/**
+ * 9.18gg (décision owner 15/10 : « pour le owner c'est illimité — c'est mon
+ * bot et mes clés ») : le numéro owner (config ownerNumber, repli
+ * OWNER_NUMBER) échappe au quota IA. Comparaison sur les chiffres du jid ;
+ * les garde-fous ANTI-BOUCLE de l'agent (3 décisions/message, signature,
+ * plafonds par message) restent appliqués à tous, owner compris.
+ */
+function isOwnerSender(sender: string): boolean {
+  try {
+    const owner = String(getConfig().ownerNumber || process.env.OWNER_NUMBER || "").replace(/\D/g, "");
+    if (!owner) return false;
+    const digits = String(sender || "").replace(/\D/g, "");
+    return !!digits && (digits === owner || digits.endsWith(owner));
+  } catch {
+    return false;
+  }
+}
+
 function limitFor(sender: string): number {
+  if (isOwnerSender(sender)) return 1_000_000; // illimité, JSON-safe (pas Infinity)
   const o = overrideGetter?.(sender);
   if (o && Number.isFinite(o) && o > 0) return Math.min(Math.floor(o), 500);
   return DAILY_LIMIT;

@@ -168,11 +168,13 @@ export async function handleAgentMessage(
   if (peekPendingConfirmation(info.actorJid)) {
     if (isConfirmationAffirmative(text)) {
       const p = takePendingConfirmation(info.actorJid)!;
-      if (!checkAgentBudget(info.actorJid)) {
+      // 9.18gg : owner illimité (décision owner 15/10) — le budget 10/h est
+      // une garde anti-abus ; l'owner est de confiance, on ne le compte pas.
+      if (!info.isOwner && !checkAgentBudget(info.actorJid)) {
         await sendText("⏳ Tu as déjà demandé beaucoup d'actions cette heure — réessaie dans un instant.");
         return true;
       }
-      recordAgentExecution(info.actorJid);
+      if (!info.isOwner) recordAgentExecution(info.actorJid);
       recordAudit(`wa:${info.actorNumber}`, "agent.exec", p.command, "confirmed");
       await setPresence("composing");
       try {
@@ -426,7 +428,8 @@ export async function handleAgentMessage(
       }
 
       // ── Léger → direct (plafond agent en plus du quota IA) ──────────────
-      if (!checkAgentBudget(info.actorJid)) {
+      // 9.18gg : owner illimité (anti-boucle signature/3 décisions inchangés).
+      if (!info.isOwner && !checkAgentBudget(info.actorJid)) {
         await sendText("⏳ Tu as déjà demandé beaucoup d'actions cette heure — réessaie dans un instant.");
         return true;
       }
@@ -441,7 +444,7 @@ export async function handleAgentMessage(
       executedSignatures.add(signature);
 
       if (current.say) await sendText(current.say);
-      recordAgentExecution(info.actorJid);
+      if (!info.isOwner) recordAgentExecution(info.actorJid);
       recordAudit(`wa:${info.actorNumber}`, "agent.exec", canonical.name, "light");
       const out = await exec(canonical.name, args, "agent");
 

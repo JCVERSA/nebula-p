@@ -50,3 +50,14 @@ describe("Command registry (disk loading)", () => {
     expect(names.filter((n) => n === "help").length).toBe(1);
   });
 });
+
+describe("9.18hh — registry : skip de commande ACTIONNABLE (retour terrain tts.ts)", () => {
+  it("le message dit la cause et le remède npm install (source-lock)", () => {
+    const src = fs.readFileSync(path.join(__dirname, "../src/bot/commandRegistry.ts"), "utf-8");
+    expect(src).toContain("Commande non chargée");
+    expect(src).toContain("Dépendance manquante");
+    expect(src).toContain("Mettre à jour");
+    expect(src).toContain("npm install");
+    expect(src).toContain("Cannot find module");
+  });
+});

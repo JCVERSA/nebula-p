@@ -32,6 +32,7 @@ afterEach(() => {
   resetAIQuota(OTHER);
   setAIQuotaOverrideGetter(() => null);
   delete process.env.NEBULA_DATA_DIR;
+  delete process.env.OWNER_NUMBER;
 });
 
 describe("9.18 — aiQuota : limite personnalisée et usage", () => {
@@ -92,5 +93,24 @@ describe("9.18 — aiQuota : limite personnalisée et usage", () => {
     expect(runner).toContain('isMutedUser(String(info.actorJid || ""))');
     const ai = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/ai.ts"), "utf-8");
     expect(ai).toContain("isMutedUser(context.sender)");
+  });
+});
+
+describe("9.18gg — owner illimité (décision owner 15/10 : mon bot, mes clés)", () => {
+  it("le numéro owner échappe au quota quotidien, même après 45 appels", () => {
+    process.env.OWNER_NUMBER = "237600000099";
+    const owner = "237600000099@s.whatsapp.net";
+    for (let i = 0; i < 45; i++) consumeAIQuota(owner);
+    const q = checkAIQuota(owner);
+    expect(q.allowed).toBe(true);
+    expect(q.limit).toBe(1_000_000);
+    resetAIQuota(owner);
+  });
+
+  it("les autres numéros restent limités (limite globale intacte)", () => {
+    process.env.OWNER_NUMBER = "237600000099";
+    for (let i = 0; i < 40; i++) consumeAIQuota(USER);
+    expect(checkAIQuota(USER).allowed).toBe(false);
+    resetAIQuota(USER);
   });
 });

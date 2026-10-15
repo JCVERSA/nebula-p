@@ -797,3 +797,29 @@ describe("audit 9.18 (P8) — refus RoleGuard = fin du pilotage", () => {
     expect(mAI).toHaveBeenCalledTimes(1); // décision initiale seulement, pas de chaîne
   });
 });
+
+describe("9.18gg — owner illimité : budget d'exécutions de l'agent contourné", () => {
+  it("owner à bloc (10/10 exécutions dans l'heure) → exécute quand même", async () => {
+    for (let i = 0; i < 10; i++) recordAgentExecution(JID);
+    mAI.mockResolvedValueOnce(
+      JSON.stringify({ action: "execute", command: "song", args: "x", say: "C'est parti !" })
+    );
+    const ctx = mk("télécharge la chanson x");
+    ctx.info.isOwner = true;
+    const exec = mkExec({ texts: ["✅ Lien envoyé"] });
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+
+  it("non-owner à bloc → bloqué, message honnête, aucune exécution", async () => {
+    for (let i = 0; i < 10; i++) recordAgentExecution(JID);
+    mAI.mockResolvedValueOnce(
+      JSON.stringify({ action: "execute", command: "song", args: "x", say: "C'est parti !" })
+    );
+    const ctx = mk("télécharge la chanson x");
+    const exec = mkExec();
+    await run(ctx, exec);
+    expect(exec).not.toHaveBeenCalled();
+    expect(texts(ctx.sent).some((t: string) => t.includes("beaucoup d'actions"))).toBe(true);
+  });
+});

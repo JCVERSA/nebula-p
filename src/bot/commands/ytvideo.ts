@@ -181,6 +181,23 @@ function consumePendingYtvChoice(
 }
 
 /** Télécharge une playlist YouTube (max 25) et livre la page HTML de liens. */
+/**
+ * 9.18gg — nom de fichier vidéo sûr (pur, testé) : caractères interdits
+ * retirés PUIS bords non alphanumériques nettoyés — un titre japonais
+ * (「逃避行 - Eve MV」) ne doit plus donner « -_Eve_MV.mp4 » ni « .mp4 »
+ * (retour terrain 15/10). Fallback « video » si rien ne survit.
+ */
+export function safeVideoName(title: string, fallback = "video"): string {
+  const base = String(title || "")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .slice(0, 60)
+    .replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return base || fallback;
+}
+
 async function executePlaylistDownload(
   sock: any,
   msg: any,
@@ -574,10 +591,10 @@ const ytvideoCommand: BotCommand = {
 
       // 9.15 : la vidéo entre au cache (lien physique, zéro octet de plus).
       if (videoPath && reuseKey) {
-        try { storeMediaReuse(reuseKey, videoPath, `${(finalTitle || "video").replace(/[^\w\s-]/g, "").trim().slice(0, 60)}.mp4`); } catch {}
+        try { storeMediaReuse(reuseKey, videoPath, `${safeVideoName(finalTitle)}.mp4`); } catch {}
       }
 
-      const safeName = (finalTitle || "video").replace(/[^\w\s-]/g, "").trim().slice(0, 60);
+      const safeName = safeVideoName(finalTitle);
       // 9.18s : lien haut-débit sur la vidéo SEULE aussi (parité anime —
       // les playlists l'avaient déjà). Cache hit → noCopy (le fichier du
       // cache est servi tel quel) ; fichier frais → move vers le store.

@@ -168,24 +168,26 @@ function updateGlobalCommands() {
  * Loads a single command module from disk.
  * Order: in-memory cache -> compiled .mjs artifact -> source .ts (dev/tsx only).
  */
-async function loadCommandModule(name: string): Promise<BotCommand | null> {
+async function loadCommandModule(name: string): Promise<{ cmd: BotCommand | null; error?: string }> {
   if (diskCommandCache.has(name)) {
-    return diskCommandCache.get(name)!;
+    return { cmd: diskCommandCache.get(name)! };
   }
 
   const tsPath = path.join(getCommandsDir(), `${name}.ts`);
   const compiledPath = getCompiledPath(name);
   const busted = (p: string) => `${pathToFileURL(p).href}?t=${Date.now()}`;
 
+  let lastError = "";
   // 1. Source .ts — works in dev (tsx) and under the test runner;
   //    production Node cannot parse TS so it falls through to the artifact.
   if (process.env.NODE_ENV !== "production" && fs.existsSync(tsPath)) {
     try {
       const mod = await import(busted(tsPath));
       const cmd = mod.default || mod;
-      if (cmd && cmd.name) return cmd;
+      if (cmd && cmd.name) return { cmd };
     } catch (e: any) {
-      console.warn(`[Registry] Failed to load source command "${name}":`, e?.message || e);
+      lastError = String(e?.message || e);
+      console.warn(`[Registry] Failed to load source command "${name}":`, lastError);
     }
   }
 
@@ -194,13 +196,14 @@ async function loadCommandModule(name: string): Promise<BotCommand | null> {
     try {
       const mod = await import(busted(compiledPath));
       const cmd = mod.default || mod;
-      if (cmd && cmd.name) return cmd;
+      if (cmd && cmd.name) return { cmd };
     } catch (e: any) {
-      console.warn(`[Registry] Failed to load compiled command "${name}":`, e?.message || e);
+      lastError = String(e?.message || e);
+      console.warn(`[Registry] Failed to load compiled command "${name}":`, lastError);
     }
   }
 
-  return null;
+  return { cmd: null, error: lastError };
 }
 
 /**
@@ -239,7 +242,7 @@ export async function initRegistry(): Promise<void> {
     // Loading those from disk is redundant in dev (skipped as duplicate) and
     // impossible in production (plain Node cannot parse TS) — skip quietly.
     if (BUILTIN_SOURCE_FILE_EXCEPTIONS.has(name)) continue;
-    const cmd = await loadCommandModule(name);
+    const { cmd, error } = await loadCommandModule(name);
     // L3: a disk file whose exported name is already registered (e.g.
     // novabox.ts exporting "anime", a static built-in) is a duplicate —
     // skip it instead of loading it twice.
@@ -249,7 +252,16 @@ export async function initRegistry(): Promise<void> {
     } else if (cmd && cmd.name) {
       console.log(`[Registry] Skipped duplicate disk command: ${cmd.name}`);
     } else {
-      console.warn(`[Registry] Skipped unloadable command file: ${file}`);
+      // 9.18hh (retour terrain 15/10 : tts.ts sauté SANS explication après
+      // un sync sans npm install) — le message dit la cause et le remède.
+      const missingDep = /Cannot find module\s+'?([^'\s]+)'?/i.exec(error || "")?.[1] || "";
+      console.warn(
+        `[Registry] ⚠️ Commande non chargée : ${file}` +
+        (error ? `\n   Cause : ${error.slice(0, 200)}` : "") +
+        (missingDep
+          ? `\n   → Dépendance manquante (${missingDep}) — clique *Système → Mettre à jour* (npm install), PAS juste Redémarrer.`
+          : `\n   → Vérifie le fichier (export default absent ?).`)
+      );
     }
   }
 
