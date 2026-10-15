@@ -9,7 +9,7 @@ import { getCommandsDir, getCommands, getCommand } from "./src/bot/commandRegist
 import { getBotState, startLiveBot, stopLiveBot, retryLiveConnection, clearSessionAuth, requestPairingCode, addLog, simulateMessage, clearLogs } from "./src/bot/botEngine.js";
 
 import { getCommandStats } from "./src/bot/commandStats.js";
-import { getAgentHealth } from "./src/bot/services/agentMetrics.js";
+import { getAgentHealth, getAgentMetricsTimeline } from "./src/bot/services/agentMetrics.js";
 import { getAIClient, generateTextWithFallback } from "./src/bot/geminiClient.js";
 import { savePanelCommand, getPanelCommandSource, exportAllPanelCommands } from "./src/bot/panelCommands.js";
 import { replaceAllPanelCommands } from "./src/bot/panelCommands.js";
@@ -272,6 +272,16 @@ export function createApp(): express.Express {
       res.json(getAgentHealth(24));
     } catch {
       res.status(500).json({ error: "Agent health unavailable." });
+    }
+  });
+
+  // 9.18y (P3) — page Agent du panneau : agrégat 24 h + timeline hornaire
+  // 48 h (compteurs uniquement, aucun contenu de message).
+  app.get("/api/bot/agent-metrics", rateLimit(30, 60_000), (_req, res) => {
+    try {
+      res.json({ health: getAgentHealth(24), timeline: getAgentMetricsTimeline(48) });
+    } catch {
+      res.status(500).json({ error: "Agent metrics unavailable." });
     }
   });
 

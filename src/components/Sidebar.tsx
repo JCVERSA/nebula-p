@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Home,
   Bot,
+  Sparkles,
   QrCode,
   Terminal,
   Cpu,
@@ -27,6 +28,7 @@ import NebulaMark from "./NebulaMark";
 export type NavTab =
   | "overview"
   | "bots"
+  | "agent"
   | "connect"
   | "simulator"
   | "commands"
@@ -203,6 +205,13 @@ export default function Sidebar({
               active={activeTab === "simulator"}
               collapsed={collapsed}
               onClick={() => setActiveTab("simulator")}
+            />
+            <NavItem
+              icon={<Sparkles size={16} />}
+              label="Agent IA"
+              active={activeTab === "agent"}
+              collapsed={collapsed}
+              onClick={() => setActiveTab("agent")}
             />
           </div>
         </div>

@@ -37,6 +37,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["trad", "Traduction (ex: .trad en Bonjour — par reply aussi)"],
       ["search", "Recherche web (sources récentes : -w semaine, -d 24 h)"],
       ["fetch", "Lire une page web en texte"],
+      ["resume", "Résumé IA d'une page (reply à un lien, ou .resume <url>)"],
       ["wiki", "Résumé Wikipédia FR"],
     ],
   },

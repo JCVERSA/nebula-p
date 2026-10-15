@@ -33,7 +33,9 @@ vi.mock("../src/bot/auditTrail.js", () => ({
 vi.mock("../src/bot/services/animeChoices.js", () => ({
   getAnimeChoiceContext: vi.fn(() => null),
   // 8.99 : injection sélective de l'historique (aucune IO en test).
-  messageSuggestsAnimeHistory: vi.fn(() => false)
+  messageSuggestsAnimeHistory: vi.fn(() => false),
+  // 9.18x (P1) : dernier choix du chat pour le chemin déterministe.
+  getAnimeChoice: vi.fn(() => null)
 }));
 vi.mock("../src/bot/services/aiMemory.js", () => ({
   getMemoryContext: vi.fn(() => null),
@@ -50,11 +52,12 @@ import { generateTextWithFallback, isAIConfigured } from "../src/bot/geminiClien
 import { getCommand } from "../src/bot/commandRegistry.js";
 import { checkAIQuota } from "../src/bot/aiQuota.js";
 import { recordAgentExecution, __resetAgentStateForTests } from "../src/bot/services/agentBrain.js";
-import { getAnimeChoiceContext, messageSuggestsAnimeHistory } from "../src/bot/services/animeChoices.js";
+import { getAnimeChoiceContext, messageSuggestsAnimeHistory, getAnimeChoice } from "../src/bot/services/animeChoices.js";
 import { __resetObservationsForTests } from "../src/bot/services/agentObservation.js";
 
 const mAI = vi.mocked(generateTextWithFallback);
 const mChoices = vi.mocked(getAnimeChoiceContext);
+const mLastChoice = vi.mocked(getAnimeChoice);
 const mConfigured = vi.mocked(isAIConfigured);
 const mGetCommand = vi.mocked(getCommand);
 const mQuota = vi.mocked(checkAIQuota);
@@ -105,6 +108,7 @@ const run = (ctx: ReturnType<typeof mk>, exec: any, text?: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mLastChoice.mockReturnValue(null);
   __resetAgentStateForTests();
   __resetObservationsForTests();
   mConfigured.mockReturnValue(true);
@@ -596,5 +600,52 @@ describe("8.93 — quotas et plafonds", () => {
     await run(ctx, exec);
     expect(exec).not.toHaveBeenCalled();
     expect(texts(ctx.sent)[0]).toContain("beaucoup d'actions");
+  });
+});
+
+describe("9.18x (P1) — « épisode suivant » déterministe (zéro token IA)", () => {
+  const LAST = {
+    title: "mushoku tensei",
+    source: "va",
+    language: "VF",
+    seasonName: "Saison 1",
+    quality: "480P",
+    episodesSpec: "e5",
+    lastEpisode: 5,
+    ts: Date.now()
+  };
+
+  it("« l'épisode suivant » → commande construite localement, AUCUN appel IA", async () => {
+    mLastChoice.mockReturnValue(LAST as any);
+    const ctx = mk("l'épisode suivant");
+    const exec = mkExec();
+    await run(ctx, exec);
+    expect(mAI).not.toHaveBeenCalled(); // zéro token
+    expect(exec).toHaveBeenCalledWith("anime", ["va", "mushoku", "tensei", "s1", "e6", "480p"], "agent");
+    expect(texts(ctx.sent).some((t: string) => t.includes("6"))).toBe(true);
+  });
+
+  it("historique batch (dernier e7) → épisode 8", async () => {
+    mLastChoice.mockReturnValue({ ...LAST, lastEpisode: 7 } as any);
+    const ctx = mk("donne moi le prochain épisode stp");
+    const exec = mkExec();
+    await run(ctx, exec);
+    expect(mAI).not.toHaveBeenCalled();
+    expect(exec).toHaveBeenCalledWith("anime", ["va", "mushoku", "tensei", "s1", "e8", "480p"], "agent");
+  });
+
+  it("titre mentionné dans le message → chemin IA normal (fail-open)", async () => {
+    mLastChoice.mockReturnValue(LAST as any);
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "ok ia" }));
+    const ctx = mk("l'épisode suivant de one piece");
+    await run(ctx, mkExec());
+    expect(mAI).toHaveBeenCalled();
+  });
+
+  it("pas d'historique → chemin IA normal", async () => {
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "ok ia" }));
+    const ctx = mk("l'épisode suivant");
+    await run(ctx, mkExec());
+    expect(mAI).toHaveBeenCalled();
   });
 });

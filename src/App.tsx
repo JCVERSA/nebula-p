@@ -67,6 +67,7 @@ import { BatchDownloadStatus } from "./components/BatchDownloadStatus";
 import AccessControlPanel from "./components/AccessControlPanel";
 import SecurityExtras from "./components/SecurityExtras";
 import BotsPanel from "./components/BotsPanel";
+import AgentPanel from "./components/AgentPanel";
 import SystemPanel from "./components/SystemPanel";
 import UsersPanel from "./components/UsersPanel";
 import AnnouncementsPanel from "./components/AnnouncementsPanel";
@@ -1820,6 +1821,8 @@ export default function App() {
                 {activeTab === "bots" && (
                   <BotsPanel activeBotId={activeBotId} onSelectBot={setActiveBotId} />
                 )}
+                {/* 9.18y (P3) : santé & activité de l'agent IA (compteurs uniquement) */}
+                {activeTab === "agent" && <AgentPanel />}
                 {/* 9.16 : Système absorbe Diagnostics + Export (décision owner) */}
                 {activeTab === "system" && (
                   <div className="space-y-6">

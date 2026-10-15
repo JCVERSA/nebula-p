@@ -106,6 +106,7 @@ const execLog = new Map<string, number[]>();
 export function checkAgentBudget(sender: string, now = Date.now()): boolean {
   const log = (execLog.get(sender) || []).filter((t) => now - t < AGENT_WINDOW_MS);
   execLog.set(sender, log);
+  persistState(); // 9.18w : le prune compte comme mutation
   return log.length < AGENT_EXEC_PER_HOUR;
 }
 
@@ -113,12 +114,14 @@ export function recordAgentExecution(sender: string, now = Date.now()): void {
   const log = (execLog.get(sender) || []).filter((t) => now - t < AGENT_WINDOW_MS);
   log.push(now);
   execLog.set(sender, log);
+  persistState(); // 9.18w
 }
 
 /** Tests uniquement. */
 export function __resetAgentStateForTests(): void {
   execLog.clear();
   pending.clear();
+  stateSink = null;
 }
 
 // ── Confirmations en attente (fail-closed, TTL 2 min) ──────────────────────
@@ -135,6 +138,7 @@ const pending = new Map<string, AgentPending>();
 
 export function setPendingConfirmation(sender: string, p: Omit<AgentPending, "expiresAt">, now = Date.now()): void {
   pending.set(sender, { ...p, expiresAt: now + PENDING_TTL_MS });
+  persistState(); // 9.18w
 }
 
 /** Lit sans consommer ; retourne null si absent ou expiré. */
@@ -143,6 +147,7 @@ export function peekPendingConfirmation(sender: string, now = Date.now()): Agent
   if (!p) return null;
   if (now > p.expiresAt) {
     pending.delete(sender);
+    persistState(); // 9.18w : expiration = mutation
     return null;
   }
   return p;
@@ -152,11 +157,67 @@ export function peekPendingConfirmation(sender: string, now = Date.now()): Agent
 export function takePendingConfirmation(sender: string, now = Date.now()): AgentPending | null {
   const p = peekPendingConfirmation(sender, now);
   pending.delete(sender);
+  persistState(); // 9.18w
   return p;
 }
 
 export function clearPendingConfirmation(sender: string): void {
   pending.delete(sender);
+  persistState(); // 9.18w
+}
+
+// ── 9.18w : persistance optionnelle de l'état volatil ─────────────────────
+
+/**
+ * État sérialisable de l'agent : confirmations en attente + budget horaire.
+ * Le cerveau reste PUR — c'est l'orchestration (agentStateStore, câblé au
+ * boot par server.ts) qui branche le sink disque. Aucun texte utilisateur :
+ * commandes, args (déjà audités) et TTL uniquement.
+ */
+export interface AgentPersistedState {
+  pending: Array<[sender: string, p: AgentPending]>;
+  execLog: Array<[sender: string, ts: number[]]>;
+}
+
+let stateSink: ((s: AgentPersistedState) => void) | null = null;
+
+/** Branche (ou débranche) la persistance. Tests purs : jamais branchée. */
+export function setAgentStateSink(fn: ((s: AgentPersistedState) => void) | null): void {
+  stateSink = fn;
+}
+
+function persistState(): void {
+  if (!stateSink) return;
+  try {
+    stateSink({ pending: [...pending.entries()], execLog: [...execLog.entries()] });
+  } catch {}
+}
+
+/**
+ * Restaure un état sauvegardé (boot après redémarrage). Fail-closed :
+ * confirmations expirées et entrées de budget hors fenêtre glissante sont
+ * jetées, formes invalides ignorées — au pire on redemande une confirmation.
+ */
+export function restoreAgentState(s: AgentPersistedState, now = Date.now()): void {
+  pending.clear();
+  execLog.clear();
+  for (const entry of Array.isArray(s?.pending) ? s.pending : []) {
+    if (!Array.isArray(entry) || typeof entry[0] !== "string" || !entry[1] || typeof entry[1] !== "object") continue;
+    const p = entry[1];
+    if (typeof p.command !== "string" || !Array.isArray(p.args) || typeof p.expiresAt !== "number") continue;
+    if (now > p.expiresAt) continue; // déjà expirée au moment du boot
+    pending.set(entry[0], {
+      command: p.command,
+      args: p.args.map((a) => String(a)),
+      say: typeof p.say === "string" ? p.say : undefined,
+      expiresAt: p.expiresAt
+    });
+  }
+  for (const entry of Array.isArray(s?.execLog) ? s.execLog : []) {
+    if (!Array.isArray(entry) || typeof entry[0] !== "string" || !Array.isArray(entry[1])) continue;
+    const kept = entry[1].filter((t) => typeof t === "number" && Number.isFinite(t) && now - t < AGENT_WINDOW_MS);
+    if (kept.length) execLog.set(entry[0], kept);
+  }
 }
 
 /**
@@ -277,6 +338,123 @@ export function toggleCatalogFlag(args: string[], defaultSource: AnimeSourceId):
   const rest = flagged ? args.slice(1) : args;
   const target: AnimeSourceId = current === "va" ? "as" : "va";
   return target === defaultSource ? rest : [target, ...rest];
+}
+
+// ── 9.18x (P1) : « épisode suivant » déterministe — zéro token IA ──────────
+
+/**
+ * Contexte minimal exigé (structurellement compatible avec AnimeChoiceRecord
+ * du service animeChoices — l'appelant passe le dernier choix du chat tel
+ * quel, sans conversion : le cerveau ne dépend d'aucun module externe).
+ */
+export interface NextEpisodeContext {
+  title: string;
+  source: string;
+  seasonName: string;
+  quality: string;
+  lastEpisode: number | null;
+}
+
+/**
+ * Phrases qui désignent CLAIREMENT l'épisode suivant. « la suite » seule est
+ * VOLONTAIREMENT exclue : ambigu (saison suivante possible) → chemin IA.
+ */
+const NEXT_EP_PHRASE_RE =
+  /(?:^|\s)(?:épisode|episode|ép|ep)\s+(?:suivant|suivante|suivants|suivantes|d\s*(?:après|apres))(?:\s|$)|(?:^|\s)prochain(?:e|s)?\s+(?:épisode|episode|ép|ep)(?:\s|$)|(?:^|\s)next\s+episode(?:\s|$)/i;
+
+/** Vocabulaire de l'intention : ne porte aucune information autre que l'intention. */
+const NEXT_EP_VOCAB = new Set([
+  "épisode", "episode", "ép", "ep", "suivant", "suivante", "suivants", "suivantes",
+  "prochain", "prochaine", "prochains", "prochaines", "d", "après", "apres", "next"
+]);
+
+/** Mots creux (politesse, articles, verbes de demande) tolérés autour de l'intention. */
+const NEXT_EP_FILLER = new Set([
+  "le", "la", "les", "l", "un", "une", "du", "de", "des", "moi", "donne", "donnes", "donnez",
+  "peux", "peut", "pouvez", "tu", "te", "t", "stp", "svp", "please", "si", "plait", "plaît",
+  "il", "vous", "me", "m", "j", "je", "on", "nous", "en", "va", "vas", "y", "cherche", "cherchez",
+  "trouve", "trouves", "veux", "veut", "voudrais", "aimerais", "hey", "salut", "hola", "holà",
+  "bot", "file", "passe", "envoi", "envoie", "montre", "lance", "lances", "dis", "dit", "fais",
+  "fait", "c", "est", "quoi", "et", "puis", "allez", "allons", "go", "encore", "avec", "pour"
+]);
+
+/**
+ * 9.18x (P1, plan owner « crée ton propre plan ») — la demande la plus
+ * courante après un téléchargement est « l'épisode suivant », et l'historique
+ * anime du chat contient déjà TOUT (titre, catalogue, saison, dernier
+ * épisode, qualité). Décision calculée localement : ZÉRO appel IA, ZÉRO quota
+ * consommé — même esprit que la bascule catalogue déterministe (8.94/8.96).
+ *
+ * Fail-open : le moindre doute (titre mentionné dans le message, qualité
+ * différente demandée, historique incomplet, saison illisible, phrase qui
+ * dépasse la simple intention) → null, le chemin IA normal prend le relais.
+ * Zéro confiance sur l'historique : chaque champ est revalidé.
+ */
+export function deterministicNextEpisodeDecision(
+  text: string,
+  last: NextEpisodeContext | null
+): AgentDecision | null {
+  if (!last || typeof text !== "string") return null;
+  const title = String(last.title || "").trim();
+  if (!title) return null;
+  const lastEp =
+    typeof last.lastEpisode === "number" && Number.isFinite(last.lastEpisode)
+      ? Math.floor(last.lastEpisode)
+      : null;
+  if (lastEp === null || lastEp < 1) return null;
+  const seasonMatch = String(last.seasonName || "").match(/\d+/);
+  if (!seasonMatch) return null;
+  const source = String(last.source || "").toLowerCase();
+  if (source !== "va" && source !== "as") return null;
+  const nextEp = lastEp + 1;
+  if (nextEp > 500) return null; // historique aberrant → pas de décision locale
+
+  const norm = text.toLowerCase().replace(/[\u2019\u2018\u0060\u00B4]/g, "'").replace(/\s+/g, " ").trim();
+  if (!NEXT_EP_PHRASE_RE.test(norm.replace(/'/g, " "))) return null;
+
+  // Le message ne doit RIEN désigner d'autre : ni titre, ni numéro, ni
+  // qualité — chaque token restant doit être de l'intention ou un mot creux.
+  const tokens = norm.split(/[\s'\u2019,.!?;:()\-\u2013\u2014]+/).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 10) return null;
+  for (const tok of tokens) {
+    if (!NEXT_EP_VOCAB.has(tok) && !NEXT_EP_FILLER.has(tok)) return null;
+  }
+
+  const quality = String(last.quality || "").trim().toLowerCase();
+  const args = [
+    source,
+    ...title.split(/\s+/).filter(Boolean),
+    `s${seasonMatch[0]}`,
+    `e${nextEp}`,
+    ...(quality ? [quality] : [])
+  ];
+  return {
+    action: "execute",
+    command: "anime",
+    args: args.join(" "),
+    say: `⚡ La suite — épisode ${nextEp} !`
+  };
+}
+
+// ── Observation compacte : la queue des écrans interactifs ─────────────────
+
+/**
+ * 9.18w (audit 9.18, point 2) — les écrans interactifs mettent leur
+ * consigne (« 👉 Réponds avec .a 1 ») à la FIN de leur sortie ; une coupe
+ * head-only la perdait et l'agent redemandait une info déjà affichée
+ * (retour terrain 13/10). On garde la tête (contexte) ET la queue
+ * (consigne + dernières entrées de liste), dans le budget imparti. Pur.
+ */
+export function keepHeadAndTail(text: string, maxChars: number): string {
+  const t = String(text ?? "");
+  const max = Math.floor(maxChars);
+  if (!(max > 0)) return "";
+  if (t.length <= max) return t;
+  if (max < 24) return t.slice(0, max); // budget dégénéré : coupe simple
+  const MARKER = "\n[…]\n";
+  const tail = Math.min(700, Math.max(80, Math.floor(max / 3)));
+  const head = max - MARKER.length - tail;
+  return t.slice(0, head) + MARKER + t.slice(t.length - tail);
 }
 
 // ── Rattrapage : réponse de l'IA après une commande en erreur ──────────────

@@ -6,6 +6,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import { createApp } from "./app.js";
 import { initRegistry } from "./src/bot/commandRegistry.js";
+import { initAgentStatePersistence } from "./src/bot/services/agentStateStore.js";
 import { resolvedFfmpegPath } from "./src/bot/ffmpeg.js";
 import { createPanelApp } from "./src/panel/panelApp.js";
 import { BotSupervisor, ensurePanelToken } from "./src/bot/botSupervisor.js";
@@ -116,6 +117,9 @@ async function startProductionPanel(PORT: number): Promise<void> {
 async function startDevServer(PORT: number): Promise<void> {
   // Build the command registry (built-ins + commands on disk) before serving.
   await initRegistry();
+  // 9.18w : restaurer l'état volatil de l'agent (confirmations + budget/h)
+  // avant le premier message — puis persistance disque à chaque mutation.
+  initAgentStatePersistence();
   const { addLog } = await import("./src/bot/botEngine.js");
   verifyFfmpegAtBoot(addLog);
 

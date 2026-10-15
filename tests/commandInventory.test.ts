@@ -45,6 +45,8 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   // 9.18u : traduction one-shot (décision owner 14/10, analyse repos —
   // .tr était déjà pris par upload → nom primaire `trad`)
   { name: "trad", aliases: ["traduis", "tl"] },
+  // 9.18z : résumé de page web par l'IA (P5 du plan owner — reply à un lien)
+  { name: "resume", aliases: ["résume", "sum"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

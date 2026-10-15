@@ -5,13 +5,17 @@ import {
   clearPendingConfirmation,
   isAgentDeniedCommand,
   isConfirmationAffirmative,
+  deterministicNextEpisodeDecision,
   isHeavyAgentCommand,
+  keepHeadAndTail,
   parseAgentDecision,
   parseAgentFix,
   replySuggestsOtherCatalog,
   toggleCatalogFlag,
   peekPendingConfirmation,
   recordAgentExecution,
+  restoreAgentState,
+  setAgentStateSink,
   __resetAgentStateForTests,
   setPendingConfirmation,
   takePendingConfirmation
@@ -183,5 +187,135 @@ describe("8.93 — parseAgentFix (rattrapage)", () => {
   it("rejette sans say, ou JSON cassé (l'erreur reste visible, pas de bruit)", () => {
     expect(parseAgentFix('{"offer":null}')).toBeNull();
     expect(parseAgentFix("désolé je ne sais pas")).toBeNull();
+  });
+});
+
+describe("9.18w — keepHeadAndTail (l'observation garde la consigne de fin)", () => {
+  it("texte sous budget → inchangé", () => {
+    expect(keepHeadAndTail("court", 100)).toBe("court");
+  });
+
+  it("texte long → tête + marqueur + queue dans le budget", () => {
+    const t = "B".repeat(2000) + "👉 Réponds avec .a 2 pour choisir";
+    const r = keepHeadAndTail(t, 600);
+    expect(r.length).toBeLessThanOrEqual(600);
+    expect(r).toContain("[…]");
+    expect(r.startsWith("BBB")).toBe(true);
+    expect(r.endsWith("👉 Réponds avec .a 2 pour choisir")).toBe(true);
+  });
+
+  it("la queue garde les dernières entrées de liste, pas le milieu", () => {
+    const lines = Array.from({ length: 60 }, (_, i) => `${i + 1}. anime ${i + 1}`).join("\n");
+    const t = `Résultats :\n${lines}\n👉 Réponds avec .a <numéro>`;
+    const r = keepHeadAndTail(t, 500);
+    expect(r).toContain("👉 Réponds avec .a <numéro>");
+    expect(r).toContain("60. anime 60"); // dernière entrée conservée
+    expect(r).not.toContain("30. anime 30"); // le milieu est coupé
+  });
+
+  it("budget dégénéré → coupe simple sans crash", () => {
+    expect(keepHeadAndTail("abcdef", 3)).toBe("abc");
+    expect(keepHeadAndTail("abcdef", 0)).toBe("");
+  });
+});
+
+describe("9.18w — persistance de l'état (restore + sink)", () => {
+  it("restoreAgentState jette expirées et hors-fenêtre, garde le reste", () => {
+    const now = Date.now();
+    restoreAgentState({
+      pending: [
+        ["u", { command: "anime", args: ["x", "s1"], expiresAt: now - 1000 }],
+        ["v", { command: "song", args: ["y"], expiresAt: now + 60000 }]
+      ],
+      execLog: [
+        ["u", [now - 2 * 60 * 60 * 1000, now - 5000]],
+        ["w", [now - 99 * 24 * 60 * 60 * 1000]]
+      ]
+    });
+    expect(peekPendingConfirmation("u")).toBeNull();
+    expect(peekPendingConfirmation("v")?.command).toBe("song");
+    expect(checkAgentBudget("u")).toBe(true); // 1 entrée récente sur 10
+    expect(checkAgentBudget("w")).toBe(true); // tout était obsolète → vide
+  });
+
+  it("formes invalides ignorées sans crash", () => {
+    restoreAgentState({ pending: [["z", { command: 5, args: [], expiresAt: "x" } as unknown as never]], execLog: [] });
+    expect(peekPendingConfirmation("z")).toBeNull();
+  });
+
+  it("le sink est appelé à chaque mutation, take() vide l'état", () => {
+    const saved: Array<{ pending: unknown[]; execLog: unknown[] }> = [];
+    setAgentStateSink((st) => saved.push({ pending: st.pending, execLog: st.execLog }));
+    setPendingConfirmation("u", { command: "anime", args: ["a"] });
+    expect(saved.length).toBe(1);
+    expect(saved[0].pending.length).toBe(1);
+    recordAgentExecution("u");
+    expect(saved.length).toBe(2);
+    expect(saved[1].execLog.length).toBe(1);
+    takePendingConfirmation("u");
+    expect(saved.length).toBe(3);
+    expect(saved[2].pending.length).toBe(0);
+    setAgentStateSink(null);
+    setPendingConfirmation("v", { command: "trad", args: [] }); // sans sink : no-op silencieux
+    expect(saved.length).toBe(3);
+  });
+});
+
+describe("9.18x (P1) — « épisode suivant » déterministe (zéro token)", () => {
+  const LAST = { title: "mushoku tensei", source: "va", seasonName: "Saison 1", quality: "480P", lastEpisode: 5 };
+
+  /** Narrowing typé : args de la décision execute, null sinon. */
+  const argsOf = (t: string, last: typeof LAST): string | null => {
+    const d = deterministicNextEpisodeDecision(t, last);
+    return d && d.action === "execute" ? d.args : null;
+  };
+
+  it("phrase simple → exécution anime construite localement", () => {
+    const d = deterministicNextEpisodeDecision("l'épisode suivant", LAST);
+    expect(d).toEqual({ action: "execute", command: "anime", args: "va mushoku tensei s1 e6 480p", say: "⚡ La suite — épisode 6 !" });
+  });
+
+  it("variantes : prochain épisode / next episode / ép d'après / politesse", () => {
+    for (const t of [
+      "donne moi le prochain épisode stp",
+      "next episode please",
+      "l'ép d'après",
+      "vas-y, épisode suivant",
+      "ép suivant"
+    ]) {
+      expect(deterministicNextEpisodeDecision(t, LAST)?.action).toBe("execute");
+    }
+  });
+
+  it("source as → flag as ; qualité absente → pas de token qualité", () => {
+    expect(argsOf("épisode suivant", { ...LAST, source: "as" })).toBe("as mushoku tensei s1 e6 480p");
+    expect(argsOf("épisode suivant", { ...LAST, quality: "" })).toBe("va mushoku tensei s1 e6");
+  });
+
+  it("batch dernier épisode 7 → e8", () => {
+    expect(argsOf("épisode suivant", { ...LAST, lastEpisode: 7 })).toContain("e8");
+  });
+
+  it("titre mentionné dans le message → null (fail-open vers l'IA)", () => {
+    expect(deterministicNextEpisodeDecision("l'épisode suivant de one piece", LAST)).toBeNull();
+  });
+
+  it("autre qualité demandée → null (intention différente)", () => {
+    expect(deterministicNextEpisodeDecision("l'épisode suivant en 720p", LAST)).toBeNull();
+  });
+
+  it("« la suite » seule → null (ambigu : saison suivante possible)", () => {
+    expect(deterministicNextEpisodeDecision("la suite", LAST)).toBeNull();
+    expect(deterministicNextEpisodeDecision("suivant", LAST)).toBeNull();
+    expect(deterministicNextEpisodeDecision("le 2e", LAST)).toBeNull();
+  });
+
+  it("historique incomplet ou invalide → null", () => {
+    expect(deterministicNextEpisodeDecision("épisode suivant", null)).toBeNull();
+    expect(deterministicNextEpisodeDecision("épisode suivant", { ...LAST, lastEpisode: null })).toBeNull();
+    expect(deterministicNextEpisodeDecision("épisode suivant", { ...LAST, seasonName: "Film" })).toBeNull();
+    expect(deterministicNextEpisodeDecision("épisode suivant", { ...LAST, source: "xx" })).toBeNull();
+    expect(deterministicNextEpisodeDecision("épisode suivant", { ...LAST, title: "" })).toBeNull();
+    expect(deterministicNextEpisodeDecision("épisode suivant", { ...LAST, lastEpisode: 999 })).toBeNull();
   });
 });

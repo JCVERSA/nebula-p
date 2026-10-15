@@ -30,6 +30,7 @@ const THEMES = [
 const TAB_TITLES: Record<NavTab, string> = {
   overview: "Overview",
   bots: "Multi-Bots",
+  agent: "Agent IA",
   connect: "WhatsApp Connect",
   commands: "Commands Registry",
   simulator: "Bot Simulator",
