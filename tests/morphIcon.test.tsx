@@ -70,3 +70,19 @@ describe("9.18ss — morphicons v2 (morph universel) sur les 4 spots à état", 
     }
   });
 });
+
+describe("9.18tt — perf build : lucide importé PAR FICHIER (retour terrain 17/10)", () => {
+  it("aucun composant n'importe l'index lucide (~1900 modules transformés pour 8 icônes)", () => {
+    for (const f of ["SystemPanel.tsx", "Sidebar.tsx", "BatchDownloadStatus.tsx"]) {
+      const src = fs.readFileSync(`src/components/${f}`, "utf-8");
+      expect(src).not.toMatch(/from "lucide";/); // index interdit — 2698→4608 modules
+      expect(src).toMatch(/lucide\/dist\/esm\/icons\//); // par fichier uniquement
+    }
+  });
+
+  it("manage.sh setup : le bot est arrêté pendant le build (curl|sh, RAM 1 Go)", () => {
+    const sh = fs.readFileSync("manage.sh", "utf-8");
+    expect(sh).toContain("setup_was_running");
+    expect(sh).toContain("Bot arrêté pendant le build");
+  });
+});

@@ -15,7 +15,9 @@ import {
   FileText,
 } from "lucide-react";
 import { MorphIcon } from "morphicons/react";
-import { PanelLeft as PanelLeftData, PanelLeftClose as PanelLeftCloseData } from "lucide";
+// 9.18tt — imports PAR FICHIER (cf. SystemPanel) : perf build.
+import PanelLeftData from "lucide/dist/esm/icons/panel-left";
+import PanelLeftCloseData from "lucide/dist/esm/icons/panel-left-close";
 import { ConnectionStatus } from "../lib/types";
 import NebulaMark from "./NebulaMark";
 

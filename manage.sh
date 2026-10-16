@@ -790,13 +790,34 @@ cmd_setup() {
   else
     ok ".env déjà présent (clés: $(grep -cE '^[A-Z]' "${ENV_FILE}" 2>/dev/null || echo 0))"
   fi
+  # 9.18tt (retour terrain 17/10 : build de 20+ min par curl|sh) — npm/vite
+  # en parallèle du bot vivant saturent la RAM du conteneur 1 Go (même cause
+  # que l'audit 8.29 pour cmd_update) : on arrête le moteur pendant le
+  # build, on le relance après ; échec → relance de l'ancien build.
+  local setup_was_running="no"
+  is_running && setup_was_running="yes"
+  if [ "${setup_was_running}" = "yes" ]; then
+    info "Bot arrêté pendant le build (RAM partagée) — relance automatique ensuite…"
+    cmd_stop || true
+  fi
   hdr "Build"
   info "Sortie en direct — panel reconstruit seulement si ses sources ont changé (sinon ~20 s)."
-  ( cd "${APP_DIR}" && npm run build 2>&1 | sed 's/^/    /' ) || die "Build échoué"
+  if ! ( cd "${APP_DIR}" && npm run build 2>&1 | sed 's/^/    /' ); then
+    if [ "${setup_was_running}" = "yes" ] && [ -f "${APP_DIR}/dist/server.cjs" ]; then
+      warn "Build échoué — relance de l'ancien build…"
+      cmd_start >/dev/null 2>&1 || true
+    fi
+    die "Build échoué"
+  fi
   git -C "${APP_DIR}" rev-parse HEAD > "${APP_DIR}/dist/.nebula-build-rev" 2>/dev/null || true
   hdr "Rotation du log (audit 8.51)"
   install_logrotate
-  ok "Installation terminée — démarre avec: ./manage.sh start"
+  if [ "${setup_was_running}" = "yes" ]; then
+    info "Relance du bot…"
+    cmd_start || warn "Relance échouée — lance: ./manage.sh start"
+  else
+    ok "Installation terminée — démarre avec: ./manage.sh start"
+  fi
 }
 
 cmd_clone() {

@@ -12,7 +12,13 @@ import {
   Download,
 } from "lucide-react";
 import { MorphIcon } from "morphicons/react";
-import { Pause as PauseData, Play as PlayData, Rocket as RocketData, LoaderCircle as LoaderData } from "lucide";
+// 9.18tt — imports PAR FICHIER : l'index de lucide ré-exporte ~1900 icônes
+// que vite devrait toutes transformer (build 2698→4608 modules, 20+ min sur
+// le VPS 1 Go). 8 icônes = 8 fichiers.
+import PauseData from "lucide/dist/esm/icons/pause";
+import PlayData from "lucide/dist/esm/icons/play";
+import RocketData from "lucide/dist/esm/icons/rocket";
+import LoaderData from "lucide/dist/esm/icons/loader-circle";
 import { CheckMorph } from "./MorphIcon";
 
 /**

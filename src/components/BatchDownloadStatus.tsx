@@ -24,7 +24,9 @@ import {
   Bug,
 } from "lucide-react";
 import { MorphIcon } from "morphicons/react";
-import { ChevronDown as ChevronDownData, ChevronUp as ChevronUpData } from "lucide";
+// 9.18tt — imports PAR FICHIER (cf. SystemPanel) : perf build.
+import ChevronDownData from "lucide/dist/esm/icons/chevron-down";
+import ChevronUpData from "lucide/dist/esm/icons/chevron-up";
 
 export interface BatchEpisodeItem {
   epNum: number;
