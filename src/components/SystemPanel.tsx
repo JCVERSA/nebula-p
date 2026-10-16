@@ -6,7 +6,6 @@ import {
   Square,
   Rocket,
   AlertTriangle,
-  CheckCircle2,
   Pause,
   Play,
   KeyRound,
@@ -15,6 +14,7 @@ import {
   Copy,
   Download,
 } from "lucide-react";
+import { CheckMorph } from "./MorphIcon";
 
 /**
  * 9.2 — Section « Système » : mini-console admin du panneau.
@@ -521,7 +521,10 @@ export default function SystemPanel() {
         )}
         {phase === "uptodate" && (
           <div className="mt-4 flex items-start gap-2 text-xs text-emerald-300" data-testid="system-lifecycle">
-            <CheckCircle2 size={14} className="mt-0.5" />
+            {/* 9.18rr — la coche se DESSINE au moment où le spinner s'arrête
+                (LoadingSuccess du concept SwiftSlate de l'APK) : fin d'attente
+                lisible d'un coup d'œil. */}
+            <CheckMorph size={14} className="mt-0.5 shrink-0" />
             <span>Déjà à jour — aucune nouvelle version sur GitHub.</span>
           </div>
         )}
