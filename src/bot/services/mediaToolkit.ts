@@ -266,7 +266,16 @@ export function probeVideoInfo(filePath: string, timeoutMs = 8000): Promise<Vide
 }
 
 /** Runs the toolkit FFmpeg with a hard timeout. Never throws (returns ok+stderr). */
-export function runFfmpegKit(args: string[], timeoutMs = 240000): Promise<{ ok: boolean; stderr: string }> {
+export interface FfmpegKitResult {
+  ok: boolean;
+  /** Code de sortie ffmpeg (null si tué par signal). */
+  code: number | null;
+  /** Signal qui a tué ffmpeg (SIGKILL = OOM killer typiquement, SIGSEGV = crash). */
+  signal: string | null;
+  stderr: string;
+}
+
+export function runFfmpegKit(args: string[], timeoutMs = 240000): Promise<FfmpegKitResult> {
   return new Promise(resolve => {
     try {
       const bin = resolvedFfmpegPath || "ffmpeg";
@@ -282,17 +291,22 @@ export function runFfmpegKit(args: string[], timeoutMs = 240000): Promise<{ ok: 
         stderr += d.toString();
         if (stderr.length > 8000) stderr = stderr.slice(-4000);
       });
-      p.on("error", err => resolve({ ok: false, stderr: String(err) }));
+      p.on("error", err => resolve({ ok: false, code: null, signal: null, stderr: String(err) }));
       const timer = setTimeout(() => {
         try { p.kill("SIGKILL"); } catch {}
-        resolve({ ok: false, stderr: `timeout after ${Math.round(timeoutMs / 1000)}s` });
+        resolve({ ok: false, code: null, signal: "SIGKILL", stderr: `timeout after ${Math.round(timeoutMs / 1000)}s` });
       }, timeoutMs);
-      p.on("close", code => {
+      // 9.18mm (retour terrain 16/10) — un ffmpeg qui meurt SANS erreur dans
+      // stderr a été tué de l'extérieur : OOM killer (SIGKILL) ou crash
+      // (SIGSEGV). L'ancien handler ne gardait que `code` (null dans les deux
+      // cas) — impossible de distinguer. On capture le signal pour que le
+      // prochain échec dise sa cause.
+      p.on("close", (code, signal) => {
         clearTimeout(timer);
-        resolve({ ok: code === 0, stderr: stderr.slice(-1500) });
+        resolve({ ok: code === 0, code: code ?? null, signal: signal ?? null, stderr: stderr.slice(-1500) });
       });
     } catch (err: any) {
-      resolve({ ok: false, stderr: String(err?.message || err) });
+      resolve({ ok: false, code: null, signal: null, stderr: String(err?.message || err) });
     }
   });
 }

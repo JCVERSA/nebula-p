@@ -179,7 +179,7 @@ export function registerTempDownload(
   const isZip = filename.toLowerCase().endsWith(".zip") || options?.mimeType === "application/zip";
   const stat = fs.statSync(sourcePath);
   const sizeBytes = stat.size;
-  const sizeMB = Number((sizeBytes / (1024 * 1024)).toFixed(2));
+  const sizeMB = Number((sizeBytes / 1e6).toFixed(2)); // 9.18mm — Mo décimaux (affichage) : coller aux navigateurs/WhatsApp ; sizeBytes reste la vérité pour la logique
   
   // 8.83 : TTL glissant — défaut NEBULA_LINK_TTL_MIN (30 min) ; une valeur
   // explicite reste honorée, bornée [5, 120]. L'ancien cap dur de 60 min

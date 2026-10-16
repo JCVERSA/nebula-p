@@ -818,6 +818,7 @@ ENV_KEYS=(
   "NEBULA_ASR_ENABLED|Mettre 0 pour couper la transcription des notes vocales vers l agent (défaut: activé dès qu une clé GEMINI existe — pivot 9.15d)"
   "NEBULA_TTS_MODEL|Modèle Gemini TTS pour les voix naturelles (défaut gemini-3.1-flash-tts-preview — free tier; repli possible gemini-2.5-flash-preview-tts)"
   "NEBULA_TTS_VOICE|Voix Gemini TTS parmi les 30 préconstruites (défaut Charon; ex Kore, Puck, Sulafat, Fenrir)"
+  "NEBULA_TTS_DAILY_LIMIT|Synthèses voix naturelle Gemini max/jour/utilisateur (défaut 10, 0 = désactive; owner illimité; au-delà repli Edge Henri)"
   "NEBULA_ASR_MODEL|Modèle GEMINI de transcription des notes vocales (défaut gemini-3.7-flash — l audio est natif chez Gemini, clé Gemini requise)"
   "NEBULA_REUSE_ENABLED|Mettre 0 pour couper le cache de réutilisation des médias déjà téléchargés (défaut: activé)"
   "NEBULA_REUSE_TTL_HOURS|Durée de vie (heures, glissante) du cache de réutilisation — défaut 24, borné 1-168"

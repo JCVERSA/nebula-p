@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { initRegistry, getCommands, getCommand, suggestClosestCommand } from "../src/bot/commandRegistry.js";
 
 /**
@@ -106,5 +109,31 @@ describe("9.11 — suggestClosestCommand (typo → commande la plus proche)", ()
     expect(suggestClosestCommand("menue")).toBe("menu");
     expect(suggestClosestCommand("a")).toBeNull();        // trop court
     expect(suggestClosestCommand("zzzzzzzz")).toBeNull(); // trop loin de tout
+  });
+});
+
+describe("9.18mm — voiceMode.ts exempté du scan disque (warning prod erroné)", () => {
+  it("un voiceMode.ts dans le dossier commandes ne produit AUCUN warning au boot", async () => {
+    // Retour terrain 16/10 : « ⚠️ Commande non chargée : voiceMode.ts » à
+    // chaque démarrage VPS alors que .on/.off (built-ins importés
+    // statiquement) fonctionnaient et 31 commandes étaient enregistrées.
+    // Cause : le scanner disque tentait de recharger le fichier source en
+    // prod (Node ne parse pas les .ts). Fix : exception « voicemode ».
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nebula-cmds-"));
+    fs.writeFileSync(path.join(tmp, "voiceMode.ts"), "export default {};");
+    process.env.NEBULA_COMMANDS_DIR = tmp;
+    const warns: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => { warns.push(a.join(" ")); });
+    try {
+      await initRegistry();
+      expect(warns.some((w) => w.includes("voiceMode.ts"))).toBe(false);
+      // .on/.off restent bien enregistrés (built-ins, pas touchés)
+      expect(getCommand("on")).toBeTruthy();
+      expect(getCommand("off")).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+      delete process.env.NEBULA_COMMANDS_DIR;
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+    }
   });
 });

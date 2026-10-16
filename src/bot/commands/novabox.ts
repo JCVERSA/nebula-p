@@ -2956,7 +2956,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     let fallbackCaption = "";
     try {
       let stats = fs.statSync(localPath);
-      let fileSizeMB = stats.size / (1024 * 1024);
+      let fileSizeMB = stats.size / 1e6; // 9.18mm — Mo DÉCIMALS : ce que montrent navigateurs/WhatsApp (avant : Mio binaires « 387.8 MB » pour 406.6 MB réels)
       console.log(`[NOVABOX] Downloaded raw file size: ${fileSizeMB.toFixed(2)} MB`);
 
       // 9.7 : amincissement MÊME RÉSOLUTION au-dessus du seuil owner
@@ -2965,7 +2965,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         const slim = await slimVideoIfNeeded(localPath);
         if (slim.slimmed) {
           stats = fs.statSync(localPath);
-          fileSizeMB = stats.size / (1024 * 1024);
+          fileSizeMB = stats.size / 1e6; // 9.18mm — décimal
         }
       }
 
@@ -3045,7 +3045,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             const compStats = fs.statSync(compressedPath);
             if (compStats.size > 0 && compStats.size < stats.size) {
               activeSendPath = compressedPath;
-              fileSizeMB = compStats.size / (1024 * 1024);
+              fileSizeMB = compStats.size / 1e6; // 9.18mm — décimal
               console.log(
                 `[NOVABOX] Compression OK: ${(compStats.size / 1048576).toFixed(2)} MB in ${((Date.now() - tComp) / 1000).toFixed(1)}s`
               );

@@ -26,9 +26,13 @@ function verifyFfmpegAtBoot(addLog: (message: string) => void): void {
   const candidates = new Set<string>(["ffmpeg", resolvedFfmpegPath]);
   if (process.env.FFMPEG_BIN?.trim()) candidates.add(process.env.FFMPEG_BIN.trim());
   for (const candidate of candidates) {
-    const result = spawnSync(candidate, ["-version"], { stdio: "ignore" });
+    const result = spawnSync(candidate, ["-version"], { stdio: ["ignore", "pipe", "ignore"] });
     if (result.status === 0) {
-      console.log(`[BOOT] ✅ ffmpeg OK — ${candidate === "ffmpeg" ? "on PATH" : candidate}`);
+      // 9.18mm — version dans le boot (cf. engine.ts) : un log terrain doit
+      // dire quel ffmpeg a tourné (4.4 apt vs 6.x ne plantent pas pareil).
+      const firstLine = String(result.stdout || "").split("\n")[0].trim();
+      const version = /ffmpeg version (\S+)/.exec(firstLine)?.[1] || "version inconnue";
+      console.log(`[BOOT] ✅ ffmpeg OK — ${candidate === "ffmpeg" ? "on PATH" : candidate} (${version})`);
       return;
     } else {
       // try the next candidate

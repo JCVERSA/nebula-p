@@ -47,9 +47,14 @@ function verifyFfmpegAtBoot(): void {
   const candidates = new Set<string>(["ffmpeg", resolvedFfmpegPath]);
   if (process.env.FFMPEG_BIN?.trim()) candidates.add(process.env.FFMPEG_BIN.trim());
   for (const candidate of candidates) {
-    const result = spawnSync(candidate, ["-version"], { stdio: "ignore" });
+    const result = spawnSync(candidate, ["-version"], { stdio: ["ignore", "pipe", "ignore"] });
     if (result.status === 0) {
-      log(`ffmpeg OK — ${candidate === "ffmpeg" ? "sur le PATH" : candidate}`);
+      // 9.18mm — la version dans le boot : un ffmpeg 4.4 (apt Ubuntu 22.04)
+      // et un ffmpeg 6.x ne plantent pas pareil, sans elle un log terrain
+      // ne dit rien de l'outil qui a tourné.
+      const firstLine = String(result.stdout || "").split("\n")[0].trim();
+      const version = /ffmpeg version (\S+)/.exec(firstLine)?.[1] || "version inconnue";
+      log(`ffmpeg OK — ${candidate === "ffmpeg" ? "sur le PATH" : candidate} (${version})`);
       return;
     }
   }

@@ -25,6 +25,20 @@ function getQuotaFile(): string {
 
 const DAILY_LIMIT = Number(process.env.NEBULA_AI_DAILY_LIMIT || 40);
 
+// 9.18ll — plafond quotidien DÉDIÉ aux synthèses vocales Gemini (défaut 10,
+// env NEBULA_TTS_DAILY_LIMIT ; 0 = désactive la voix Gemini pour les
+// non-owner). Indépendant du quota IA général : la recherche 15/10 montre
+// que le free tier TTS de la clé Gemini est plafonné (~10-100 synthèses/
+// jour selon tier) et PARTAGÉ entre tous les utilisateurs — chaque user
+// goûte à la voix naturelle sans vider le plafond commun ; au-delà,
+// ttsService replie sur Edge Henri (jamais de blocage).
+let TTS_DAILY_LIMIT = Math.max(0, Number(process.env.NEBULA_TTS_DAILY_LIMIT || 10));
+
+/** Test hook — fixe le plafond TTS sans recharger le module. */
+export function __setTtsDailyLimitForTests(n: number): void {
+  TTS_DAILY_LIMIT = Math.max(0, Math.floor(Number(n) || 0));
+}
+
 // 9.18 (M) — limite IA personnalisée par utilisateur (userDirectory).
 // Injection d'un résolveur plutôt qu'un import direct : aiQuota reste un
 // module bas niveau sans dépendance circulaire avec le répertoire.
@@ -79,16 +93,32 @@ try {
   console.warn("[AIQuota] Failed to load usage file:", e?.message || e);
 }
 
+// 9.18ll — compteur TTS séparé (ai_tts_usage.json) : indépendant du quota
+// IA général, même format et même persistance atomique.
+let ttsUsage: Record<string, UsageRecord> = {};
+try {
+  const ttsFile = path.join(getDataDir(), "ai_tts_usage.json");
+  if (fs.existsSync(ttsFile)) {
+    ttsUsage = JSON.parse(fs.readFileSync(ttsFile, "utf-8"));
+  }
+} catch (e: any) {
+  console.warn("[AIQuota] Failed to load TTS usage file:", e?.message || e);
+}
+
 let saveTimer: NodeJS.Timeout | null = null;
+function persistJSON(file: string, data: unknown): void {
+  const tmp = `${file}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
+  fs.renameSync(tmp, file);
+}
 function scheduleSave() {
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
     saveTimer = null;
     try {
       fs.mkdirSync(getDataDir(), { recursive: true });
-      const tmp = `${getQuotaFile()}.${Date.now()}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(usage, null, 2), "utf-8");
-      fs.renameSync(tmp, getQuotaFile());
+      persistJSON(getQuotaFile(), usage);
+      persistJSON(path.join(getDataDir(), "ai_tts_usage.json"), ttsUsage);
     } catch (e: any) {
       console.error("[AIQuota] Failed to persist usage:", e?.message || e);
     }
@@ -99,14 +129,18 @@ function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function recordFor(sender: string): UsageRecord {
+function recordIn(map: Record<string, UsageRecord>, sender: string): UsageRecord {
   const key = sender.replace(/[^0-9a-zA-Z@.:\-_]/g, "");
   const now = today();
-  const current = usage[key];
+  const current = map[key];
   if (!current || current.date !== now) {
-    usage[key] = { date: now, count: 0 };
+    map[key] = { date: now, count: 0 };
   }
-  return usage[key];
+  return map[key];
+}
+
+function recordFor(sender: string): UsageRecord {
+  return recordIn(usage, sender);
 }
 
 export interface AIQuotaDecision {
@@ -159,6 +193,42 @@ export function resetAIQuota(sender: string): boolean {
   const key = sender.replace(/[^0-9a-zA-Z@.:\-_]/g, "");
   if (!usage[key]) return false;
   delete usage[key];
+  scheduleSave();
+  return true;
+}
+
+/**
+ * 9.18ll — plafond TTS dédié (voir TTS_DAILY_LIMIT en tête de module).
+ * Owner illimité (même règle que le quota IA 9.18gg) ; ne consomme pas.
+ */
+export function checkTTSQuota(sender: string): AIQuotaDecision {
+  const rec = recordIn(ttsUsage, sender);
+  const limit = isOwnerSender(sender) ? 1_000_000 : TTS_DAILY_LIMIT;
+  if (rec.count >= limit) {
+    return {
+      allowed: false,
+      usedToday: rec.count,
+      limit,
+      error: `Daily TTS voice limit reached (${rec.count}/${limit}). Try again tomorrow.`,
+    };
+  }
+  return { allowed: true, usedToday: rec.count, limit };
+}
+
+/** 9.18ll — consomme une synthèse vocale Gemini du plafond TTS du jour. */
+export function consumeTTSQuota(sender: string): AIQuotaDecision {
+  const decision = checkTTSQuota(sender);
+  if (!decision.allowed) return decision;
+  recordIn(ttsUsage, sender).count += 1;
+  scheduleSave();
+  return { allowed: true, usedToday: decision.usedToday + 1, limit: decision.limit };
+}
+
+/** 9.18ll — remet à zéro le plafond TTS du jour pour un utilisateur (dashboard/tests). */
+export function resetTTSQuota(sender: string): boolean {
+  const key = sender.replace(/[^0-9a-zA-Z@.:\-_]/g, "");
+  if (!ttsUsage[key]) return false;
+  delete ttsUsage[key];
   scheduleSave();
   return true;
 }

@@ -166,6 +166,6 @@ describe("9.0c — anti-fuite libsignal (clés de session hors des logs)", () =>
 describe("9.0c — registre : watch.ts (commande « w ») n'est plus un faux unloadable", () => {
   it("watch figure dans les exceptions de fichiers sources built-in", () => {
     const src = readFileSync(join(__dirname, "../src/bot/commandRegistry.ts"), "utf-8");
-    expect(src).toContain('new Set(["novabox", "watch"])');
+    expect(src).toContain('new Set(["novabox", "watch", "voicemode"])');
   });
 });

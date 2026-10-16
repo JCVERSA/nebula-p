@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
 import { getAIClient } from "../geminiClient.js";
-import { checkAIQuota, consumeAIQuota } from "../aiQuota.js";
+import { checkAIQuota, consumeAIQuota, checkTTSQuota, consumeTTSQuota } from "../aiQuota.js";
 
 /**
  * 9.18dd (P6, décision owner 15/10) — synthèse vocale (TTS) pour notes
@@ -197,7 +197,8 @@ async function transcodeToVoiceOgg(mp3: Buffer): Promise<Buffer> {
 /**
  * Texte → note vocale ogg/opus prête à l'envoi (ptt). Chaîne Gemini TTS
  * (naturel, via la clé existante) → Edge Henri (gratuit). opts.sender :
- * clé de quota IA pour l'appel Gemini (owner illimité) — quota épuisé ou
+ * clé de quota IA pour l'appel Gemini (owner illimité) — quota IA général
+ * OU plafond TTS dédié (9.18ll, 10/jour par défaut) épuisé, ou sender
  * absent → Edge directement, jamais de blocage. Échecs honnêtes : toute
  * erreur remonte à la commande qui explique, jamais de crash moteur.
  */
@@ -206,13 +207,23 @@ export async function synthesizeVoiceNote(rawText: string, opts: { sender?: stri
   if (!v.ok) throw new Error(v.reason === "empty" ? "rien à lire" : "texte trop long");
 
   // 1. Gemini TTS — voix naturelle (recherche 2026 : Gemini TTS > ElevenLabs
-  //    en Elo ; free tier ; l'owner a déjà la clé).
-  const geminiQuotaOk = !opts.sender || checkAIQuota(opts.sender).allowed;
+  //    en Elo ; free tier ; l'owner a déjà la clé). 9.18ll : plafond TTS
+  //    dédié par user (défaut 10/j, owner illimité) car le plafond journalier
+  //    de la clé Gemini est PARTAGÉ entre tous — chaque user goûte à la voix
+  //    naturelle sans le vider ; épuisé → Edge, jamais de blocage.
+  let geminiQuotaOk = true;
+  if (opts.sender) {
+    const tts = checkTTSQuota(opts.sender);
+    if (!tts.allowed) {
+      console.log(`[TTS] plafond voix Gemini de l'utilisateur atteint (${tts.usedToday}/${tts.limit}) → Edge Henri`);
+    }
+    geminiQuotaOk = checkAIQuota(opts.sender).allowed && tts.allowed;
+  }
   if (getAIClient() && geminiQuotaOk) {
     try {
       const wav = await geminiTtsToWav(v.text);
       const ogg = await transcodeToVoiceOgg(wav);
-      if (opts.sender) consumeAIQuota(opts.sender); // après succès seulement
+      if (opts.sender) { consumeAIQuota(opts.sender); consumeTTSQuota(opts.sender); } // après succès seulement
       console.log(`[TTS] 🎙️ voix Gemini (${geminiTtsVoice()}) — ${v.text.length} caractères`);
       return ogg;
     } catch (e: any) {

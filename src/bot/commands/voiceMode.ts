@@ -25,7 +25,7 @@ const onCommand: BotCommand = {
     const already = isVoiceModeEnabled(context.sender);
     await context.reply(
       already
-        ? "🎙️ *Mode vocal activé* — mes réponses arrivent en note vocale, avec la *voix naturelle Gemini* (repli : Henri).\n\n_Les liens et listes restent en texte — un lien ne s'écoute pas. Désactiver : `.off`._"
+        ? "🎙️ *Mode vocal activé* — mes réponses arrivent en note vocale, avec la *voix naturelle Gemini* (dans la limite du jour, repli : Henri).\n\n_Les liens et listes restent en texte — un lien ne s'écoute pas. Désactiver : `.off`._"
         : "❌ Impossible d'activer le mode vocal — réessaie dans un instant."
     );
   },

@@ -28,7 +28,7 @@ function fakeFfmpegWrites(bytes: number) {
   mRun.mockImplementation(async (args: string[]) => {
     const out = args[args.length - 1];
     fs.writeFileSync(out, Buffer.alloc(bytes, 7));
-    return { ok: true, stderr: "" };
+    return { ok: true, code: 0, signal: null, stderr: "" };
   });
 }
 
@@ -108,6 +108,48 @@ describe("slimVideoIfNeeded — exécution", () => {
     const args = mRun.mock.calls[0][0] as string[];
     expect(args.join(" ")).toContain("-b:a 96k");
     expect(args.join(" ")).toContain("+faststart");
+    // 9.18mm — threads x264 plafonnés à 2 : mort silencieuse en prod (frame=3,
+    // OOM killer suspecté sur VPS 1 Go) — sans cap, un buffer par cœur virtuel.
+    expect(args.join(" ")).toContain("-threads 2");
+  });
+
+  it("9.18mm — échec TUÉ PAR SIGNAL (SIGKILL/OOM) → la cause dans le log, original livré", async () => {
+    const p = mkFile(4096);
+    mRun.mockImplementation(async (args: string[]) => {
+      const out = args[args.length - 1];
+      fs.writeFileSync(out, Buffer.alloc(10));
+      return { ok: false, code: null, signal: "SIGKILL", stderr: "frame=    3 fps=0.0" };
+    });
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => { logs.push(a.join(" ")); });
+    try {
+      const r = await slimVideoIfNeeded(p, { triggerBytes: 1024 });
+      expect(r.slimmed).toBe(false);
+      expect(fs.statSync(p).size).toBe(4096); // original intact
+      const line = logs.find((l) => l.includes("[SLIM] échec ffmpeg"));
+      expect(line).toBeTruthy();
+      expect(line).toContain("signal SIGKILL");
+      expect(line).toContain("OOM killer");
+      expect(line).toContain("dmesg");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("9.18mm — échec avec code de sortie (pas de signal) → code affiché, pas de mention OOM", async () => {
+    const p = mkFile(4096);
+    mRun.mockImplementation(async () => ({ ok: false, code: 1, signal: null, stderr: "Invalid data" }));
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => { logs.push(a.join(" ")); });
+    try {
+      const r = await slimVideoIfNeeded(p, { triggerBytes: 1024 });
+      expect(r.slimmed).toBe(false);
+      const line = logs.find((l) => l.includes("[SLIM] échec ffmpeg"));
+      expect(line).toContain("code 1");
+      expect(line).not.toContain("OOM");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("échec ffmpeg → fichier original livré, sortie partielle purgée", async () => {
@@ -115,7 +157,7 @@ describe("slimVideoIfNeeded — exécution", () => {
     mRun.mockImplementation(async (args: string[]) => {
       const out = args[args.length - 1];
       fs.writeFileSync(out, Buffer.alloc(10)); // sortie partielle
-      return { ok: false, stderr: "boom" };
+      return { ok: false, code: 1, signal: null, stderr: "boom" };
     });
     const r = await slimVideoIfNeeded(p, { triggerBytes: 1024 });
     expect(r.slimmed).toBe(false);
@@ -141,7 +183,7 @@ describe("slimVideoIfNeeded — exécution", () => {
       await new Promise((res) => setTimeout(res, 30));
       fs.writeFileSync(args[args.length - 1], Buffer.alloc(10));
       active--;
-      return { ok: true, stderr: "" };
+      return { ok: true, code: 0, signal: null, stderr: "" };
     });
     const p1 = mkFile(4096);
     const p2 = path.join(dir, "ep2.mp4");

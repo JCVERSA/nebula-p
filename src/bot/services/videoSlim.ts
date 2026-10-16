@@ -111,6 +111,12 @@ export async function slimVideoIfNeeded(
       [
         "-y", "-fflags", "+genpts", "-threads", "0", "-i", inputPath,
         ...fit.options,
+        // 9.18mm (retour terrain 16/10) — mort silencieuse de x264 en prod
+        // (frame=3, aucun message : OOM killer suspecté, VPS 1 Go). Sans cap,
+        // x264 alloue des buffers par thread = un par cœur virtuel ; 2 threads
+        // en veryfast divisent l'empreinte mémoire pour un encodage ~2× plus
+        // lent (acceptable : timeout 15 min).
+        "-threads", "2",
         "-af", "aresample=async=1:first_pts=0",
         "-avoid_negative_ts", "make_zero",
         "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", outPath
@@ -129,7 +135,12 @@ export async function slimVideoIfNeeded(
 
   if (!r.ok || finalBytes === 0) {
     discard();
-    console.log(`[SLIM] échec ffmpeg — fichier original livré (${(r.stderr || "").slice(-140)})`);
+    // 9.18mm — la cause de la mort dans le log : signal (OOM killer = SIGKILL,
+    // crash = SIGSEGV) ou code de sortie. Fin de l'incertitude « frame=3 ».
+    const cause = r.signal
+      ? `signal ${r.signal}${r.signal === "SIGKILL" ? " — très probablement l'OOM killer (RAM), vérifie « dmesg -T | grep -i oom »" : " (crash ffmpeg)"}`
+      : `code ${r.code ?? "?"}`;
+    console.log(`[SLIM] échec ffmpeg (${cause}) — fichier original livré (${(r.stderr || "").slice(-140)})`);
     return unchanged();
   }
   if (finalBytes >= originalBytes) {

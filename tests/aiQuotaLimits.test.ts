@@ -8,6 +8,10 @@ import {
   getAIQuotaUsage,
   resetAIQuota,
   setAIQuotaOverrideGetter,
+  checkTTSQuota,
+  consumeTTSQuota,
+  resetTTSQuota,
+  __setTtsDailyLimitForTests,
 } from "../src/bot/aiQuota.js";
 
 /**
@@ -30,6 +34,9 @@ beforeEach(() => {
 afterEach(() => {
   resetAIQuota(USER);
   resetAIQuota(OTHER);
+  resetTTSQuota(USER);
+  resetTTSQuota(OTHER);
+  __setTtsDailyLimitForTests(10);
   setAIQuotaOverrideGetter(() => null);
   delete process.env.NEBULA_DATA_DIR;
   delete process.env.OWNER_NUMBER;
@@ -112,5 +119,52 @@ describe("9.18gg — owner illimité (décision owner 15/10 : mon bot, mes clés
     for (let i = 0; i < 40; i++) consumeAIQuota(USER);
     expect(checkAIQuota(USER).allowed).toBe(false);
     resetAIQuota(USER);
+  });
+});
+
+describe("9.18ll — plafond TTS dédié (répartition de la voix Gemini entre users)", () => {
+  it("non-owner : 10 synthèses Gemini/jour par défaut, puis refus (service → Edge Henri)", () => {
+    expect(checkTTSQuota(USER).limit).toBe(10);
+    for (let i = 0; i < 10; i++) expect(consumeTTSQuota(USER).allowed).toBe(true);
+    const blocked = checkTTSQuota(USER);
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.usedToday).toBe(10);
+    expect(consumeTTSQuota(USER).allowed).toBe(false); // pas de 11e
+  });
+
+  it("owner : échappe au plafond TTS (même règle que le quota IA 9.18gg)", () => {
+    process.env.OWNER_NUMBER = "237600000099";
+    const owner = "237600000099@s.whatsapp.net";
+    for (let i = 0; i < 30; i++) consumeTTSQuota(owner);
+    const q = checkTTSQuota(owner);
+    expect(q.allowed).toBe(true);
+    expect(q.limit).toBe(1_000_000);
+    resetTTSQuota(owner);
+  });
+
+  it("indépendant du quota IA général : consommer l'un ne touche pas l'autre", () => {
+    for (let i = 0; i < 10; i++) consumeTTSQuota(USER);
+    expect(checkTTSQuota(USER).allowed).toBe(false); // TTS plein
+    expect(consumeAIQuota(USER).allowed).toBe(true); // 40/j intacts
+    resetTTSQuota(USER);
+    for (let i = 0; i < 5; i++) consumeAIQuota(USER);
+    expect(checkTTSQuota(USER).allowed).toBe(true); // TTS remis à neuf
+    expect(checkTTSQuota(USER).usedToday).toBe(0);
+  });
+
+  it("NEBULA_TTS_DAILY_LIMIT=0 → voix Gemini désactivée pour les non-owner (tout Edge)", () => {
+    __setTtsDailyLimitForTests(0);
+    const q = checkTTSQuota(USER);
+    expect(q.allowed).toBe(false);
+    expect(q.limit).toBe(0);
+    expect(consumeTTSQuota(USER).allowed).toBe(false);
+  });
+
+  it("resetTTSQuota : remise à zéro propre (dashboard/tests)", () => {
+    consumeTTSQuota(USER);
+    consumeTTSQuota(USER);
+    expect(resetTTSQuota(USER)).toBe(true);
+    expect(checkTTSQuota(USER).usedToday).toBe(0);
+    expect(resetTTSQuota(OTHER)).toBe(false); // jamais consommé → rien à reset
   });
 });

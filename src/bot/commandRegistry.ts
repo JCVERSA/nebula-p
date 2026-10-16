@@ -73,8 +73,14 @@ export function getCommandsDir(): string {
 const commandsMap = new Map<string, BotCommand>();
 
 /** Disk files that are the SOURCE of a statically-imported built-in command
- *  whose filename differs from its registered command name. */
-const BUILTIN_SOURCE_FILE_EXCEPTIONS = new Set(["novabox", "watch"]);
+ * whose filename differs from its registered command name. */
+// 9.18mm (retour terrain 16/10) — « voicemode » ajouté : voiceMode.ts est la
+// source des built-ins .on/.off (import statique), mais son nom de fichier ne
+// correspond à AUCUN nom de commande → le scanner disque tentait de le
+// recharger, échouait en prod (Node ne parse pas les .ts) et affichait
+// « ⚠️ Commande non chargée : voiceMode.ts » à chaque démarrage alors que
+// .on/.off fonctionnaient parfaitement (31 commandes enregistrées).
+const BUILTIN_SOURCE_FILE_EXCEPTIONS = new Set(["novabox", "watch", "voicemode"]);
 
 /** Commands loaded from disk (name -> module), kept in memory between reloads. */
 const diskCommandCache = new Map<string, BotCommand>();
