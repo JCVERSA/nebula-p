@@ -233,8 +233,9 @@ const uploadCommand: BotCommand = {
       if (!res.ok) {
         if (res.reason === "tooBig") {
           return void (await context.reply(
-            `⚠️ *Fichier trop lourd* (${(res.bytes / 1048576).toFixed(1)} Mo) — maximum ${Math.round(
-              maxBytes / 1048576,
+            // 9.18pp — Mo décimaux (cohérent 9.18mm : navigateurs/WhatsApp)
+            `⚠️ *Fichier trop lourd* (${(res.bytes / 1e6).toFixed(1)} Mo) — maximum ${Math.round(
+              maxBytes / 1e6,
             )} Mo par fichier (réglable par l'owner).`,
           ));
         }

@@ -1,4 +1,5 @@
 import fs from "fs";
+import { isOwnerSender } from "./aiQuota.js"; // 9.18pp
 import path from "path";
 
 /**
@@ -82,6 +83,10 @@ export interface WebQuotaStatus {
 }
 
 export function checkWebQuota(sender: string): WebQuotaStatus {
+  // 9.18pp (décision owner 16/10, esprit 9.18gg « mon bot, mes clés ») :
+  // les outils web tournent sur la clé Tavily de l'owner — il échappe au
+  // plafond (même règle que les quotas IA/TTS, LID compris).
+  if (isOwnerSender(sender)) return { allowed: true, remaining: 1_000_000, limit: 1_000_000 };
   const limit = getWebDailyLimit();
   const r = usage[sender];
   const used = r && r.date === today() ? r.count : 0;
@@ -90,6 +95,7 @@ export function checkWebQuota(sender: string): WebQuotaStatus {
 }
 
 export function consumeWebQuota(sender: string): void {
+  if (isOwnerSender(sender)) return; // 9.18pp — owner illimité, rien à compter
   recordFor(sender).count += 1;
   scheduleSave();
 }

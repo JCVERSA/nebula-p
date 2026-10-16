@@ -26,6 +26,7 @@ import {
 } from "../src/bot/services/webText.js";
 import { parseSearchArgs, isDegenerateSearchQuery } from "../src/bot/commands/search.js";
 import { checkWebQuota, consumeWebQuota, getWebDailyLimit } from "../src/bot/webQuota.js";
+import { __resetOwnerLidsForTests, resolveOwnerIdentity } from "../src/bot/ownerIdentity.js";
 
 const read = (p: string) => readFileSync(join(__dirname, p), "utf-8");
 
@@ -274,5 +275,44 @@ describe("9.18ff — isDegenerateSearchQuery (retour terrain : « 2 » → Tavil
   it("vraies requêtes acceptées", () => {
     expect(isDegenerateSearchQuery("to your eternity opening 3")).toBe(false);
     expect(isDegenerateSearchQuery("loto cameroun")).toBe(false);
+  });
+});
+
+describe("9.18pp — webQuota : owner illimité (décision owner 16/10, esprit 9.18gg)", () => {
+  const OWNER_PN = "237640143760";
+
+  afterEach(() => {
+    __resetOwnerLidsForTests();
+    delete process.env.OWNER_NUMBER;
+  });
+
+  it("owner (jid téléphone) : jamais bloqué, rien n'est compté", () => {
+    process.env.OWNER_NUMBER = OWNER_PN;
+    const owner = `${OWNER_PN}@s.whatsapp.net`;
+    for (let i = 0; i < 50; i++) consumeWebQuota(owner);
+    const q = checkWebQuota(owner);
+    expect(q.allowed).toBe(true);
+    expect(q.limit).toBe(1_000_000);
+  });
+
+  it("owner via LID (mémoire 9.16b chaude) : reconnu aussi — le bug nn ne revient pas ici", async () => {
+    process.env.OWNER_NUMBER = OWNER_PN;
+    const lid = "9876543210@lid";
+    const fakeSock: any = {
+      signalRepository: { lidMapping: { getPNForLID: async () => `${OWNER_PN}:0@s.whatsapp.net` } },
+    };
+    expect((await resolveOwnerIdentity(fakeSock, lid, OWNER_PN)).isOwner).toBe(true);
+    expect(checkWebQuota(lid).allowed).toBe(true);
+    expect(checkWebQuota(lid).limit).toBe(1_000_000);
+  });
+
+  it("non-owner : plafond inchangé (régression impossible)", () => {
+    process.env.NEBULA_WEB_DAILY_LIMIT = "2";
+    const u = "237600000041@s.whatsapp.net";
+    expect(checkWebQuota(u).limit).toBe(2);
+    consumeWebQuota(u);
+    consumeWebQuota(u);
+    expect(checkWebQuota(u).allowed).toBe(false);
+    delete process.env.NEBULA_WEB_DAILY_LIMIT;
   });
 });

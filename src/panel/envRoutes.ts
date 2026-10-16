@@ -68,6 +68,11 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     type: "number", group: "quotas", default: "200", min: 50, max: 2000,
   },
   {
+    key: "NEBULA_TTS_DAILY_LIMIT", label: "Voix Gemini / jour / utilisateur",
+    description: "Synthèses voix naturelle Gemini max par utilisateur et par jour (défaut 10, 0 = désactive ; owner illimité ; au-delà repli Edge Henri).",
+    type: "number", group: "quotas", default: "10", min: 0, max: 500,
+  },
+  {
     key: "NEBULA_AI_PRIMARY", label: "Moteur IA primaire",
     description: "gemini (défaut) ou nim — les images vont toujours à Gemini.",
     type: "enum", group: "quotas", default: "gemini", choices: ["gemini", "nim"],
@@ -76,6 +81,16 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     key: "NEBULA_ASR_MODEL", label: "Modèle de transcription (notes vocales)",
     description: "Modèle GEMINI pour transcrire les notes vocales (défaut gemini-3.7-flash). L'audio est natif chez Gemini — la clé Gemini est requise.",
     type: "string", group: "agent", default: "gemini-3.7-flash", hot: true,
+  },
+  {
+    key: "NEBULA_TTS_MODEL", label: "Modèle de synthèse vocale (Gemini)",
+    description: "Modèle Gemini TTS pour la voix naturelle (défaut gemini-3.1-flash-tts-preview — free tier ; repli possible gemini-2.5-flash-preview-tts).",
+    type: "string", group: "agent", default: "gemini-3.1-flash-tts-preview", hot: true,
+  },
+  {
+    key: "NEBULA_TTS_VOICE", label: "Voix naturelle (Gemini TTS)",
+    description: "Voix préconstruite parmi 30 (défaut Charon, masculine informative ; ex Kore, Puck, Sulafat, Fenrir). Repli gratuit : Edge Henri.",
+    type: "string", group: "agent", default: "Charon", hot: true,
   },
   {
     key: "NEBULA_ASR_ENABLED", label: "Transcription des notes vocales",

@@ -3023,6 +3023,12 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             "-i",
             localPath,
             ...(fitOptions || ["-vf", "scale=-2:480", "-c:v", "libx264", "-crf", "26", "-preset", "veryfast"]),
+            // 9.18pp (audit F2) : même cap que videoSlim (9.18mm) — sans lui,
+            // x264 alloue un buffer par cœur virtuel : mort OOM silencieuse
+            // sur un VPS 1 Go (constatée sur SLIM avant mm). Encode ~2× plus
+            // lent, timeout 120 s largement suffisant en veryfast.
+            "-threads",
+            "2",
             "-af",
             "aresample=async=1:first_pts=0",
             "-avoid_negative_ts",

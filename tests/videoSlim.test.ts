@@ -201,6 +201,20 @@ describe("slimVideoIfNeeded — exécution", () => {
 describe("wiring 9.7", () => {
   const readSrc = (rel: string) => fs.readFileSync(path.resolve(process.cwd(), rel), "utf-8");
 
+  it("9.18pp (audit F2) — compression novabox : cap -threads 2 comme videoSlim (même risque OOM)", () => {
+    const src = readSrc("src/bot/commands/novabox.ts");
+    const m = /const ffmpegArgs = \[([\s\S]*?)runFfmpegKit\(ffmpegArgs/.exec(src);
+    expect(m, "bloc ffmpegArgs introuvable").toBeTruthy();
+    const block = m![1];
+    expect(block).toContain("-threads");
+    expect(block).toContain("\"2\"");
+    // le cap de SORTIE doit exister APRÈS les options vidéo (fitOptions splice)
+    const spliceIdx = block.indexOf("...(fitOptions");
+    const threadsIdx = block.indexOf("\"2\"");
+    expect(spliceIdx).toBeGreaterThan(-1);
+    expect(threadsIdx).toBeGreaterThan(spliceIdx);
+  });
+
   it("novabox : hooks mono-épisode ET batch (avant l'enregistrement du lien)", () => {
     const src = readSrc("src/bot/commands/novabox.ts");
     expect(src).toContain("slimVideoIfNeeded");

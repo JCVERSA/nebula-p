@@ -32,7 +32,7 @@ panel_inputs_hash() {
     cat index.html vite.config.ts package.json package-lock.json \
         src/main.tsx src/App.tsx src/index.css 2>/dev/null || true
     find src/components src/lib src/utils src/types src/panel public \
-        -type f 2>/dev/null | LC_ALL=C sort | xargs -r cat 2>/dev/null || true
+        -type f -print0 2>/dev/null | LC_ALL=C sort -z | xargs -0 -r cat 2>/dev/null || true
   } | sha256sum | cut -d' ' -f1
 }
 

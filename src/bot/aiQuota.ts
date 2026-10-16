@@ -63,7 +63,8 @@ export function setAIQuotaOverrideGetter(fn: (sender: string) => number | null |
  * 9.18nn : un jid @lid owner (WhatsApp « numéro masqué ») reconnu par le
  * moteur (mémoire 8.89/9.16b) échappe AUSSI aux deux quotas (IA + TTS).
  */
-function isOwnerSender(sender: string): boolean {
+/** 9.18pp — exporté pour webQuota (même règle owner partout, mono-source). */
+export function isOwnerSender(sender: string): boolean {
   // 9.18nn (retour terrain 16/10 : « pk il ne me reconnais pas ? ») : l'owner
   // écrit via un jid @lid (WhatsApp « masquer mon numéro », ex. …5378) alors
   // que OWNER_NUMBER est son numéro réel (ex. …3760) — la comparaison brute
