@@ -2,9 +2,9 @@ import "dotenv/config";
 import path from "path";
 import fs from "fs";
 import { spawnSync } from "child_process";
-import express from "express";
 import { createServer as createViteServer } from "vite";
 import { createApp } from "./app.js";
+import { mountStaticPanel } from "./src/panel/staticAssets.js";
 import { initRegistry } from "./src/bot/commandRegistry.js";
 import { initAgentStatePersistence } from "./src/bot/services/agentStateStore.js";
 import { startReminderScheduler } from "./src/bot/services/reminderService.js";
@@ -88,7 +88,9 @@ async function startProductionPanel(PORT: number): Promise<void> {
   const app = createPanelApp(supervisor);
 
   const distPath = path.join(process.cwd(), "dist");
-  app.use(express.static(distPath));
+  // 9.18uu — gzip + cache immuable sur /assets (retour terrain « l'interface
+  // lag » : bundle 1,14 Mo servi brut à chaque chargement froid).
+  mountStaticPanel(app, distPath);
   app.get("*", (req, res) => {
     res.sendFile(path.join(distPath, "index.html"));
   });
@@ -143,7 +145,7 @@ async function startDevServer(PORT: number): Promise<void> {
   } catch (error: any) {
     console.warn("⚠️ Vite dev middleware unavailable; serving static build if present:", error?.message || error);
     if (fs.existsSync(distPath)) {
-      app.use(express.static(distPath));
+      mountStaticPanel(app, distPath);
       app.get("*", (req, res) => {
         res.sendFile(path.join(distPath, "index.html"));
       });
