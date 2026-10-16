@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { getConfig } from "./config.js";
+import { isKnownOwnerLid } from "./ownerIdentity.js";
 
 /**
  * Per-user AI budget.
@@ -59,8 +60,18 @@ export function setAIQuotaOverrideGetter(fn: (sender: string) => number | null |
  * OWNER_NUMBER) échappe au quota IA. Comparaison sur les chiffres du jid ;
  * les garde-fous ANTI-BOUCLE de l'agent (3 décisions/message, signature,
  * plafonds par message) restent appliqués à tous, owner compris.
+ * 9.18nn : un jid @lid owner (WhatsApp « numéro masqué ») reconnu par le
+ * moteur (mémoire 8.89/9.16b) échappe AUSSI aux deux quotas (IA + TTS).
  */
 function isOwnerSender(sender: string): boolean {
+  // 9.18nn (retour terrain 16/10 : « pk il ne me reconnais pas ? ») : l'owner
+  // écrit via un jid @lid (WhatsApp « masquer mon numéro », ex. …5378) alors
+  // que OWNER_NUMBER est son numéro réel (ex. …3760) — la comparaison brute
+  // ne matchait JAMAIS et l'owner était quotalé comme un invité depuis
+  // 9.18gg. Le moteur résout le LID à CHAQUE message (botEngine, 8.89) et
+  // mémorise les LID owner reconnus (9.16b) ; on consulte cette mémoire :
+  // reconnu une fois → illimité pour tout le cycle de vie du process.
+  if (isKnownOwnerLid(sender)) return true;
   try {
     const owner = String(getConfig().ownerNumber || process.env.OWNER_NUMBER || "").replace(/\D/g, "");
     if (!owner) return false;

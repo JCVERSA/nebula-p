@@ -13,6 +13,7 @@ import {
   resetTTSQuota,
   __setTtsDailyLimitForTests,
 } from "../src/bot/aiQuota.js";
+import { resolveOwnerIdentity, __resetOwnerLidsForTests } from "../src/bot/ownerIdentity.js";
 
 /**
  * 9.18 (M/B) — limite IA personnalisée par utilisateur + lecture d'usage.
@@ -32,6 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetOwnerLidsForTests(); // 9.18nn — mémoire LID owner par process
   resetAIQuota(USER);
   resetAIQuota(OTHER);
   resetTTSQuota(USER);
@@ -166,5 +168,45 @@ describe("9.18ll — plafond TTS dédié (répartition de la voix Gemini entre u
     expect(resetTTSQuota(USER)).toBe(true);
     expect(checkTTSQuota(USER).usedToday).toBe(0);
     expect(resetTTSQuota(OTHER)).toBe(false); // jamais consommé → rien à reset
+  });
+});
+
+describe("9.18nn — owner via LID (numéro masqué) : les quotas le reconnaissent enfin", () => {
+  // Retour terrain 16/10 : l'owner écrit via un jid @lid (ex. …5378) alors
+  // que OWNER_NUMBER est son numéro réel (…3760). Le moteur le reconnaît
+  // (8.89 : .purge OK, budget agent illimité) mais aiQuota comparait le LID
+  // au numéro → JAMAIS owner → quotalé comme un invité depuis 9.18gg.
+  const LID = "9876543210@lid";
+  const OWNER_PN = "237640143760";
+  const fakeSock: any = {
+    signalRepository: {
+      lidMapping: { getPNForLID: async () => `${OWNER_PN}:0@s.whatsapp.net` },
+    },
+  };
+
+  it("le moteur reconnaît le LID owner (8.89) → quotas IA et TTS illimités", async () => {
+    process.env.OWNER_NUMBER = OWNER_PN;
+    const id = await resolveOwnerIdentity(fakeSock, LID, OWNER_PN);
+    expect(id.isOwner).toBe(true);
+    expect(id.resolvedNumber).toBe(OWNER_PN);
+    // mémoire 9.16b chaude → aiQuota doit échapper aux DEUX plafonds
+    for (let i = 0; i < 45; i++) expect(consumeAIQuota(LID).allowed).toBe(true);
+    for (let i = 0; i < 30; i++) expect(consumeTTSQuota(LID).allowed).toBe(true);
+    expect(checkAIQuota(LID).limit).toBe(1_000_000);
+    expect(checkTTSQuota(LID).limit).toBe(1_000_000);
+    resetAIQuota(LID);
+    resetTTSQuota(LID);
+  });
+
+  it("LID non résolu (process froid, jamais vu) → quotas normaux, pas de trou", async () => {
+    process.env.OWNER_NUMBER = OWNER_PN;
+    expect(checkAIQuota(LID).limit).toBe(40);
+    expect(checkTTSQuota(LID).limit).toBe(10);
+    expect(checkTTSQuota(LID).allowed).toBe(true);
+  });
+
+  it("un jid téléphone matchant OWNER_NUMBER reste direct (régression 9.18gg)", () => {
+    process.env.OWNER_NUMBER = OWNER_PN;
+    expect(checkAIQuota(`${OWNER_PN}@s.whatsapp.net`).limit).toBe(1_000_000);
   });
 });
