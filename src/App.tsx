@@ -2,41 +2,40 @@ import { commandMatchesCategory } from "./utils/commandCategory";
 import { useState, useEffect, useRef, FormEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Bot,
-  Terminal,
-  BarChart3,
-  ScrollText,
-  Settings,
-  Zap,
-  RefreshCw,
-  Sparkles,
-  Save,
-  Trash2,
-  CheckCircle,
-  AlertCircle,
-  Globe,
-  Check,
-  Play,
-  Mic,
-  Search,
-  X,
-  BookOpen,
-  HelpCircle,
-  Copy,
-  KeyRound,
-  Send,
-  Code2,
-  QrCode,
   Activity,
+  AlertCircle,
+  ArrowRight,
+  BarChart3,
+  BookOpen,
+  Bot,
+  Check,
+  CheckCircle,
+  Code2,
+  Copy,
+  Cpu,
+  ExternalLink,
+  FileDown,
+  Globe,
+  HelpCircle,
+  KeyRound,
+  Mic,
+  Play,
+  QrCode,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  ScrollText,
+  Search,
+  Send,
+  Settings,
+  Smartphone,
+  Sparkles,
+  Terminal,
+  Trash2,
   Wifi,
   WifiOff,
-  FileDown,
-  Cpu,
-  Smartphone,
-  ArrowRight,
-  ExternalLink,
-  RotateCcw,
-  Shield,
+  X,
+  Zap,
 } from "lucide-react";
 
 import {
@@ -61,6 +60,7 @@ import SpeedLoader from "./components/SpeedLoader";
 import MinecraftTorch from "./components/MinecraftTorch";
 import AnimatedFace from "./components/AnimatedFace";
 import Loader from "./components/Loader";
+import NebulaMark from "./components/NebulaMark";
 import Switch from "./components/Switch";
 import { BrowserIdentitySelector } from "./components/BrowserIdentitySelector";
 import { BatchDownloadStatus } from "./components/BatchDownloadStatus";
@@ -1662,7 +1662,9 @@ export default function App() {
         >
           <div className="flex flex-col items-center text-center mb-6">
             <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mb-4">
-              <Shield className="w-7 h-7 text-amber-400" />
+              {/* 9.18qq — la marque du panel dès l'écran d'entrée (constellation
+                  N : les 4 points = les commandes, l'étoile = l'agent). */}
+              <NebulaMark size={30} className="text-amber-400" starColor="#f59e0b" title="Nebula" />
             </div>
             <h1 className="text-lg font-bold text-white">Nebula Controller — Panel Access</h1>
             <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
