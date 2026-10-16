@@ -97,8 +97,13 @@ describe("9.18d — échec de build : erreur visible + auto-réparation (manage.
     expect(repair).not.toContain("--prefer-offline");
   });
 
-  it("la ligne d'erreur n'est plus tronquée : 30 lignes de build (le tail à 6 cachait « Cannot find module »)", () => {
-    expect(src).toContain("| tail -n 30 |");
+  it("9.18oo — sortie de build EN DIRECT : aucune ligne tronquée (le tail à 6 cachait « Cannot find module », celui à 30 figeait l'écran 9 min)", () => {
+    // 9.18d : tail 6 → 30 pour voir l'erreur. 9.18oo (retour terrain 16/10) :
+    // tout tail sur le build AVALE la progression — écran figé 9 min sans
+    // diagnostic possible. La sortie stream en direct : l'erreur de fin
+    // reste visible ET l'owner voit que ça travaille.
+    expect(src).not.toContain("npm run build 2>&1 | tail");
+    expect(src).toContain("npm run build 2>&1 | sed");
     expect(src).not.toContain("| tail -n 6 |");
     expect(src).not.toContain("| tail -n 4 |");
     // Installs élargis aussi (10 lignes) — plus aucun tail -n 2 d'install.

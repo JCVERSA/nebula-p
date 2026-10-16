@@ -666,7 +666,10 @@ cmd_update() {
   # 9.18d — le tail à 6 lignes ne gardait que les frames de stack ESM : la
   # ligne d'erreur (« Cannot find module … ») était INVISIBLE — trois
   # updates morts sans diagnostic (retour terrain 9.18 → 9.18c). 30 lignes.
-  if ! ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 30 | sed 's/^/    /' ); then
+  # 9.18oo — sortie EN DIRECT : le tail figeait l'écran pendant tout le
+  # build (9 min de silence terrain) ; les erreurs restent visibles car
+  # imprimées à la fin de la sortie, désormais streamée.
+  if ! ( cd "${APP_DIR}" && npm run build 2>&1 | sed 's/^/    /' ); then
     # 9.18d — node_modules peut être CASSÉ alors que le lock est inchangé
     # (install interrompu, audit fix ayant retiré des optionnelles de
     # plateforme — classique esbuild/rollup, ou cache npm corrompu).
@@ -677,7 +680,7 @@ cmd_update() {
     warn "Build échoué — réparation de node_modules puis nouvelle tentative…"
     ( cd "${APP_DIR}" && npm install --no-audit --no-fund 2>&1 | tail -n 10 | sed 's/^/    /' ) || update_fail "npm install (réparation) a échoué"
     hdr "Build — 2ᵉ tentative après réparation"
-    ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 30 | sed 's/^/    /' ) || update_fail "Build échoué (après réparation node_modules — erreur réelle dans les 30 lignes ci-dessus)"
+    ( cd "${APP_DIR}" && npm run build 2>&1 | sed 's/^/    /' ) || update_fail "Build échoué (après réparation node_modules — erreur réelle ci-dessus)"
   fi
   # 9.18c — marqueur du rev réellement construit : c'est lui qui permet au
   # prochain update de détecter un build périmé, et au panneau Système
@@ -788,7 +791,8 @@ cmd_setup() {
     ok ".env déjà présent (clés: $(grep -cE '^[A-Z]' "${ENV_FILE}" 2>/dev/null || echo 0))"
   fi
   hdr "Build"
-  ( cd "${APP_DIR}" && npm run build 2>&1 | tail -n 20 | sed 's/^/    /' ) || die "Build échoué"
+  info "Sortie en direct — panel reconstruit seulement si ses sources ont changé (sinon ~20 s)."
+  ( cd "${APP_DIR}" && npm run build 2>&1 | sed 's/^/    /' ) || die "Build échoué"
   git -C "${APP_DIR}" rev-parse HEAD > "${APP_DIR}/dist/.nebula-build-rev" 2>/dev/null || true
   hdr "Rotation du log (audit 8.51)"
   install_logrotate
