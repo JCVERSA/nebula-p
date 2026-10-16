@@ -16,8 +16,6 @@ import {
   FileArchive,
   HardDrive,
   Sparkles,
-  ChevronDown,
-  ChevronUp,
   Radio,
   XCircle,
   AlertTriangle,
@@ -25,6 +23,8 @@ import {
   WifiOff,
   Bug,
 } from "lucide-react";
+import { MorphIcon } from "morphicons/react";
+import { ChevronDown as ChevronDownData, ChevronUp as ChevronUpData } from "lucide";
 
 export interface BatchEpisodeItem {
   epNum: number;
@@ -339,7 +339,8 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
             className="p-1.5 text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition border border-white/5 cursor-pointer"
             title={showDetails ? "Collapse View" : "Expand View"}
           >
-            {showDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            {/* 9.18ss — morph universel : déplier↔replier les batchs. */}
+            <MorphIcon icon={showDetails ? ChevronUpData : ChevronDownData} size={14} spring="snappy" reducedMotion="user" />
           </button>
         </div>
       </div>

@@ -13,9 +13,9 @@ import {
   BarChart2,
   Settings,
   FileText,
-  PanelLeftClose,
-  PanelLeft,
 } from "lucide-react";
+import { MorphIcon } from "morphicons/react";
+import { PanelLeft as PanelLeftData, PanelLeftClose as PanelLeftCloseData } from "lucide";
 import { ConnectionStatus } from "../lib/types";
 import NebulaMark from "./NebulaMark";
 
@@ -337,7 +337,8 @@ export default function Sidebar({
           title={collapsed ? "Expand Sidebar" : "Collapse Sidebar"}
         >
           <div className="flex h-5 w-5 shrink-0 items-center justify-center">
-            {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+            {/* 9.18ss — morph universel : repli↔dépli de la sidebar. */}
+            <MorphIcon icon={collapsed ? PanelLeftData : PanelLeftCloseData} size={16} spring="snappy" reducedMotion="user" />
           </div>
           {!collapsed && (
             <motion.span

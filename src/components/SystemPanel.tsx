@@ -4,16 +4,15 @@ import {
   RefreshCw,
   RotateCcw,
   Square,
-  Rocket,
   AlertTriangle,
-  Pause,
-  Play,
   KeyRound,
   Settings2,
   Cookie,
   Copy,
   Download,
 } from "lucide-react";
+import { MorphIcon } from "morphicons/react";
+import { Pause as PauseData, Play as PlayData, Rocket as RocketData, LoaderCircle as LoaderData } from "lucide";
 import { CheckMorph } from "./MorphIcon";
 
 /**
@@ -475,7 +474,8 @@ export default function SystemPanel() {
             onClick={() => setModal("update")}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-500 hover:bg-emerald-400 text-emerald-950 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
           >
-            <Rocket size={14} /> Mettre à jour
+            {/* 9.18ss — Rocket↔spinner en morph quand l'update tourne. */}
+            <MorphIcon icon={busy ? LoaderData : RocketData} size={14} spring="snappy" reducedMotion="user" className={busy ? "animate-spin" : ""} /> Mettre à jour
           </button>
           <button
             data-testid="btn-system-restart"
@@ -720,7 +720,9 @@ export default function SystemPanel() {
               onClick={() => setLogsPaused((p) => !p)}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 transition cursor-pointer"
             >
-              {logsPaused ? <Play size={12} /> : <Pause size={12} />}
+              {/* 9.18ss — morph universel (morphicons v2) : Pause↔Play en
+                  continu, ressorts snappy + respect reduce-motion OS. */}
+              <MorphIcon icon={logsPaused ? PlayData : PauseData} size={12} spring="snappy" reducedMotion="user" />
               {logsPaused ? "Reprendre" : "Pause"}
             </button>
           </div>

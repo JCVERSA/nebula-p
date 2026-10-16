@@ -9,6 +9,8 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import { render, screen } from "@testing-library/react";
 import { MenuCloseMorph, CheckMorph } from "../src/components/MorphIcon";
+import { MorphIcon } from "morphicons/react";
+import { Pause as PauseData, Play as PlayData } from "lucide";
 import ChatBubble from "../src/components/ChatBubble";
 
 describe("9.18rr — MorphIcon (concept SwiftSlate sur le web)", () => {
@@ -41,5 +43,30 @@ describe("9.18rr — MorphIcon (concept SwiftSlate sur le web)", () => {
     const src = fs.readFileSync("src/components/SystemPanel.tsx", "utf-8");
     expect(src).toContain('<CheckMorph size={14}');
     expect(src).not.toContain("<CheckCircle2"); // la coche statique est remplacée
+  });
+});
+
+describe("9.18ss — morphicons v2 (morph universel) sur les 4 spots à état", () => {
+  it("la lib rend une icône lucide (données) qui répond au prop", () => {
+    const { container, rerender } = render(<MorphIcon icon={PauseData} size={12} />);
+    expect(container.querySelector("svg")).toBeTruthy();
+    rerender(<MorphIcon icon={PlayData} size={12} />);
+    expect(container.querySelector("svg")).toBeTruthy(); // morph déclenché sans crash
+  });
+
+  it("wiring : les 4 sites utilisent morphicons/react (journal, sidebar, batchs, update)", () => {
+    const read = (f: string) => fs.readFileSync(`src/components/${f}`, "utf-8");
+    const sys = read("SystemPanel.tsx");
+    expect(sys).toContain('icon={logsPaused ? PlayData : PauseData}');   // Pause/Play journal
+    expect(sys).toContain('icon={busy ? LoaderData : RocketData}');     // bouton Mettre à jour
+    expect(read("Sidebar.tsx")).toContain('icon={collapsed ? PanelLeftData : PanelLeftCloseData}');
+    expect(read("BatchDownloadStatus.tsx")).toContain('icon={showDetails ? ChevronUpData : ChevronDownData}');
+  });
+
+  it("accessibilité : reducedMotion suit l'OS partout (parité SlateMotion APK)", () => {
+    for (const f of ["SystemPanel.tsx", "Sidebar.tsx", "BatchDownloadStatus.tsx"]) {
+      const src = fs.readFileSync(`src/components/${f}`, "utf-8");
+      expect(src).toContain('reducedMotion="user"');
+    }
   });
 });
