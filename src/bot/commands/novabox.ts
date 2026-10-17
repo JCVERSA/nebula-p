@@ -41,7 +41,7 @@ import { acquireDiskClaim, availableForNewClaims } from "../diskClaims.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
 import { probeVideoInfo, whatsappFitVideoOptions, runFfmpegKit } from "../services/mediaToolkit.js";
-import { slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
+import { slimEtaMinutes, slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
 import { organizeVfSelection } from "../services/voiranimeClient.js";
 import { enforceMemoryHeadroom } from "../services/memoryGuard.js";
 import {
@@ -2959,9 +2959,14 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       let fileSizeMB = stats.size / 1e6; // 9.18mm — Mo DÉCIMALS : ce que montrent navigateurs/WhatsApp (avant : Mio binaires « 387.8 MB » pour 406.6 MB réels)
       console.log(`[NOVABOX] Downloaded raw file size: ${fileSizeMB.toFixed(2)} MB`);
 
-      // 9.7 : amincissement MÊME RÉSOLUTION au-dessus du seuil owner
-      // (NEBULA_SLIM_MAX_MB, défaut 200 Mo) — échec → fichier original.
+      // 9.7→ccc : amincissement MÊME RÉSOLUTION au-dessus du seuil owner
+      // (NEBULA_SLIM_MAX_MB, défaut 250 Mo) — échec → fichier original.
       if (stats.size > slimTriggerBytes()) {
+        // 9.18ccc (décision owner) : message de patience pendant
+        // l'encodage, temps estimé selon la taille du fichier.
+        await context.reply(
+          `⏳ *Fichier lourd (${(stats.size / 1e6).toFixed(0)} Mo) — optimisation qualité en cours (~${slimEtaMinutes(stats.size)} min), le lien arrive juste après.*`
+        );
         const slim = await slimVideoIfNeeded(localPath);
         if (slim.slimmed) {
           stats = fs.statSync(localPath);

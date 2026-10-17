@@ -4,7 +4,7 @@ import path from "path";
 import { BotCommand } from "../types.js";
 import { getConfig } from "../config.js";
 import { activeCookiesFile, isPlaylistLink, probeYoutubeEntry, ytvViaYtDlp } from "../services/ytDlp.js";
-import { slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
+import { slimEtaMinutes, slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus, completeBatchJob } from "../batchDownloadManager.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
@@ -575,13 +575,17 @@ const ytvideoCommand: BotCommand = {
         return void (await context.reply("❌ Impossible de télécharger cette vidéo — toutes les sources ont échoué.\n🔄 Réessaie dans un instant."));
       }
 
-      // 9.7 : amincissement même résolution pour passer sous le plafond
-      // d'envoi — sinon refus honnête (comportement d'avant).
+      // 9.7→ccc : amincissement DOUX même résolution (CRF 22, plus de cible
+      // forcée 92 Mo — décision owner 17/10 : jamais de « sable »). Si le
+      // résultat dépasse encore le plafond d'envoi : refus honnête.
       if (videoPath && !reusedHit) {
         try {
           if (fs.statSync(videoPath).size > MAX_VIDEO_BYTES) {
-            await context.reply("🗜️ Fichier lourd — compression intelligente en cours (même résolution)…");
-            await slimVideoIfNeeded(videoPath, { triggerBytes: MAX_VIDEO_BYTES, targetMB: 92 });
+            const heavyBytes = fs.statSync(videoPath).size;
+            await context.reply(
+              `🗜️ *Fichier lourd (${(heavyBytes / 1e6).toFixed(0)} Mo) — compression intelligente en cours (~${slimEtaMinutes(heavyBytes)} min), même résolution…*`
+            );
+            await slimVideoIfNeeded(videoPath, { triggerBytes: MAX_VIDEO_BYTES });
             if (fs.statSync(videoPath).size > MAX_VIDEO_BYTES) {
               return void (await context.reply("⚠️ *Vidéo trop lourde* (max 100 Mo à cette qualité) — essaie une qualité inférieure ou une vidéo plus courte."));
             }

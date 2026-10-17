@@ -17,7 +17,10 @@ vi.mock("../src/bot/services/mediaToolkit.js", () => ({
 import {
   parseMemAvailableBytes,
   slimEncodeArgs,
+  slimEtaMinutes,
+  slimFloorKbpsForHeight,
   slimPreflightDecision,
+  slimQualityDecision,
   slimVideoIfNeeded,
   slimTriggerBytes
 } from "../src/bot/services/videoSlim.js";
@@ -42,7 +45,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.NEBULA_SLIM_MAX_MB;
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "slim-"));
-  mProbe.mockResolvedValue({ durationSec: 1, height: 1080, hasAudio: true, sizeBytes: 0 } as any);
+  // 9.18ccc : durée 0,01 s ⇒ 4096 octets = ~3276 kbps de source (au-dessus
+  // du plancher 1080p) — la décision qualité autorise l'encodage.
+  mProbe.mockResolvedValue({ durationSec: 0.01, height: 1080, hasAudio: true, sizeBytes: 0 } as any);
   mFit.mockReturnValue({ options: ["-c:v", "libx264", "-b:v", "1k"], videoKbps: 0, note: "test" } as any);
   fakeFfmpegWrites(10);
 });
@@ -58,8 +63,8 @@ function mkFile(bytes: number): string {
 }
 
 describe("slimTriggerBytes (pur)", () => {
-  it("défaut 200 Mo, bornes 50-2000, entrées poubelles → défaut", () => {
-    expect(slimTriggerBytes()).toBe(200 * 1024 * 1024);
+  it("défaut 250 Mo (9.18ccc), bornes 50-2000, entrées poubelles → défaut", () => {
+    expect(slimTriggerBytes()).toBe(250 * 1024 * 1024);
     process.env.NEBULA_SLIM_MAX_MB = "350";
     expect(slimTriggerBytes()).toBe(350 * 1024 * 1024);
     process.env.NEBULA_SLIM_MAX_MB = "5";
@@ -67,7 +72,7 @@ describe("slimTriggerBytes (pur)", () => {
     process.env.NEBULA_SLIM_MAX_MB = "9999";
     expect(slimTriggerBytes()).toBe(2000 * 1024 * 1024);
     process.env.NEBULA_SLIM_MAX_MB = "pas-un-nombre";
-    expect(slimTriggerBytes()).toBe(200 * 1024 * 1024);
+    expect(slimTriggerBytes()).toBe(250 * 1024 * 1024);
   });
 });
 
@@ -89,13 +94,20 @@ describe("slimVideoIfNeeded — décisions", () => {
     expect(mRun).not.toHaveBeenCalled();
   });
 
-  it("gain impossible (source déjà plus frugale que la cible) → on ne tente pas", async () => {
-    // 4096 octets / 100 s ≈ 0,33 kbps — cible 1 kbps : ré-encoder ne peut rien gagner.
-    mFit.mockReturnValue({ options: [], videoKbps: 1000, note: "x" } as any);
-    const p = mkFile(4096);
-    const r = await slimVideoIfNeeded(p, { triggerBytes: 1024 });
-    expect(r.slimmed).toBe(false);
-    expect(mRun).not.toHaveBeenCalled();
+  it("9.18ccc — source déjà frugale (plancher résolution) → on ne l'abîme pas", async () => {
+    // 4096 octets / 3600 s ≈ 0,009 kbps : plafond 75 % ≈ 0 < plancher 1080p.
+    mProbe.mockResolvedValue({ durationSec: 3600, height: 1080, hasAudio: true, sizeBytes: 0 } as any);
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => { logs.push(a.join(" ")); });
+    try {
+      const p = mkFile(4096);
+      const r = await slimVideoIfNeeded(p, { triggerBytes: 1024 });
+      expect(r.slimmed).toBe(false);
+      expect(mRun).not.toHaveBeenCalled();
+      expect(logs.some((l) => l.includes("ré-encoder n'abîmerait que la qualité"))).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
@@ -103,24 +115,27 @@ describe("slimVideoIfNeeded — exécution", () => {
   it("ré-encodage utile → fichier REMPLACÉ sur place, tailles honnêtes", async () => {
     const p = mkFile(4096);
     fakeFfmpegWrites(1000); // sortie plus légère
-    const r = await slimVideoIfNeeded(p, { triggerBytes: 1024, targetMB: 1 });
+    const r = await slimVideoIfNeeded(p, { triggerBytes: 1024 });
     expect(r.slimmed).toBe(true);
     expect(r.originalBytes).toBe(4096);
     expect(r.finalBytes).toBe(1000);
     expect(fs.statSync(p).size).toBe(1000); // remplacé
-    // même résolution : heightCap=0 passé à whatsappFitVideoOptions
-    expect(mFit).toHaveBeenCalledWith(1, 1, 0);
-    // audio aac 96k + faststart dans les args
+    expect(mFit).not.toHaveBeenCalled(); // 9.18ccc : plus de cible de taille fixe
     const args = mRun.mock.calls[0][0] as string[];
-    expect(args.join(" ")).toContain("-b:a 96k");
-    expect(args.join(" ")).toContain("+faststart");
-    // 9.18aaa — bornes mémoire x264 MESURÉES (terrain 17/10 : un 1080p de
-    // 536 Mo a OOM-tué le moteur entier) : rc-lookahead/ref/bframes bornés
-    // (622 → 350 Mo) + 1 seul thread (→ 244 Mo) côté encodeur ET décodeur.
-    expect(args.join(" ")).toContain("-x264-params rc-lookahead=10:ref=1:bframes=0");
-    expect(args.join(" ")).toContain("-threads 1");
-    expect(args.join(" ")).not.toContain("-threads 0");
-    expect(args.join(" ")).not.toContain("-threads 2");
+    const joined = args.join(" ");
+    // 9.18ccc — CRF 22 constant + VBV 75 % du source + superfast 2 threads
+    expect(joined).toContain("-preset superfast");
+    expect(joined).toContain("-crf 22");
+    expect(joined).toContain("-maxrate 2457k"); // 75 % de ~3276 kbps (4096 o / 0,01 s)
+    expect(joined).toContain("-af aresample=async=1:first_pts=0"); // hygiène TS 9.18k conservée
+    expect(joined).toContain("-b:a 96k");
+    expect(joined).toContain("+faststart");
+    // 9.18aaa — bornes mémoire x264 mesurées conservées (l'encodage a survécu
+    // au terrain grâce à elles)
+    expect(joined).toContain("-x264-params rc-lookahead=10:ref=1:bframes=0");
+    expect(joined).toContain("-threads 1"); // décodeur
+    expect(joined).toContain("-threads 2"); // encodeur (superfast priorité owner)
+    expect(joined).not.toContain("-threads 0");
   });
 
   it("9.18mm — échec TUÉ PAR SIGNAL (SIGKILL/OOM) → la cause dans le log, original livré", async () => {
@@ -230,10 +245,13 @@ describe("9.18aaa — bornes mémoire + préflight (le SLIM ne tue plus le moteu
     expect(v.reason).toContain("RAM disponible");
   });
 
-  it("préflight — entrée démesurée → pas d'encodage (sans espoir sur 1 cœur)", () => {
-    const v = slimPreflightDecision(2 * 1024 ** 3, 800 * 1024 * 1024); // 2 Go
+  it("préflight — entrée démesurée → pas d'encodage (cap 9.18ccc = 2048 Mo)", () => {
+    const v = slimPreflightDecision(3 * 1024 ** 3, 800 * 1024 * 1024); // 3 Go
     expect(v.run).toBe(false);
     expect(v.reason).toContain("plafond");
+    // 9.18ccc (décision owner) : 1 Go est désormais TRAITÉ (l'ancien cap
+    // 800 Mo le refusait) — « 1G → 800 Mo » doit pouvoir encoder.
+    expect(slimPreflightDecision(1024 ** 3, 800 * 1024 * 1024).run).toBe(true);
   });
 
   it("préflight — machine saine → encodage autorisé ; RAM inconnue (non-Linux) → autorisé avec garde taille", () => {
@@ -257,13 +275,59 @@ describe("9.18aaa — bornes mémoire + préflight (le SLIM ne tue plus le moteu
     expect(fs.statSync(p).size).toBe(4096);
   });
 
-  it("slimEncodeArgs — bornes x264 mesurées présentes (622 → 244 Mo en 1080p)", () => {
-    const a = slimEncodeArgs("/tmp/in.mp4", ["-c:v", "libx264", "-b:v", "900k"], "/tmp/out.mp4");
-    expect(a).toContain("-x264-params");
-    expect(a.join(" ")).toContain("rc-lookahead=10:ref=1:bframes=0");
-    expect(a.filter((x) => x === "-threads")).toHaveLength(2); // décodeur + encodeur
-    expect(a).not.toContain("2"); // plus aucun cap à 2 threads
+  it("slimEncodeArgs (ccc) — CRF 22 + VBV 75 % + superfast 2 threads + bornes x264", () => {
+    const a = slimEncodeArgs("/tmp/in.mp4", { encode: true, crf: 22, maxrateKbps: 2457 }, "/tmp/out.mp4");
+    const joined = a.join(" ");
+    expect(joined).toContain("-preset superfast");
+    expect(joined).toContain("-crf 22");
+    expect(joined).toContain("-maxrate 2457k");
+    expect(joined).toContain("-bufsize 3931k"); // 1,6 × maxrate
+    expect(joined).toContain("rc-lookahead=10:ref=1:bframes=0");
+    expect(a.filter((x) => x === "-threads")).toHaveLength(2); // décodeur 1 + encodeur 2
+    expect(joined).toContain("-b:a 96k"); // audio ré-encodé : hygiène TS 9.18k
     expect(a[a.length - 1]).toBe("/tmp/out.mp4");
+  });
+
+  it("9.18ccc — slimFloorKbpsForHeight : planchers par résolution", () => {
+    expect(slimFloorKbpsForHeight(1080)).toBe(2000);
+    expect(slimFloorKbpsForHeight(1000)).toBe(2000);
+    expect(slimFloorKbpsForHeight(720)).toBe(1100);
+    expect(slimFloorKbpsForHeight(700)).toBe(1100);
+    expect(slimFloorKbpsForHeight(480)).toBe(650);
+    expect(slimFloorKbpsForHeight(0)).toBe(650); // hauteur inconnue → plancher bas
+  });
+
+  it("9.18ccc — slimQualityDecision : 536 Mo/24 min/1080p → encode à 75 % ; frugale → refus", () => {
+    // Terrain du 17/10 : 536 Mo ≈ 2980 kbps → plafond 2235 ≥ plancher 2000.
+    const d = slimQualityDecision(536_000_000, 24 * 60, 1080);
+    expect(d.encode).toBe(true);
+    expect(d.crf).toBe(22);
+    expect(d.maxrateKbps).toBe(2233); // 75 % de 2978 kbps
+    // Source frugale : 300 kbps → plafond 225 < plancher 1080p → on n'abîme pas.
+    const frugale = slimQualityDecision(54_000_000, 24 * 60, 1080); // 300 kbps
+    expect(frugale.encode).toBe(false);
+    expect(frugale.reason).toContain("ré-encoder n'abîmerait que la qualité");
+    // 480p : un débit moyen (≈1111 kbps → plafond 833) passe le plancher
+    // 650 du 480p mais PAS celui du 1080p — la garde dépend de la résolution.
+    expect(slimQualityDecision(200_000_000, 24 * 60, 480).encode).toBe(true);
+    expect(slimQualityDecision(200_000_000, 24 * 60, 1080).encode).toBe(false);
+  });
+
+  it("9.18ccc — slimEtaMinutes : temps estimé selon la taille (message de patience)", () => {
+    expect(slimEtaMinutes(512 * 1024 * 1024)).toBe(3);   // ~500 Mo → ~3 min
+    expect(slimEtaMinutes(1024 * 1024 * 1024)).toBe(7);  // 1 Go → ~7 min
+    expect(slimEtaMinutes(250 * 1024 * 1024)).toBe(2);   // 250 Mo → ~2 min
+    expect(slimEtaMinutes(1024)).toBe(1);                // plancher 1 min
+  });
+
+  it("9.18ccc — wiring : message de patience avec ETA dans novabox et ytvideo", () => {
+    const novabox = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/novabox.ts"), "utf8");
+    expect(novabox).toContain("slimEtaMinutes");
+    expect(novabox).toContain("optimisation qualité en cours");
+    const ytv = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/ytvideo.ts"), "utf8");
+    expect(ytv).toContain("slimEtaMinutes");
+    expect(ytv).toContain("compression intelligente en cours");
+    expect(ytv).not.toContain("targetMB"); // plus de cible forcée 92 Mo
   });
 
   it("wiring — ffmpeg en priorité basse : Node garde le CPU (sonde santé)", () => {
@@ -322,7 +386,8 @@ describe("wiring 9.7", () => {
     const src = readSrc("src/bot/commands/ytvideo.ts");
     expect(src).toContain("SLIM_SOURCE_CEILING");
     expect(src).toContain("ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING, { audioLang, subs })");
-    expect(src).toContain('slimVideoIfNeeded(videoPath, { triggerBytes: MAX_VIDEO_BYTES, targetMB: 92 })');
+    expect(src).toContain("slimVideoIfNeeded(videoPath, { triggerBytes: MAX_VIDEO_BYTES })");
+    expect(src).toContain("slimEtaMinutes"); // 9.18ccc : patience + ETA, douceur (plus de targetMB 92)
   });
 
   it("variable d'environnement câblée partout (rituel env)", () => {

@@ -1,19 +1,22 @@
 /**
  * videoSlim (9.7) — amincissement vidéo « même résolution ».
  *
- * Décision owner 2026-10-11 : les épisodes 1080p/720p et les vidéos .ytv
- * sortent souvent trop lourds (ex. 400 Mo l'épisode). Ré-encodage x264
- * qualités-d'abord avec PLAFOND DE DÉBIT déterministe (le pattern éprouvé
- * whatsappFitVideoOptions, SANS le downscale 480p) dès qu'un fichier
- * dépasse NEBULA_SLIM_MAX_MB (défaut 200 Mo, bornes 50-2000).
- *
- * Recherches GitHub (décisions) : les bots de compression existants
- * (TG-videoCompress & co) obtiennent de gros ratios en sacrifiant la
- * résolution (downscale 480p forcé) et en H.265 — deux choses qu'on refuse
- * (résolution intouchée, H.264 lisible partout). Le per-title encoding pro
- * (VMAF, cf. video-quality-metrics/viser) coûte plus de CPU que l'encodage
- * — hors de question sur un VPS à 1 Go. On réutilise les briques locales
- * déjà testées (runFfmpegKit, probeVideoInfo, whatsappFitVideoOptions).
+ * Décisions owner 17/10 (retour terrain « sable/CRT » sur un 1080p écrasé
+ * à 976 kbps) :
+ *  - déclencheur : NEBULA_SLIM_MAX_MB (défaut 250 Mo) — en dessous on ne
+ *    touche à rien ;
+ *  - PLUS de cible de taille fixe : CRF 22 constant (« très bonne »
+ *    qualité, recherche 17/10 : anime 1080p H.264 = 1500-2500 kbps minimum,
+ *    transparent ≈ CRF 18-23) plafonné par VBV à 75 % du débit SOURCE —
+ *    la sortie fait typiquement 45-75 % de l'entrée, résolution intacte ;
+ *  - garde qualité : si 75 % du débit source descend sous le plancher de la
+ *    résolution (1080p 2000 / 720p 1100 / 480p 650 kbps), le fichier est
+ *    livré TEL QUEL — ré-encoder ne pourrait qu'abîmer ;
+ *  - vitesse (priorité owner) : preset superfast + 2 threads encodeur ;
+ *    bornes mémoire x264 conservées (9.18aaa : ≤267 Mo mesurés — c'est
+ *    elles qui ont fait survivre l'encodage terrain), nice 10, préflight ;
+ *  - patience (décision owner) : un message d'attente avec ETA selon la
+ *    taille part AVANT l'encodage (voir slimEtaMinutes + novabox).
  *
  * 9.18aaa (retour terrain 17/10, 2e mort) : un 1080P de 536 Mo a tué le
  * MOTEUR entier (OOM killer → SIGKILL, l'encodage x264 par défaut demande
@@ -36,7 +39,7 @@
 
 import fs from "fs";
 import path from "path";
-import { probeVideoInfo, runFfmpegKit, whatsappFitVideoOptions } from "./mediaToolkit.js";
+import { probeVideoInfo, runFfmpegKit } from "./mediaToolkit.js";
 
 export interface SlimResult {
   /** Chemin VALIDE dans tous les cas (fichier original si l'amincissement échoue). */
@@ -48,10 +51,10 @@ export interface SlimResult {
   note?: string;
 }
 
-/** Seuil de déclenchement — NEBULA_SLIM_MAX_MB (défaut 200, bornes 50-2000). */
+/** Seuil de déclenchement — NEBULA_SLIM_MAX_MB (défaut 250 depuis 9.18ccc, bornes 50-2000). */
 export function slimTriggerBytes(): number {
-  const mb = Number(process.env.NEBULA_SLIM_MAX_MB || 200);
-  const clamped = Number.isFinite(mb) ? Math.min(2000, Math.max(50, Math.round(mb))) : 200;
+  const mb = Number(process.env.NEBULA_SLIM_MAX_MB || 250);
+  const clamped = Number.isFinite(mb) ? Math.min(2000, Math.max(50, Math.round(mb))) : 250;
   return clamped * 1024 * 1024;
 }
 
@@ -62,10 +65,10 @@ export function slimMinFreeBytes(): number {
   return Math.max(0, Math.floor(mb)) * 1024 * 1024;
 }
 
-/** Taille d'entrée au-delà de laquelle l'encodage est sans espoir sur un petit VPS — NEBULA_SLIM_INPUT_CAP_MB (défaut 800, 0 = cap off). */
+/** Taille d'entrée au-delà de laquelle l'encodage est sans espoir sur un petit VPS — NEBULA_SLIM_INPUT_CAP_MB (défaut 2048 depuis 9.18ccc, 0 = cap off). */
 export function slimInputCapBytes(): number {
   const mb = Number(process.env.NEBULA_SLIM_INPUT_CAP_MB);
-  if (!Number.isFinite(mb)) return 800 * 1024 * 1024;
+  if (!Number.isFinite(mb)) return 2048 * 1024 * 1024;
   return Math.max(0, Math.floor(mb)) * 1024 * 1024;
 }
 
@@ -108,22 +111,79 @@ export function slimPreflightDecision(inputBytes: number, memAvailableBytes: num
   return { run: true };
 }
 
+/** Pur : plancher de débit par hauteur — en dessous, la qualité s'effondre (recherche 17/10 : anime 1080p H.264 = 1500-2500 kbps). */
+export function slimFloorKbpsForHeight(height: number): number {
+  if (height >= 1000) return 2000;
+  if (height >= 700) return 1100;
+  return 650;
+}
+
+export interface SlimQualityDecision {
+  encode: boolean;
+  reason?: string;
+  /** CRF constant (22) — la qualité ne dépend plus d'une taille visée. */
+  crf: number;
+  /** Plafond VBV (kbps) = 75 % du débit source. */
+  maxrateKbps: number;
+}
+
 /**
- * Pur : arguments ffmpeg de l'encodage SLIM. Bornes mémoire x264 mesurées
- * (9.18aaa) — rc-lookahead/ref/bframes sont LES trois moteurs d'allocation
- * de x264 (frames décodées pour le rate control, frames de référence, tampon
- * de réordonnancement) : 622 Mo → 350 Mo, et -threads 1 (défaut x264 :
- * 1,5×cœurs en frame-threads, un tampon par fil) amène à 244 Mo.
+ * Pur (9.18ccc) : décision qualité-d'abord. CRF 22 plafonné par VBV à 75 %
+ * du débit source. Garde qualité : sous le plancher de la résolution, on ne
+ * ré-encode PAS — l'ancienne cible fixe ~186 Mo écrasait un 1080p à
+ * 976 kbps (« sable » terrain) ; un fichier déjà frugal ne doit pas être
+ * abîmé pour un principe.
  */
-export function slimEncodeArgs(inputPath: string, fitOptions: string[], outPath: string): string[] {
+export function slimQualityDecision(inputBytes: number, durationSec: number, height: number): SlimQualityDecision {
+  // Contrat : durationSec > 0 (garanti par l'appelant — ffprobe muet = refus amont).
+  const sourceKbps = Math.round((inputBytes * 8) / 1000 / durationSec);
+  const maxrateKbps = Math.floor(sourceKbps * 0.75);
+  const floorKbps = slimFloorKbpsForHeight(height);
+  if (maxrateKbps < floorKbps) {
+    return {
+      encode: false,
+      crf: 22,
+      maxrateKbps,
+      reason: `source déjà frugale (${sourceKbps} kbps ; plafond ${maxrateKbps} < plancher ${floorKbps} kbps en ${height}p) — ré-encoder n'abîmerait que la qualité`
+    };
+  }
+  return { encode: true, crf: 22, maxrateKbps };
+}
+
+/**
+ * Pur (9.18ccc) : ETA du message de patience (décision owner : prévenir
+ * l'utilisateur, temps estimé selon la taille). Vitesse mesurée terrain :
+ * 1,15 Mo/s d'entrée en veryfast/1 thread (511,6 Mo en 446 s) ;
+ * superfast + 2 threads ≈ ×2 → 2,5 Mo/s retenus (prudent : mieux vaut
+ * annoncer 3 min et livrer en 2 que l'inverse).
+ */
+export function slimEtaMinutes(inputBytes: number): number {
+  const mb = inputBytes / (1024 * 1024);
+  return Math.max(1, Math.round(mb / 2.5 / 60));
+}
+
+/**
+ * Pur (9.18ccc) : arguments ffmpeg de l'encodage SLIM. CRF 22 constant +
+ * VBV (maxrate = 75 % du débit source, bufsize 1,6×) : la qualité ne
+ * descend jamais sous « très bonne », la taille suit. Preset superfast +
+ * 2 threads encodeur (priorité owner : la rapidité) — les bornes mémoire
+ * x264 (rc-lookahead=10:ref=1:bframes=0, sendrec #205 : 622 → 267 Mo
+ * mesurés en 1080p avec -threads 2) restent : c'est elles qui ont fait
+ * survivre l'encodage terrain du 17/10. L'audio est ré-encodé en AAC 96k
+ * avec aresample=async : l'hygiène 9.18k pour les TS consolidés (DTS non
+ * monotones) — un -c:a copy ferait ressurgir le muxer aborté. Coût
+ * négligeable (l'audio est une goutte du budget d'encodage).
+ */
+export function slimEncodeArgs(inputPath: string, decision: SlimQualityDecision, outPath: string): string[] {
   return [
     "-y", "-fflags", "+genpts", "-threads", "1", "-i", inputPath,
-    ...fitOptions,
+    "-c:v", "libx264", "-preset", "superfast", "-crf", String(decision.crf),
+    "-maxrate", `${decision.maxrateKbps}k`, "-bufsize", `${Math.round(decision.maxrateKbps * 1.6)}k`,
     "-x264-params", "rc-lookahead=10:ref=1:bframes=0",
-    "-threads", "1",
+    "-threads", "2",
     "-af", "aresample=async=1:first_pts=0",
-    "-avoid_negative_ts", "make_zero",
-    "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
+    "-c:a", "aac", "-b:a", "96k",
+    "-avoid_negative_ts", "make_zero", "-movflags", "+faststart",
     outPath
   ];
 }
@@ -142,13 +202,13 @@ const MB = (b: number) => (b / (1024 * 1024)).toFixed(1);
 /**
  * Amincit le fichier SUR PLACE si (et seulement si) c'est utile :
  * - taille > déclencheur (opts.triggerBytes, défaut slimTriggerBytes()) ;
- * - durée connue (garantie de taille = calcul de débit, pas un espoir) ;
- * - débit source > débit cible (sinon le ré-encodage ne peut rien gagner).
- * opts.targetMB : cible de taille (défaut ~93 % du déclencheur).
+ * - durée connue (le débit source en dépend) ;
+ * - débit source assez riche pour absorber CRF 22 + 75 % sans perte
+ *   visible (slimQualityDecision — sinon le fichier est livré tel quel).
  */
 export async function slimVideoIfNeeded(
   inputPath: string,
-  opts: { triggerBytes?: number; targetMB?: number; timeoutMs?: number; memAvailableBytes?: number | null } = {}
+  opts: { triggerBytes?: number; timeoutMs?: number; memAvailableBytes?: number | null } = {}
 ): Promise<SlimResult> {
   const trigger = opts.triggerBytes ?? slimTriggerBytes();
   let originalBytes = 0;
@@ -160,21 +220,21 @@ export async function slimVideoIfNeeded(
   const unchanged = (): SlimResult => ({ path: inputPath, originalBytes, finalBytes: originalBytes, slimmed: false });
   if (originalBytes <= trigger) return unchanged();
 
-  // Durée inconnue → pas de garantie déterministe de taille : on ne tente pas.
+  // Durée inconnue → le débit source est incalculable : on ne tente pas.
   const probed = await probeVideoInfo(inputPath);
-  if (!probed.durationSec || probed.durationSec <= 0) {
+  const durationSec = probed.durationSec || 0;
+  if (durationSec <= 0) {
     console.log("[SLIM] durée inconnue (ffprobe muet) — fichier livré tel quel");
     return unchanged();
   }
 
-  const targetMB = opts.targetMB ?? Math.max(50, Math.round((trigger / (1024 * 1024)) * 0.93));
-  const fit = whatsappFitVideoOptions(probed.durationSec, targetMB, 0); // 0 = même résolution
-  if (!fit) return unchanged();
-
-  // Gain impossible : la source est déjà plus frugale que la cible.
-  const sourceKbps = Math.round((originalBytes * 8) / 1000 / probed.durationSec);
-  if (fit.videoKbps >= sourceKbps * 0.95) {
-    console.log(`[SLIM] source déjà frugale (${sourceKbps} kbps ≤ cible ${fit.videoKbps} kbps) — pas de gain possible`);
+  // 9.18ccc — décision qualité : CRF 22 constant plafonné à 75 % du débit
+  // source. Plus de cible de taille fixe : la sortie fait typiquement
+  // 45-75 % de l'entrée, la résolution est intacte, zéro « sable ».
+  // Hauteur inconnue (null) → 0 → plancher bas (650 kbps) : prudent mais permissif.
+  const decision = slimQualityDecision(originalBytes, durationSec, probed.height || 0);
+  if (!decision.encode) {
+    console.log(`[SLIM] ${decision.reason} — fichier livré tel quel`);
     return unchanged();
   }
 
@@ -194,19 +254,14 @@ export async function slimVideoIfNeeded(
     path.dirname(inputPath),
     `.${path.basename(inputPath)}.slim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`
   );
-  console.log(`[SLIM] ${MB(originalBytes)} Mo → cible ~${targetMB} Mo, même résolution (${fit.videoKbps} kbps plafonnés, x264 ≤244 Mo, 1 thread, ${fit.note})...`);
+  console.log(`[SLIM] ${MB(originalBytes)} Mo → CRF ${decision.crf} plafonné à ${decision.maxrateKbps} kbps (75 % du source), même résolution, superfast 2 threads, x264 ≤267 Mo...`);
 
-  // 9.18k — durcissement pour les entrées issues de TS consolidés (sortie
-  // Cat-Catch) : leurs timestamps non monotones font ABORTER le muxer MP4
-  // en ré-encodage (« non monotonically increasing dts »), un échec
-  // classique et déterministe. genpts régénère les PTS à la lecture,
-  // aresample=async resynchronise l'audio, make_zero décale les timestamps
-  // négatifs. Sans effet sur les fichiers sains.
-  // 9.18aaa — bornes mémoire x264 mesurées (622 → 244 Mo en 1080p) via
-  // slimEncodeArgs ; timeout 30 min par défaut (NEBULA_SLIM_TIMEOUT_MS) :
-  // un 1080p en veryfast sur 1 cœur dépasse l'ancien quota de 15 min.
+  // 9.18k : +genpts/make_zero — les DTS non monotones des TS consolidés
+  // (Cat-Catch) faisaient ABORTER le muxer MP4. 9.18aaa/ccc : bornes
+  // mémoire x264 + superfast 2 threads via slimEncodeArgs ; timeout 30 min
+  // (NEBULA_SLIM_TIMEOUT_MS).
   const r = await enqueue(() =>
-    runFfmpegKit(slimEncodeArgs(inputPath, fit.options, outPath), opts.timeoutMs ?? slimTimeoutMs())
+    runFfmpegKit(slimEncodeArgs(inputPath, decision, outPath), opts.timeoutMs ?? slimTimeoutMs())
   );
 
   let finalBytes = 0;
@@ -241,6 +296,6 @@ export async function slimVideoIfNeeded(
     console.log("[SLIM] remplacement impossible — fichier original livré");
     return unchanged();
   }
-  console.log(`[SLIM] ✔ ${MB(originalBytes)} → ${MB(finalBytes)} Mo (même résolution)`);
-  return { path: inputPath, originalBytes, finalBytes, slimmed: true, note: fit.note };
+  console.log(`[SLIM] ✔ ${MB(originalBytes)} → ${MB(finalBytes)} Mo (même résolution, CRF ${decision.crf}, plafond ${decision.maxrateKbps} kbps)`);
+  return { path: inputPath, originalBytes, finalBytes, slimmed: true, note: `CRF ${decision.crf}, plafond ${decision.maxrateKbps} kbps` };
 }
