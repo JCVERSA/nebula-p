@@ -16,6 +16,7 @@ const NOW = 1_800_000_000_000;
 
 const mkOffer = () => ({
   tempFilePath: "/tmp/nebula_temp_downloads/token_Mushoku_E13.mp4",
+  sourceUrl: "https://dash2.jcversaco.qzz.io/api/media/download/token123",
   filename: "Mushoku_Tensei_3_VF_1080P_S03_E13.mp4",
   bytes: 465_600_000,
   targetMB: 190,

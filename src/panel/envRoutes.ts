@@ -63,9 +63,24 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     type: "number", group: "quotas", default: "500", min: 10, max: 4096,
   },
   {
-    key: "NEBULA_SLIM_MAX_MB", label: "Seuil d'amincissement vidéo (Mo)",
-    description: "Au-delà, vidéos et épisodes sont ré-encodés à MÊME résolution avant livraison (défaut 200 Mo).",
-    type: "number", group: "quotas", default: "200", min: 50, max: 2000,
+    key: "NEBULA_SLIM_MAX_MB", label: "Seuil de l'offre d'allègement (Mo)",
+    description: "Au-delà, la livraison propose .slim (jamais imposé) : version allégée 2-pass à la demande (défaut 250 Mo).",
+    type: "number", group: "quotas", default: "250", min: 50, max: 2000,
+  },
+  {
+    key: "NEBULA_SLIM_TARGET_MB", label: "Cible de l'allègement .slim (Mo)",
+    description: "Taille visée par le ré-encodage à la demande (2-pass tune animation, même résolution ; défaut 190, bornes 80-400).",
+    type: "number", group: "quotas", default: "190", min: 80, max: 400,
+  },
+  {
+    key: "NEBULA_GH_REPO", label: "Repo d'encodage GitHub (owner/repo)",
+    description: "Repo public dédié dont les runners encodent .slim (GitHub d'abord, repli local automatique). Vide = toujours local.",
+    type: "string", group: "quotas", default: "",
+  },
+  {
+    key: "NEBULA_GH_TOKEN", label: "Token GitHub du compte bot",
+    description: "PAT fine-grained (Actions read/write) du compte propriétaire du repo d'encodage — vit dans .env, jamais dans le code.",
+    type: "secret", group: "keys", default: "",
   },
   {
     key: "NEBULA_TTS_DAILY_LIMIT", label: "Voix Gemini / jour / utilisateur",

@@ -1,19 +1,25 @@
 import path from "path";
 import fs from "fs";
 import { BotCommand } from "../types.js";
-import { slimEtaMinutes, slimVideoIfNeeded } from "../services/videoSlim.js";
+import { slimAggressiveKbps, slimEtaMinutes, slimVideoIfNeeded, slimTargetMB } from "../services/videoSlim.js";
 import { consumeSlimOffer } from "../services/slimOffer.js";
+import { ghEncoderConfig, githubSlimEncode } from "../services/githubEncode.js";
+import { probeVideoInfo } from "../services/mediaToolkit.js";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 
 /**
- * 9.18ddd — .slim : accepte l'offre d'allègement d'une vidéo lourde.
+ * 9.18ddd/eee — .slim : accepte l'offre d'allègement d'une vidéo lourde.
  *
  * Décision owner 17/10 : ne JAMAIS imposer la conversion. La livraison
  * lourde part en original avec une offre ; cette commande est le « oui ».
- * Encodage 2-pass tune animation vers ~NEBULA_SLIM_TARGET_MB (défaut
- * 190 Mo), même résolution, bornes mémoire 9.18aaa. L'original et son
- * lien /d/ restent intacts — la version allégée vit à côté, sous son
- * propre token.
+ *
+ * Moteur d'encodage (9.18eee, idée owner) : GitHub Actions D'ABORD — un
+ * runner public gratuit (4 cœurs / 16 Go) télécharge l'original via le
+ * lien /d/ et encode en 2-pass tune animation ; le VPS ne fait que
+ * coordonner (bot vif pendant l'encodage, zéro risque OOM). Tout échec
+ * GitHub (token absent/expiré, run raté, délai) → repli LOCAL silencieux
+ * (2-pass 9.18ddd). L'original et son lien /d/ restent intacts — la
+ * version allégée vit à côté, sous son propre token.
  */
 const slimCommand: BotCommand = {
   name: "slim",
@@ -35,18 +41,57 @@ const slimCommand: BotCommand = {
       return;
     }
 
+    // Budget cible : le débit dépend de la durée (probe local, pas cher).
+    const targetMB = offer.targetMB || slimTargetMB();
+    const probed = await probeVideoInfo(offer.tempFilePath);
+    const durationSec = probed.durationSec || 0;
+    const videoKbps = durationSec > 0 ? slimAggressiveKbps(offer.bytes, durationSec, targetMB) : null;
+    if (videoKbps === null) {
+      await context.reply(
+        `⚠️ *Cible ~${targetMB} Mo impossible sans bouillir l'image* (durée ${Math.max(1, Math.round(durationSec / 60))} min) — le lien original reste valable.`
+      );
+      return;
+    }
+
     await context.react("⚖️");
     await context.reply(
-      `⏳ *Allègement en cours : ${Math.round(offer.bytes / (1024 * 1024))} Mo → ~${offer.targetMB} Mo* ` +
+      `⏳ *Allègement en cours : ${Math.round(offer.bytes / (1024 * 1024))} Mo → ~${targetMB} Mo* ` +
         `(2-pass, même résolution, ~${slimEtaMinutes(offer.bytes, "aggressive")} min)…`
     );
 
-    const r = await slimVideoIfNeeded(offer.tempFilePath, {
-      mode: "aggressive",
-      targetMB: offer.targetMB,
-      keepOriginal: true
-    });
-    if (!r.slimmed || !r.path || !fs.existsSync(r.path)) {
+    // ── Moteur 1 (9.18eee) : GitHub Actions — le VPS ne code plus rien.
+    let resultPath = "";
+    let resultBytes = 0;
+    const ghReady = ghEncoderConfig() !== null && !!offer.sourceUrl;
+    if (ghReady) {
+      const gh = await githubSlimEncode({
+        sourceUrl: offer.sourceUrl,
+        filename: offer.filename,
+        videoKbps,
+        originalBytes: offer.bytes,
+        log: (m) => console.log(m)
+      });
+      if (gh) {
+        resultPath = gh.path;
+        resultBytes = gh.bytes;
+      }
+    }
+
+    // ── Moteur 2 (repli) : local, borné mémoire 9.18aaa.
+    if (!resultPath) {
+      const r = await slimVideoIfNeeded(offer.tempFilePath, {
+        mode: "aggressive",
+        targetMB,
+        keepOriginal: true
+      });
+      if (!r.slimmed || !r.path || !fs.existsSync(r.path)) {
+        await context.reply(`⚠️ *L'allègement n'a pas abouti* — le lien original reste valable.`);
+        return;
+      }
+      resultPath = r.path;
+      resultBytes = r.finalBytes;
+    }
+    if (!fs.existsSync(resultPath)) {
       await context.reply(`⚠️ *L'allègement n'a pas abouti* — le lien original reste valable.`);
       return;
     }
@@ -54,13 +99,13 @@ const slimCommand: BotCommand = {
     // Nom propre, à côté de l'original dans le magasin temporaire.
     const base = offer.filename.replace(/\.mp4$/i, "");
     let cleanName = `${base}-leger.mp4`;
-    let cleanPath = path.join(path.dirname(r.path), cleanName);
+    let cleanPath = path.join(path.dirname(offer.tempFilePath), cleanName);
     if (fs.existsSync(cleanPath)) {
       cleanName = `${base}-leger-${Date.now() % 10000}.mp4`;
-      cleanPath = path.join(path.dirname(r.path), cleanName);
+      cleanPath = path.join(path.dirname(offer.tempFilePath), cleanName);
     }
     try {
-      fs.renameSync(r.path, cleanPath);
+      fs.renameSync(resultPath, cleanPath);
     } catch {
       await context.reply(`⚠️ *L'allègement n'a pas abouti* — le lien original reste valable.`);
       return;
@@ -70,9 +115,9 @@ const slimCommand: BotCommand = {
     const mb = (b: number) => (b / (1024 * 1024)).toFixed(1);
     const m = offer.meta;
     await context.reply(
-      `⚖️ *✔ Version allégée prête : ${mb(offer.bytes)} → ${mb(r.finalBytes)} Mo*\n\n` +
+      `⚖️ *✔ Version allégée prête : ${mb(offer.bytes)} → ${mb(resultBytes)} Mo*\n\n` +
         (m?.title ? `🎬 *Anime:* ${m.title}\n` : "") +
-        (m?.season || m?.episode ? `📅 ${m.season || ""} ${m.episode || ""}\n`.trimEnd() + "\n" : "") +
+        (m?.season || m?.episode ? `📅 ${m.season || ""} ${m?.episode || ""}\n`.trimEnd() + "\n" : "") +
         (m?.resolution ? `⚙️ *Résolution:* ${m.resolution} (inchangée)\n` : "") +
         `📄 *Fichier:* \`${cleanName}\`\n\n` +
         `🔗 *Lien de téléchargement :*\n${rec.downloadUrl}\n\n` +

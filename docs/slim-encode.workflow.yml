@@ -1,0 +1,73 @@
+# ============================================================================
+#  Copie de référence (9.18eee) — le workflow vit dans le repo d'encodage
+#  DÉDIÉ (NEBULA_GH_REPO, ex. compte-bot/nebula-encoder), pas ici.
+#  Créer dans ce repo : .github/workflows/slim-encode.yml avec ce contenu.
+#  Le VPS le déclenche (workflow_dispatch) avec le lien /d/ du fichier,
+#  le nom et le kbps cible ; il dépose l'artefact "slim-output" (out.mp4)
+#  que le VPS récupère puis supprime. Runner public = 4 cœurs / 16 Go :
+#  réglages x264 généreux (lookahead 40, ref 3, bframes 3, veryfast).
+# ============================================================================
+name: slim-encode
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: "Lien de telechargement du fichier source (VPS)"
+        required: true
+      filename:
+        description: "Nom du fichier (identification du run)"
+        required: true
+      video_kbps:
+        description: "Debit video cible en kbps (calcule par le VPS)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  encode:
+    name: Encodage 2-pass tune animation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SOURCE_URL: ${{ inputs.source_url }}
+      KBPS: ${{ inputs.video_kbps }}
+    steps:
+      - name: ffmpeg present ?
+        run: if ! command -v ffmpeg >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; fi
+
+      - name: Telechargement de la source
+        run: |
+          curl -fL --retry 3 --connect-timeout 20 -o source.tmp "$SOURCE_URL"
+          stat -c '%s bytes' source.tmp
+
+      - name: Encodage 2-pass (passe 1)
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -y -i source.tmp \
+            -c:v libx264 -preset veryfast -tune animation \
+            -b:v ${KBPS}k -maxrate $((KBPS * 145 / 100))k -bufsize $((KBPS * 2))k \
+            -x264-params rc-lookahead=40:ref=3:bframes=3 \
+            -pass 1 -passlogfile /tmp/pass -an -f null /dev/null
+
+      - name: Encodage 2-pass (passe 2)
+        run: |
+          set -euo pipefail
+          ffmpeg -hide_banner -y -i source.tmp \
+            -c:v libx264 -preset veryfast -tune animation \
+            -b:v ${KBPS}k -maxrate $((KBPS * 145 / 100))k -bufsize $((KBPS * 2))k \
+            -x264-params rc-lookahead=40:ref=3:bframes=3 \
+            -pass 2 -passlogfile /tmp/pass \
+            -af aresample=async=1:first_pts=0 -c:a aac -b:a 96k \
+            -avoid_negative_ts make_zero -movflags +faststart \
+            out.mp4
+          stat -c '%s bytes' out.mp4
+
+      - name: Depot de l'artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slim-output
+          path: out.mp4
+          retention-days: 1
+          if-no-files-found: error

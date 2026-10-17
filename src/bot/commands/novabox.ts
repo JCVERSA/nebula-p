@@ -3088,6 +3088,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       if (stats.size > slimTriggerBytes() && tempDownload && tempDownload.filePath) {
         const offer = registerSlimOffer(String(msg.key.remoteJid || context.sender || ""), {
           tempFilePath: tempDownload.filePath,
+          sourceUrl: tempDownloadLink,
           filename: deliveredFilename,
           bytes: stats.size,
           targetMB: slimTargetMB(),

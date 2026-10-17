@@ -17,6 +17,8 @@
 export interface SlimOffer {
   /** Chemin du fichier original DANS le magasin temporaire (lien /d/ actif). */
   tempFilePath: string;
+  /** Lien /d/ public de l'original — l'encodeur GitHub le télécharge (9.18eee). */
+  sourceUrl: string;
   filename: string;
   bytes: number;
   targetMB: number;
