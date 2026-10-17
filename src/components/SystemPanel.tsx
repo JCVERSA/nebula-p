@@ -571,7 +571,7 @@ export default function SystemPanel() {
                   {ENV_GROUP_META[group].title}
                 </p>
                 {ENV_GROUP_META[group].hint && (
-                  <p className="text-[11px] text-zinc-600 mb-2">{ENV_GROUP_META[group].hint}</p>
+                  <p className="text-[11px] text-zinc-500 mb-2">{ENV_GROUP_META[group].hint}</p>
                 )}
                 <div className="space-y-2">
                   {vars.map((v) => (
@@ -585,9 +585,9 @@ export default function SystemPanel() {
                           {v.label}{" "}
                           {v.type === "secret" && <KeyRound size={11} className="inline text-zinc-500" />}
                         </p>
-                        <p className="text-[10.5px] text-zinc-500 truncate">{v.description}</p>
-                        <p className="text-[10.5px] font-mono text-zinc-400 mt-0.5">
-                          {v.set ? v.value : <span className="text-zinc-600">(défaut{v.default ? ` : ${v.default}` : ""})</span>}
+                        <p className="text-[11px] text-zinc-500 truncate">{v.description}</p>
+                        <p className="text-[11px] font-mono text-zinc-400 mt-0.5">
+                          {v.set ? v.value : <span className="text-zinc-500">(défaut{v.default ? ` : ${v.default}` : ""})</span>}
                         </p>
                       </div>
                       {envEditing === v.key ? (
@@ -735,7 +735,7 @@ export default function SystemPanel() {
         </div>
         <pre
           data-testid="system-log"
-          className="text-[10.5px] leading-relaxed font-mono text-zinc-400 bg-black/40 border border-white/5 rounded-xl p-3 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-all"
+          className="text-[11px] leading-relaxed font-mono text-zinc-400 bg-black/40 border border-white/5 rounded-xl p-3 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-all"
         >
           {logs || "— aucune ligne —"}
         </pre>

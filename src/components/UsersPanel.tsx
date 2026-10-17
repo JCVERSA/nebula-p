@@ -566,7 +566,7 @@ export default function UsersPanel({ onAnnounceTo }: UsersPanelProps) {
                                 → +{u.resolvedNumber}
                               </span>
                             ) : (
-                              <span className="text-[10px] text-zinc-600">numéro masqué</span>
+                              <span className="text-[10px] text-zinc-500">numéro masqué</span>
                             )}
                           </div>
                         ) : (
@@ -585,7 +585,7 @@ export default function UsersPanel({ onAnnounceTo }: UsersPanelProps) {
                             </span>
                           </div>
                         ) : (
-                          <span className="text-zinc-600">—</span>
+                          <span className="text-zinc-500">—</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -657,7 +657,7 @@ export default function UsersPanel({ onAnnounceTo }: UsersPanelProps) {
                             <button
                               disabled
                               title="Le propriétaire ne peut pas être banni"
-                              className="p-2 rounded-lg bg-black border border-white/5 text-zinc-600 cursor-not-allowed"
+                              className="p-2 rounded-lg bg-black border border-white/5 text-zinc-500 cursor-not-allowed"
                             >
                               <Ban className="w-3.5 h-3.5" />
                             </button>
@@ -724,7 +724,7 @@ export default function UsersPanel({ onAnnounceTo }: UsersPanelProps) {
                             <button
                               onClick={() => void act(u.jid, "dm", { text: dmText })}
                               disabled={!dmText.trim() || busyJid === u.jid}
-                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-lg transition cursor-pointer"
+                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-lg transition cursor-pointer"
                             >
                               Envoyer
                             </button>
@@ -959,7 +959,7 @@ function UserDetailDrawer({
                 className="w-full px-3 py-2 bg-[#0b0b0c] border border-white/10 rounded-lg text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400 resize-none"
               />
               <div className="flex items-center justify-between">
-                <span className="text-[10px] text-zinc-600 tabular-nums">{noteText.length}/300</span>
+                <span className="text-[10px] text-zinc-500 tabular-nums">{noteText.length}/300</span>
                 <button
                   onClick={() => void save("note", { text: noteText })}
                   disabled={busy}

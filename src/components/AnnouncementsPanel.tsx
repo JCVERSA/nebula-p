@@ -290,7 +290,7 @@ export default function AnnouncementsPanel({ preselected, onPreselectConsumed }:
             <button
               onClick={() => void draft()}
               disabled={drafting || !idea.trim()}
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition flex items-center gap-2 cursor-pointer whitespace-nowrap"
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl transition flex items-center gap-2 cursor-pointer whitespace-nowrap"
             >
               {drafting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
               Générer
@@ -363,7 +363,7 @@ export default function AnnouncementsPanel({ preselected, onPreselectConsumed }:
               </p>
             )}
             {optOutCount > 0 && (
-              <p className="text-[10px] text-zinc-600 px-3">
+              <p className="text-[10px] text-zinc-500 px-3">
                 {optOutCount} utilisateur(s) ont refusé les annonces — exclus du ciblage (bouton 🔕 dans Utilisateurs pour rétablir).
               </p>
             )}
@@ -421,7 +421,7 @@ export default function AnnouncementsPanel({ preselected, onPreselectConsumed }:
         <button
           onClick={() => void send()}
           disabled={sending || !text.trim() || !selected.size || job?.status === "running"}
-          className="px-6 py-3 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-extrabold text-sm rounded-xl transition flex items-center gap-2 cursor-pointer whitespace-nowrap"
+          className="px-6 py-3 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-extrabold text-sm rounded-xl transition flex items-center gap-2 cursor-pointer whitespace-nowrap"
         >
           {sending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           Envoyer l'annonce

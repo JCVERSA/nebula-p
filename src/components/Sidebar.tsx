@@ -77,8 +77,8 @@ function NavItem({ icon, label, badge, active, collapsed, onClick }: NavItemProp
       transition={{ type: "spring", stiffness: 400, damping: 25 }}
       className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold transition-all duration-150 cursor-pointer ${
         active
-          ? "bg-[#18181b]/85 border border-white/5 shadow-inner"
-          : "text-zinc-400 hover:bg-[#18181b]/50 hover:text-zinc-100 border border-transparent"
+          ? "bg-[#0e0e11]/85 border border-white/5 shadow-inner"
+          : "text-zinc-400 hover:bg-[#0e0e11]/50 hover:text-zinc-100 border border-transparent"
       } ${collapsed ? "justify-center px-2" : ""}`}
       style={active ? { color: "var(--theme-primary, #f59e0b)" } : undefined}
     >
@@ -294,7 +294,7 @@ export default function Sidebar({
       </div>
 
       {/* Footer / Status & Collapse Toggle */}
-      <div className="border-t border-white/10 px-3 py-3 space-y-2 bg-[#0a0a0c] overflow-hidden">
+      <div className="border-t border-white/10 px-3 py-3 space-y-2 bg-[#0b0b0c] overflow-hidden">
         <AnimatePresence>
           {!collapsed && (
             <motion.div
@@ -302,7 +302,7 @@ export default function Sidebar({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
               transition={{ duration: 0.15 }}
-              className="flex items-center justify-between rounded-xl bg-[#141416] border border-white/5 px-3 py-2"
+              className="flex items-center justify-between rounded-xl bg-[#0e0e11] border border-white/5 px-3 py-2"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <span

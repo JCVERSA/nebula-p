@@ -256,7 +256,7 @@ export default function AccessControlPanel() {
             <button
               onClick={save}
               disabled={saving}
-              className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer"
             >
               {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               Save Policy

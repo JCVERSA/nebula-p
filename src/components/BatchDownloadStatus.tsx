@@ -893,7 +893,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                   <select
                     value={simAnime}
                     onChange={(e) => setSimAnime(e.target.value)}
-                    className="w-full bg-[#0b1216] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400 font-medium"
+                    className="w-full bg-[#0b0b0c] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400 font-medium"
                   >
                     <option value="Solo Leveling">Solo Leveling (Ore dake Level Up)</option>
                     <option value="Demon Slayer">Demon Slayer: Kimetsu no Yaiba</option>
@@ -909,7 +909,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     <select
                       value={simSeason}
                       onChange={(e) => setSimSeason(e.target.value)}
-                      className="w-full bg-[#0b1216] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400"
+                      className="w-full bg-[#0b0b0c] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400"
                     >
                       <option value="Saison 1">Saison 1</option>
                       <option value="Saison 2">Saison 2</option>
@@ -926,7 +926,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                       max={12}
                       value={simCount}
                       onChange={(e) => setSimCount(Math.min(12, Math.max(2, parseInt(e.target.value) || 2)))}
-                      className="w-full bg-[#0b1216] border border-white/10 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400"
+                      className="w-full bg-[#0b0b0c] border border-white/10 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-amber-400"
                     />
                   </div>
                 </div>
@@ -937,7 +937,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     <select
                       value={simResolution}
                       onChange={(e) => setSimResolution(e.target.value)}
-                      className="w-full bg-[#0b1216] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400"
+                      className="w-full bg-[#0b0b0c] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400"
                     >
                       <option value="720p">720p (HD)</option>
                       <option value="1080p">1080p (Full HD)</option>
@@ -950,7 +950,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     <select
                       value={simLang}
                       onChange={(e) => setSimLang(e.target.value)}
-                      className="w-full bg-[#0b1216] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400"
+                      className="w-full bg-[#0b0b0c] border border-white/10 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-amber-400"
                     >
                       <option value="VF">VF (French Audio)</option>
                       <option value="VOSTFR">VOSTFR (Subbed)</option>
@@ -964,7 +964,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                     id="sim-trigger-error-checkbox"
                     checked={simTriggerError}
                     onChange={(e) => setSimTriggerError(e.target.checked)}
-                    className="rounded bg-[#0b1216] border-white/20 text-rose-500 focus:ring-rose-500"
+                    className="rounded bg-[#0b0b0c] border-white/20 text-rose-500 focus:ring-rose-500"
                   />
                   <label htmlFor="sim-trigger-error-checkbox" className="text-zinc-300 text-xs cursor-pointer">
                     Simulate network interruption mid-stream (to test visual retry flow)

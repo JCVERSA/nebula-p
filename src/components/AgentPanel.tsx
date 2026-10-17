@@ -191,7 +191,7 @@ export default function AgentPanel() {
               ))}
             </div>
           )}
-          <p className="text-[10px] text-zinc-600 mt-2">
+          <p className="text-[10px] text-zinc-500 mt-2">
             Survole une barre pour le détail de l'heure. Les heures sans activité ne sont pas affichées.
           </p>
         </div>
@@ -251,7 +251,7 @@ export default function AgentPanel() {
       )}
 
       {/* -------------------------------------------------------- vie privée */}
-      <p className="text-[11px] text-zinc-600 flex items-center gap-1.5" data-testid="agent-privacy-note">
+      <p className="text-[11px] text-zinc-500 flex items-center gap-1.5" data-testid="agent-privacy-note">
         <ShieldCheck className="w-3 h-3 shrink-0" />
         Vie privée : compteurs uniquement — aucun message, titre ni argument n'est stocké dans ces métriques.
       </p>

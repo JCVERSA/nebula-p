@@ -1658,7 +1658,7 @@ export default function App() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
-          className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1420] p-8 shadow-2xl"
+          className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0e0e11] p-8 shadow-2xl"
         >
           <div className="flex flex-col items-center text-center mb-6">
             <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mb-4">
@@ -1689,7 +1689,7 @@ export default function App() {
                 type="password"
                 autoFocus
                 placeholder="Panel access key"
-                className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-3 py-3 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20 transition"
+                className="w-full rounded-xl bg-white/5 border border-white/10 pl-10 pr-3 py-3 text-sm text-white placeholder:text-zinc-500 outline-none focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20 transition"
               />
             </div>
             {loginError && (
@@ -1706,7 +1706,7 @@ export default function App() {
             </button>
           </form>
 
-          <p className="text-[11px] text-zinc-600 text-center mt-6">
+          <p className="text-[11px] text-zinc-500 text-center mt-6">
             Session cookie is HttpOnly and expires automatically after 12 hours of activity.
           </p>
         </motion.div>
@@ -2193,7 +2193,7 @@ export default function App() {
                               <button
                                 type="submit"
                                 disabled={isGeneratingPairCode}
-                                className="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
+                                className="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl transition shadow-md flex items-center justify-center gap-2 cursor-pointer"
                               >
                                 {isGeneratingPairCode ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Smartphone className="w-4 h-4" />}
                                 {isGeneratingPairCode ? "Requesting WhatsApp Code..." : "Generate 8-Digit Pairing Code"}
@@ -2201,7 +2201,7 @@ export default function App() {
                             </form>
 
                             {pairingCode && (
-                              <div className="mt-4 p-5 bg-[#18181b]/90 border border-white/10 rounded-2xl space-y-3.5 text-center">
+                              <div className="mt-4 p-5 bg-[#0e0e11]/90 border border-white/10 rounded-2xl space-y-3.5 text-center">
                                 <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 block select-none">Your Secure Pairing Code</span>
                                 <div className="flex justify-center">
                                   <HeroSnippet symbol="" size="lg" color="warning">
@@ -2230,7 +2230,7 @@ export default function App() {
                               </div>
                             ) : (
                               <div className="w-64 h-64 bg-black border border-white/10 rounded-2xl flex flex-col items-center justify-center space-y-3 p-6">
-                                <QrCode className="w-12 h-12 text-zinc-600" />
+                                <QrCode className="w-12 h-12 text-zinc-500" />
                                 <p className="text-xs text-zinc-400">Click Start Engine or Refresh to generate QR</p>
                                 <button
                                   onClick={startBot}
@@ -2478,7 +2478,7 @@ export default function App() {
                       <button
                         type="submit"
                         disabled={!inputValue.trim() || isSimulating}
-                        className="p-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold rounded-full transition shadow-md cursor-pointer flex items-center justify-center"
+                        className="p-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold rounded-full transition shadow-md cursor-pointer flex items-center justify-center"
                       >
                         <Send className="w-4 h-4" />
                       </button>
@@ -2526,7 +2526,7 @@ export default function App() {
                             key={cmd}
                             onClick={() => simulateCommandFromDoc(cmd)}
                             disabled={isSimulating}
-                            className="px-3 py-1.5 bg-white/5 hover:bg-amber-500/15 hover:border-amber-500/40 disabled:bg-zinc-900 text-amber-300 disabled:text-zinc-600 rounded-lg text-[11px] font-mono font-semibold transition cursor-pointer border border-white/10"
+                            className="px-3 py-1.5 bg-white/5 hover:bg-amber-500/15 hover:border-amber-500/40 disabled:bg-zinc-900 text-amber-300 disabled:text-zinc-500 rounded-lg text-[11px] font-mono font-semibold transition cursor-pointer border border-white/10"
                           >
                             {cmd}
                           </button>
@@ -2754,7 +2754,7 @@ export default function App() {
                             <button
                               type="submit"
                               disabled={isGeneratingCommand}
-                              className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition"
+                              className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition"
                             >
                               {isGeneratingCommand ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
                               Generate Code with Gemini
@@ -2773,7 +2773,7 @@ export default function App() {
                             <button
                               onClick={saveCommandCode}
                               disabled={isSavingCode}
-                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-sm transition"
+                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-sm transition"
                             >
                               {isSavingCode ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                               Save Code
@@ -2812,7 +2812,7 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="h-full min-h-[400px] border-2 border-dashed border-white/10 rounded-xl flex flex-col items-center justify-center text-center p-6 space-y-2">
-                              <Code2 className="w-10 h-10 text-zinc-600" />
+                              <Code2 className="w-10 h-10 text-zinc-500" />
                               <h4 className="font-bold text-zinc-300 text-sm">No Command Selected</h4>
                               <p className="text-[11px] text-zinc-500 max-w-sm">
                                 Select a command on the left to edit its TypeScript, or use the AI Creator to generate a brand new command.
@@ -2956,7 +2956,7 @@ export default function App() {
                                         <button
                                           onClick={() => simulateCommandFromDoc(example)}
                                           disabled={isSimulating}
-                                          className="w-full px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 disabled:bg-zinc-900 text-amber-400 disabled:text-zinc-600 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer select-none border border-amber-500/30"
+                                          className="w-full px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 disabled:bg-zinc-900 text-amber-400 disabled:text-zinc-500 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer select-none border border-amber-500/30"
                                         >
                                           <Play className="w-3 h-3 fill-current" />
                                           <span>Run Live</span>
@@ -2977,7 +2977,7 @@ export default function App() {
                             return matchesCategory && matchesSearch;
                           }).length === 0 && (
                             <div className="text-center py-12 bg-black/40 space-y-2">
-                              <HelpCircle className="w-8 h-8 text-zinc-600 mx-auto" />
+                              <HelpCircle className="w-8 h-8 text-zinc-500 mx-auto" />
                               <h4 className="font-bold text-zinc-300 text-xs">No Commands Found</h4>
                               <p className="text-[11px] text-zinc-500">Try a different search or category.</p>
                             </div>
@@ -3033,7 +3033,7 @@ export default function App() {
                       <button
                         onClick={testGeminiPlayground}
                         disabled={isTestingGemini || !geminiPlaygroundPrompt.trim()}
-                        className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
+                        className="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
                       >
                         {isTestingGemini ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
                         Exécuter
@@ -3060,7 +3060,7 @@ export default function App() {
                         ) : geminiPlaygroundOutput ? (
                           geminiPlaygroundOutput
                         ) : (
-                          <span className="text-zinc-600 italic">La réponse de l'IA s'affichera ici.</span>
+                          <span className="text-zinc-500 italic">La réponse de l'IA s'affichera ici.</span>
                         )}
                       </div>
                     </div>
@@ -3125,7 +3125,7 @@ export default function App() {
                           <button
                             onClick={startRecording}
                             disabled={isTranscribing}
-                            className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black text-xs font-bold rounded-xl transition shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                            className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black text-xs font-bold rounded-xl transition shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
                           >
                             <Mic className="w-3.5 h-3.5" /> Record Microphone
                           </button>
@@ -3183,7 +3183,7 @@ export default function App() {
                           <button
                             onClick={() => handleVoiceCallConvo(voiceInput)}
                             disabled={isVoiceResponding || !voiceInput.trim()}
-                            className="px-4 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
+                            className="px-4 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black rounded-xl text-xs font-bold transition shadow-sm cursor-pointer"
                           >
                             Call
                           </button>
@@ -3427,7 +3427,7 @@ export default function App() {
                         <button
                           type="submit"
                           disabled={isSavingConfig}
-                          className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                          className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
                         >
                           {isSavingConfig ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                           Save Config Settings
@@ -3652,7 +3652,7 @@ export default function App() {
                           <button
                             onClick={saveSecret}
                             disabled={isSavingSecret || !secretValue.trim()}
-                            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
                           >
                             {isSavingSecret ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             Save
@@ -3698,7 +3698,7 @@ export default function App() {
                           <button
                             onClick={saveNimSecret}
                             disabled={isSavingNimSecret || !nimSecretValue.trim()}
-                            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
                           >
                             {isSavingNimSecret ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             Save
@@ -3744,7 +3744,7 @@ export default function App() {
                           <button
                             onClick={saveOwnerSecret}
                             disabled={isSavingOwnerSecret || !ownerSecretValue.trim()}
-                            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
+                            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl flex items-center gap-1.5 transition shadow-sm cursor-pointer"
                           >
                             {isSavingOwnerSecret ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             Save
@@ -3823,7 +3823,7 @@ export default function App() {
                           type="button"
                           onClick={clearAuthAndRetryConnection}
                           disabled={isClearingAuth}
-                          className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-600 text-black font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-sm cursor-pointer"
+                          className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800 disabled:text-zinc-500 text-black font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-sm cursor-pointer"
                         >
                           <RotateCcw className={`w-3.5 h-3.5 ${isClearingAuth ? "animate-spin" : ""}`} />
                           {isClearingAuth ? "Purging & Reconnecting..." : "Reset Session (Full Purge & Handshake)"}

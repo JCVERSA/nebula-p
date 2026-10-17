@@ -29,7 +29,7 @@ export default function HeroSnippet({
   };
 
   const colorStyles = {
-    default: "bg-[#18181b]/90 border border-white/5 text-zinc-300",
+    default: "bg-[#0e0e11]/90 border border-white/5 text-zinc-300",
     primary: "bg-blue-500/10 border border-blue-500/20 text-blue-400",
     success: "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400",
     warning: "bg-amber-500/10 border border-amber-500/20 text-amber-400",

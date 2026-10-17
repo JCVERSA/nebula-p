@@ -325,7 +325,7 @@ export default function SystemDiagnostics() {
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
                 chartTheme === "light"
                   ? "bg-amber-500 text-black shadow-sm"
-                  : "text-zinc-400 hover:text-zinc-600"
+                  : "text-zinc-400 hover:text-zinc-500"
               }`}
             >
               <Sun className="w-3.5 h-3.5" />

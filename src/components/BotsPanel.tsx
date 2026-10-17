@@ -262,7 +262,7 @@ export default function BotsPanel({ activeBotId, onSelectBot }: BotsPanelProps) 
               className={`rounded-2xl border p-4 sm:p-5 backdrop-blur-sm transition ${
                 isActive
                   ? "border-cyan-400/50 bg-cyan-500/5 shadow-[0_0_24px_-6px_rgba(34,211,238,0.35)]"
-                  : "border-white/10 bg-[#18181b]/60 hover:border-white/20"
+                  : "border-white/10 bg-[#0e0e11]/60 hover:border-white/20"
               } ${bot.enabled ? "" : "opacity-60"}`}
             >
               {/* title row */}

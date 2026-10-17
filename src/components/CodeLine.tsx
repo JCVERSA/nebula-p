@@ -11,7 +11,7 @@ interface CodeLineProps {
 export default function CodeLine({ number, tokens }: CodeLineProps) {
   return (
     <div className="flex px-4 leading-6 font-mono text-xs sm:text-sm">
-      <span className="mr-4 w-5 shrink-0 select-none text-right text-zinc-600">
+      <span className="mr-4 w-5 shrink-0 select-none text-right text-zinc-500">
         {number}
       </span>
       <span className="whitespace-pre">

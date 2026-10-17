@@ -123,7 +123,7 @@ export default function Topbar({
         </div>
 
         {/* Separator & Breadcrumb */}
-        <span className="text-zinc-600 hidden sm:inline">/</span>
+        <span className="text-zinc-500 hidden sm:inline">/</span>
         <button
           onClick={() => setActiveTab("overview")}
           className="hidden sm:flex items-center gap-1.5 rounded-lg px-2 py-1 text-zinc-400 hover:text-zinc-200 hover:bg-white/5 transition-all cursor-pointer"
@@ -134,7 +134,7 @@ export default function Topbar({
           </span>
           <ChevronDown size={12} className="text-zinc-500" />
         </button>
-        <span className="text-zinc-600">/</span>
+        <span className="text-zinc-500">/</span>
         <span className="font-bold text-xs text-white tracking-wide uppercase px-2 py-0.5 rounded bg-white/5 border border-white/5 truncate max-w-[120px] sm:max-w-none">
           {TAB_TITLES[activeTab] || "Dashboard"}
         </span>
@@ -163,7 +163,7 @@ export default function Topbar({
             onFocus={() => setIsSearchFocused(true)}
             onBlur={() => setTimeout(() => setIsSearchFocused(false), 220)}
             placeholder="Search commands, logs, features..."
-            className="w-full bg-[#141416] border border-white/5 rounded-lg py-1.5 pl-9 pr-3 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500/50 transition-colors"
+            className="w-full bg-[#0e0e11] border border-white/5 rounded-lg py-1.5 pl-9 pr-3 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-amber-500/50 transition-colors"
           />
 
           {/* Real-time Search overlay dropdown */}
@@ -192,7 +192,7 @@ export default function Topbar({
               ) : searchQuery.trim() !== "" ? (
                 <div className="px-3.5 py-3 text-center">
                   <p className="text-xs text-zinc-400">No matching features found.</p>
-                  <p className="text-[11px] text-zinc-600 mt-0.5">Try searching 'gemini', 'reset' or 'logs'</p>
+                  <p className="text-[11px] text-zinc-500 mt-0.5">Try searching 'gemini', 'reset' or 'logs'</p>
                 </div>
               ) : (
                 <div className="px-3.5 py-2">
@@ -262,7 +262,7 @@ export default function Topbar({
           <button
             onClick={onOpenCheckup}
             title="Run complete commands and backend diagnostic checkup"
-            className="hidden sm:flex items-center gap-1.5 rounded-xl border border-white/5 bg-[#141416] hover:bg-[#18181b] px-3 py-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+            className="hidden sm:flex items-center gap-1.5 rounded-xl border border-white/5 bg-[#0e0e11] hover:bg-[#0e0e11] px-3 py-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
           >
             <Activity className="w-3.5 h-3.5" />
             <span>Checkup</span>
@@ -274,7 +274,7 @@ export default function Topbar({
           onClick={onResetSession}
           disabled={isResetting}
           title="Purge session directory & initiate fresh handshake"
-          className="hidden sm:flex items-center gap-1.5 rounded-xl border border-white/5 bg-[#141416] hover:bg-[#18181b] px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+          className="hidden sm:flex items-center gap-1.5 rounded-xl border border-white/5 bg-[#0e0e11] hover:bg-[#0e0e11] px-3 py-1.5 text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
         >
           <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? "animate-spin text-amber-400" : ""}`} />
           <span>{isResetting ? "Resetting..." : "Reset"}</span>
@@ -305,7 +305,7 @@ export default function Topbar({
           <button
             onClick={() => setIsThemeOpen((prev) => !prev)}
             title="Switch color palette themes"
-            className="flex items-center justify-center p-2 rounded-xl border border-white/5 bg-[#141416]/90 hover:bg-[#1c1c1e] text-zinc-400 hover:text-white transition cursor-pointer"
+            className="flex items-center justify-center p-2 rounded-xl border border-white/5 bg-[#0e0e11]/90 hover:bg-[#0e0e11] text-zinc-400 hover:text-white transition cursor-pointer"
           >
             <Palette className="w-4 h-4" />
           </button>
@@ -319,7 +319,7 @@ export default function Topbar({
               />
               
               {/* Theme Dropdown Pane */}
-              <div className="absolute right-0 mt-2 w-48 rounded-2xl bg-[#0a0a0c]/95 border border-white/10 shadow-2xl z-50 p-2.5 backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="absolute right-0 mt-2 w-48 rounded-2xl bg-[#0b0b0c]/95 border border-white/10 shadow-2xl z-50 p-2.5 backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-200">
                 <p className="text-[11px] font-extrabold uppercase tracking-widest text-zinc-500 px-2 pb-2 border-b border-white/5">
                   Select Theme
                 </p>
