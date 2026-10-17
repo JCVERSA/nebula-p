@@ -110,6 +110,24 @@ describe("9.18yy — createDataBackup (IO, dossier temporaire réel)", () => {
     }
   });
 
+  it("9.18bbb — dataDir RELATIF (config par défaut prod) : l'archive atterrit au bon endroit", async () => {
+    // Régression terrain 17/10 : le slot par défaut porte dataDir="database"
+    // (relatif). tar est un sous-processus avec son propre cwd — sans
+    // résolution absolue, l'archive partait dans database/database/ et tar
+    // échouait (« Cannot open: No such file or directory »).
+    const abs = fs.mkdtempSync(path.join(os.tmpdir(), "nebula-backup-rel-"));
+    try {
+      fs.writeFileSync(path.join(abs, "state.json"), JSON.stringify({ used: 1 }));
+      const rel = path.relative(process.cwd(), abs); // chemin relatif, comme en prod
+      expect(path.isAbsolute(rel)).toBe(false);
+      const res = await createDataBackup({ dataDir: rel, keep: 7 });
+      expect(res.ok).toBe(true);
+      expect(fs.existsSync(path.join(abs, "backups", res.file!))).toBe(true);
+    } finally {
+      fs.rmSync(abs, { recursive: true, force: true });
+    }
+  });
+
   it("échoue honnêtement (sans jeter) si le dossier est absent", async () => {
     const res = await createDataBackup({ dataDir: path.join(os.tmpdir(), "nebula-backup-absent-xyz"), keep: 7 });
     expect(res.ok).toBe(false);

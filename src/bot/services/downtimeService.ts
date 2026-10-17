@@ -34,7 +34,10 @@ const LIVENESS_FILE = "liveness.json";
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;
 
 function dataDir(): string {
-  return process.env.NEBULA_DATA_DIR || path.join(process.cwd(), "database");
+  // 9.18bbb : résolu absolu — même discipline que backupService (le slot
+  // par défaut porte un dataDir relatif ; fs reste cohérent, mais on ne
+  // dépend plus de process.cwd()).
+  return path.resolve(process.env.NEBULA_DATA_DIR || path.join(process.cwd(), "database"));
 }
 
 export interface LivenessMarker {

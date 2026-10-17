@@ -44,7 +44,11 @@ const BACKUP_NAME_RE = /^data-\d{8}-\d{6}\.tar\.gz$/;
 const BOOT_MIN_AGE_MS = 12 * 60 * 60 * 1000;
 
 function dataDir(): string {
-  return process.env.NEBULA_DATA_DIR || path.join(process.cwd(), "database");
+  // 9.18bbb (fix terrain 17/10) : le slot par défaut porte un dataDir
+  // RELATIF (« database ») — fs le résout contre process.cwd() partout
+  // ailleurs, mais tar est un SOUS-PROCESSUS avec son propre cwd : sans
+  // résolution absolue ici, l'archive partait dans database/database/.
+  return path.resolve(process.env.NEBULA_DATA_DIR || path.join(process.cwd(), "database"));
 }
 
 function pad2(n: number): string {
@@ -96,7 +100,7 @@ export async function createDataBackup(opts?: {
   keep?: number;
   now?: Date;
 }): Promise<BackupResult> {
-  const dir = opts?.dataDir || dataDir();
+  const dir = path.resolve(opts?.dataDir || dataDir());
   const keep = opts && typeof opts.keep === "number" ? Math.max(1, Math.floor(opts.keep)) : keepCount();
   const name = backupFileName(opts?.now || new Date());
   try {
