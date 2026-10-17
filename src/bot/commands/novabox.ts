@@ -3023,12 +3023,15 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             "-i",
             localPath,
             ...(fitOptions || ["-vf", "scale=-2:480", "-c:v", "libx264", "-crf", "26", "-preset", "veryfast"]),
-            // 9.18pp (audit F2) : même cap que videoSlim (9.18mm) — sans lui,
-            // x264 alloue un buffer par cœur virtuel : mort OOM silencieuse
-            // sur un VPS 1 Go (constatée sur SLIM avant mm). Encode ~2× plus
-            // lent, timeout 120 s largement suffisant en veryfast.
+            // 9.18pp (audit F2) : cap threads. 9.18aaa : mêmes bornes mémoire
+            // MESURÉES que videoSlim (sendrec #205 : rc-lookahead/ref/bframes
+            // sont les 3 moteurs d'allocation x264 ; 622 → 244 Mo en 1080p
+            // avec -threads 1). Sur un VPS 1 Go, sans elles l'encodage OOM-tue
+            // le moteur entier (constat terrain 17/10).
             "-threads",
-            "2",
+            "1",
+            "-x264-params",
+            "rc-lookahead=10:ref=1:bframes=0",
             "-af",
             "aresample=async=1:first_pts=0",
             "-avoid_negative_ts",

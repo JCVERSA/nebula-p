@@ -46,4 +46,12 @@ class ExampleRobolectricTest {
         assertEquals(4, BotStatus.entries.size)
         assertEquals(NavTab.HOME, NavTab.entries.first())
     }
+
+    @Test
+    fun `cinq onglets - journal et telecommande presents (9.18ww/xx)`() {
+        assertEquals(5, NavTab.entries.size)
+        org.junit.Assert.assertTrue(NavTab.entries.contains(NavTab.LOGS))
+        org.junit.Assert.assertTrue(NavTab.entries.contains(NavTab.REMOTE))
+        assertEquals(NavTab.SETTINGS, NavTab.entries.last())
+    }
 }

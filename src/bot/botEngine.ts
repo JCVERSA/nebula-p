@@ -19,7 +19,7 @@ import "./suppressLibsignalNoise.js";
 import { Boom } from "@hapi/boom";
 import fs from "fs";
 import { getConfig } from "./config.js";
-import { resolveOwnerIdentity } from "./ownerIdentity.js";
+import { ownerDeliveryJid, resolveOwnerIdentity } from "./ownerIdentity.js";
 import { getCommand, initRegistry, isRegistryReady } from "./commandRegistry.js";
 import { BotCommandContext } from "./types.js";
 import { incrementCommandStats } from "./commandStats.js";
@@ -35,8 +35,16 @@ import { database } from "./database.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
 import { setWatchSender, startWatchScheduler } from "./services/episodeWatchService.js";
 import { setDigestSender, startDigestScheduler } from "./services/digestService.js";
+import { startBackupScheduler } from "./services/backupService.js";
+import {
+  assessDowntime,
+  formatDowntimeDuration,
+  formatReturnMessage,
+  readLivenessMarker,
+  startLivenessHeartbeat
+} from "./services/downtimeService.js";
 import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
-import { handleAgentMessage, messageAddressesBot } from "./services/agentRunner.js";
+import { handleAgentMessage, messageAddressesBot, type AgentMessageInfo, type AgentExecutor } from "./services/agentRunner.js";
 import { handleIncomingCalls } from "./services/callGate.js";
 import { describeMessageMedia, extractQuotedText } from "./utils/quotedMedia.js";
 import { getRecentMessage, recordRecentMessage } from "./services/recentMessages.js";
@@ -147,6 +155,119 @@ export function getBotState() {
     connectionMode: botState.connectionMode,
     logs: botState.logs,
   };
+}
+
+/**
+ * 9.18xx — télécommande Nova (agent dans la poche).
+ *
+ * Exécute un texte EXACTEMENT comme si l'owner l'avait tapé sur WhatsApp :
+ *  - préfixe (`.`) → dispatchBotCommand (chemin préfixe éprouvé) ;
+ *  - langage naturel → handleAgentMessage (l'agent IA, DM = adressé au bot).
+ * Les réponses partent dans le CHAT WHATSAPP de l'owner (OWNER_NUMBER) —
+ * le canal naturel : liens de téléchargement, notes vocales, écrans
+ * interactifs y arrivent déjà.
+ *
+ * Garde-fous (décision owner 17/10, patterns recherche API security) :
+ *  - texte ≤ 500 chars, non vide ;
+ *  - commandes SYSTÈME exclues (stop/update/restart/purge) : elles ont leur
+ *    interface dédiée dans Nova → Réglages, pas de doublon d'attaque ;
+ *  - moteur déconnecté / OWNER_NUMBER absent → refus honnête ;
+ *  - journal d'audit [NOVA] à chaque exécution.
+ * Jamais de shell, jamais d'eval : tout passe par le registre typé.
+ */
+export const REMOTE_EXCLUDED_COMMANDS = new Set(["stop", "update", "restart", "purge"]);
+
+/** Tests uniquement — simule un moteur connecté avec le sock donné. */
+export function __setRemoteStateForTests(socket: any, status: string): void {
+  botState.socket = socket;
+  botState.status = status as any;
+}
+
+export async function runAsOwnerCommand(text: string): Promise<{ ok: boolean; message: string }> {
+  const t = String(text || "").trim();
+  if (!t) return { ok: false, message: "Texte vide." };
+  if (t.length > 500) return { ok: false, message: "Texte trop long (max 500 caractères)." };
+
+  const config = getConfig();
+  const prefix = config.prefix || ".";
+  // Politique AVANT l'état de connexion : commandes système exclues et
+  // commande inconnue refusée honnêtement, quoi qu'il arrive au moteur.
+  let parsedCommand: { commandName: string; args: string[] } | null = null;
+  if (t.startsWith(prefix)) {
+    const body = t.slice(prefix.length).trim();
+    const args = body.split(/\s+/);
+    const commandName = (args.shift() || "").toLowerCase();
+    if (REMOTE_EXCLUDED_COMMANDS.has(commandName)) {
+      return { ok: false, message: `Commande \`${prefix}${commandName}\` bloquée à distance — utilise l'onglet Réglages de Nova (plus sûr).` };
+    }
+    if (!getCommand(commandName)) {
+      return { ok: false, message: `Commande inconnue \`${prefix}${commandName}\` — \`${prefix}menu\` pour la liste.` };
+    }
+    parsedCommand = { commandName, args };
+  }
+  const ownerDigits = String(process.env.OWNER_NUMBER || config.ownerNumber || "").replace(/\D/g, "");
+  if (ownerDigits.length < 8) {
+    return { ok: false, message: "OWNER_NUMBER non configuré — la télécommande ne sait pas où répondre." };
+  }
+  // 9.18yy (F6) : livrer au LID mémorisé quand on le connaît (routage
+  // direct), sinon au PN — même politique que le digest et le « bot en ligne ».
+  const ownerJid = ownerDeliveryJid(ownerDigits);
+  const sock = botState.socket;
+  if (!sock || botState.status !== "connected") {
+    return { ok: false, message: "Le moteur WhatsApp n'est pas connecté — réessaie quand le bot est en ligne." };
+  }
+
+  // Message synthétique : les réponses (reply/quoted) partent vers ce chat.
+  const synthMsg = {
+    key: { remoteJid: ownerJid, fromMe: false, id: `3EB0NOVA${Date.now().toString(16).toUpperCase()}` },
+    message: { conversation: t },
+    pushName: "Nova Remote",
+  };
+  const info: DispatchInfo = {
+    senderJid: ownerJid,
+    actorJid: ownerJid,
+    senderName: "Nova (télécommande)",
+    senderNumber: ownerDigits,
+    isOwner: true,
+    isAdmin: false,
+    isGroup: false,
+    prefix,
+    text: t,
+    messageContent: synthMsg.message,
+  };
+
+  try {
+    if (parsedCommand) {
+      const outcome = await dispatchBotCommand(sock, synthMsg, info, parsedCommand.commandName, parsedCommand.args, "prefix");
+      addLog(`[NOVA] 📱 commande distante : ${t.slice(0, 80)}`);
+      return {
+        ok: outcome.ok && !outcome.hadError && !outcome.denied,
+        message: "✓ Exécuté — la réponse arrive sur WhatsApp.",
+      };
+    }
+    // Langage naturel → l'agent IA (répond dans le chat owner, voix comprise).
+    const exec: AgentExecutor = (commandName, args) =>
+      dispatchBotCommand(sock, synthMsg, info, commandName, args, "agent");
+    const agentInfo: AgentMessageInfo = {
+      senderJid: ownerJid,
+      actorJid: ownerJid,
+      actorNumber: ownerDigits,
+      senderName: "Nova (télécommande)",
+      isOwner: true,
+      text: t,
+      botName: config.botName,
+      prefix,
+      mediaHint: null,
+      quotedTextExcerpt: null,
+      voiceNote: false,
+    };
+    const handled = await handleAgentMessage(sock, synthMsg, agentInfo, exec);
+    if (!handled) return { ok: false, message: "Le message n'a pas abouti (agent indisponible ?)." };
+    addLog(`[NOVA] 📱 message agent distant : ${t.slice(0, 80)}`);
+    return { ok: true, message: "Agent sollicité — la réponse arrive sur WhatsApp." };
+  } catch (e: any) {
+    return { ok: false, message: `Échec : ${String(e?.message || e).slice(0, 120)}` };
+  }
 }
 
 export function clearLogs() {
@@ -392,6 +513,12 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
     return;
   }
 
+  // 9.18zz — marqueur de vie : on capture l'état AVANT que les heartbeats
+  // de ce process ne le rafraîchissent. Périmé = le moteur était absent
+  // (chute / reboot / arrêt) → la reconnexion notifiera la durée à l'owner.
+  const bootAliveAt = readLivenessMarker()?.at ?? null;
+  startLivenessHeartbeat();
+
   if (pairingPhone) {
     botState.connectionMode = "pair_code";
     botState.pairingNumber = pairingPhone.replace(/[^0-9]/g, "");
@@ -559,8 +686,18 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         const configuredOwner = envOwnerNumber || config.ownerNumber;
         const ownerDigits = configuredOwner.replace(/[^0-9]/g, "");
         if (ownerDigits.length >= 8) {
-          const ownerJid = `${ownerDigits}@s.whatsapp.net`;
-          sock.sendMessage(ownerJid, { text: `🌌 *${config.botName}* is online and connected!\nPrefix: \`${config.prefix}\`` }).catch(() => {});
+          // 9.18yy (F6) : LID mémorisé en priorité (routage direct), sinon PN.
+          const ownerJid = ownerDeliveryJid(ownerDigits);
+          // 9.18zz : si le marqueur capturé au démarrage était périmé, le
+          // moteur était réellement tombé — on chiffre la coupure au lieu
+          // du simple « online » (notification de chute sans FCM).
+          const downtime = assessDowntime(bootAliveAt, Date.now());
+          if (downtime.notify) {
+            addLog(`🔄 [CHUTE] retour après ${formatDowntimeDuration(downtime.downtimeMs)} d'indisponibilité`);
+            sock.sendMessage(ownerJid, { text: formatReturnMessage(config.botName, downtime) }).catch(() => {});
+          } else {
+            sock.sendMessage(ownerJid, { text: `🌌 *${config.botName}* is online and connected!\nPrefix: \`${config.prefix}\`` }).catch(() => {});
+          }
         }
 
         // Episode watcher (`.a watch`, audit S4): refresh the sender with the
@@ -575,10 +712,17 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         // (re)connexion, planificateur démarré une seule fois.
         setDigestSender(async (text) => {
           if (ownerDigits.length >= 8) {
-            await sock.sendMessage(`${ownerDigits}@s.whatsapp.net`, { text });
+            // 9.18yy (F6) : livrer au LID connu — un matin de routing PN→LID
+            // manqué ne doit plus faire perdre le digest.
+            await sock.sendMessage(ownerDeliveryJid(ownerDigits), { text });
           }
         });
         startDigestScheduler();
+
+        // 9.18yy — sauvegarde quotidienne du dossier de données du bot
+        // (audit 16/10) : chaque moteur sauvegarde SON NEBULA_DATA_DIR,
+        // NEBULA_BACKUP=0 coupe, rétention 7, journalisée dans le Journal.
+        startBackupScheduler((message) => addLog(message));
 
         // 9.16 — annonces du dashboard : sender réinjecté à chaque
         // (re)connexion, même pattern que le digest et le watcher.

@@ -66,6 +66,10 @@ data class UsersCountsDto(
 
 data class LogsResponse(val lines: String = "")
 
+// 9.18xx — télécommande : exécution réelle comme owner (réponse → WhatsApp)
+data class RunCommandRequest(val text: String)
+data class RunCommandResponse(val ok: Boolean = false, val message: String = "")
+
 data class ActionResultResponse(
     val started: Boolean = false,
     val success: Boolean = false,
@@ -109,6 +113,9 @@ interface NebulaApi {
 
     @POST("api/bots/{id}/restart")
     suspend fun restartBot(@Path("id") id: String): ActionResultResponse
+
+    @POST("api/bot/run")
+    suspend fun runCommand(@Body body: RunCommandRequest): RunCommandResponse
 
     @POST("api/system/update")
     suspend fun systemUpdate(): ActionResultResponse

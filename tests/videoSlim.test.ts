@@ -14,7 +14,13 @@ vi.mock("../src/bot/services/mediaToolkit.js", () => ({
   whatsappFitVideoOptions: vi.fn(),
 }));
 
-import { slimVideoIfNeeded, slimTriggerBytes } from "../src/bot/services/videoSlim.js";
+import {
+  parseMemAvailableBytes,
+  slimEncodeArgs,
+  slimPreflightDecision,
+  slimVideoIfNeeded,
+  slimTriggerBytes
+} from "../src/bot/services/videoSlim.js";
 import { probeVideoInfo, runFfmpegKit, whatsappFitVideoOptions } from "../src/bot/services/mediaToolkit.js";
 
 const mProbe = vi.mocked(probeVideoInfo);
@@ -108,9 +114,13 @@ describe("slimVideoIfNeeded — exécution", () => {
     const args = mRun.mock.calls[0][0] as string[];
     expect(args.join(" ")).toContain("-b:a 96k");
     expect(args.join(" ")).toContain("+faststart");
-    // 9.18mm — threads x264 plafonnés à 2 : mort silencieuse en prod (frame=3,
-    // OOM killer suspecté sur VPS 1 Go) — sans cap, un buffer par cœur virtuel.
-    expect(args.join(" ")).toContain("-threads 2");
+    // 9.18aaa — bornes mémoire x264 MESURÉES (terrain 17/10 : un 1080p de
+    // 536 Mo a OOM-tué le moteur entier) : rc-lookahead/ref/bframes bornés
+    // (622 → 350 Mo) + 1 seul thread (→ 244 Mo) côté encodeur ET décodeur.
+    expect(args.join(" ")).toContain("-x264-params rc-lookahead=10:ref=1:bframes=0");
+    expect(args.join(" ")).toContain("-threads 1");
+    expect(args.join(" ")).not.toContain("-threads 0");
+    expect(args.join(" ")).not.toContain("-threads 2");
   });
 
   it("9.18mm — échec TUÉ PAR SIGNAL (SIGKILL/OOM) → la cause dans le log, original livré", async () => {
@@ -198,19 +208,100 @@ describe("slimVideoIfNeeded — exécution", () => {
   });
 });
 
+describe("9.18aaa — bornes mémoire + préflight (le SLIM ne tue plus le moteur)", () => {
+  beforeEach(() => {
+    delete process.env.NEBULA_SLIM_MIN_FREE_MB;
+    delete process.env.NEBULA_SLIM_INPUT_CAP_MB;
+  });
+  afterEach(() => {
+    delete process.env.NEBULA_SLIM_MIN_FREE_MB;
+    delete process.env.NEBULA_SLIM_INPUT_CAP_MB;
+  });
+
+  it("parseMemAvailableBytes — extrait MemAvailable, rejette le bruit", () => {
+    expect(parseMemAvailableBytes("MemTotal:       1024000 kB\nMemAvailable:   358400 kB\n")).toBe(358400 * 1024);
+    expect(parseMemAvailableBytes("")).toBeNull();
+    expect(parseMemAvailableBytes("MemFree: 100 kB")).toBeNull();
+  });
+
+  it("préflight — RAM disponible insuffisante → pas d'encodage, raison honnête", () => {
+    const v = slimPreflightDecision(500 * 1024 * 1024, 200 * 1024 * 1024); // 200 Mo libres < 350
+    expect(v.run).toBe(false);
+    expect(v.reason).toContain("RAM disponible");
+  });
+
+  it("préflight — entrée démesurée → pas d'encodage (sans espoir sur 1 cœur)", () => {
+    const v = slimPreflightDecision(2 * 1024 ** 3, 800 * 1024 * 1024); // 2 Go
+    expect(v.run).toBe(false);
+    expect(v.reason).toContain("plafond");
+  });
+
+  it("préflight — machine saine → encodage autorisé ; RAM inconnue (non-Linux) → autorisé avec garde taille", () => {
+    expect(slimPreflightDecision(500 * 1024 * 1024, 800 * 1024 * 1024).run).toBe(true);
+    expect(slimPreflightDecision(500 * 1024 * 1024, null).run).toBe(true);
+  });
+
+  it("préflight — NEBULA_SLIM_MIN_FREE_MB=0 / NEBULA_SLIM_INPUT_CAP_MB=0 désactivent les gardes", () => {
+    process.env.NEBULA_SLIM_MIN_FREE_MB = "0";
+    process.env.NEBULA_SLIM_INPUT_CAP_MB = "0";
+    expect(slimPreflightDecision(500 * 1024 * 1024, 1).run).toBe(true); // même à sec
+    expect(slimPreflightDecision(99 * 1024 ** 3, 1).run).toBe(true);    // même démesuré
+  });
+
+  it("slimVideoIfNeeded — préflight refusé → AUCUN ffmpeg, original livré", async () => {
+    const p = mkFile(4096);
+    process.env.NEBULA_SLIM_MIN_FREE_MB = "99999"; // plus que toute machine
+    const r = await slimVideoIfNeeded(p, { triggerBytes: 1024 });
+    expect(r.slimmed).toBe(false);
+    expect(mRun).not.toHaveBeenCalled();
+    expect(fs.statSync(p).size).toBe(4096);
+  });
+
+  it("slimEncodeArgs — bornes x264 mesurées présentes (622 → 244 Mo en 1080p)", () => {
+    const a = slimEncodeArgs("/tmp/in.mp4", ["-c:v", "libx264", "-b:v", "900k"], "/tmp/out.mp4");
+    expect(a).toContain("-x264-params");
+    expect(a.join(" ")).toContain("rc-lookahead=10:ref=1:bframes=0");
+    expect(a.filter((x) => x === "-threads")).toHaveLength(2); // décodeur + encodeur
+    expect(a).not.toContain("2"); // plus aucun cap à 2 threads
+    expect(a[a.length - 1]).toBe("/tmp/out.mp4");
+  });
+
+  it("wiring — ffmpeg en priorité basse : Node garde le CPU (sonde santé)", () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/services/mediaToolkit.ts"), "utf8");
+    expect(src).toContain("os.setPriority(p.pid, 10)");
+  });
+
+  it("wiring — novabox compression : mêmes bornes mémoire que SLIM", () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/novabox.ts"), "utf8");
+    const m = /const ffmpegArgs = \[([\s\S]*?)runFfmpegKit\(ffmpegArgs/.exec(src);
+    expect(m, "bloc ffmpegArgs introuvable").toBeTruthy();
+    expect(m![1]).toContain("rc-lookahead=10:ref=1:bframes=0");
+    expect(m![1]).toContain("\"1\"");
+  });
+
+  it("wiring — manage.sh expose la commande swap (filet anti-OOM terrain)", () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), "manage.sh"), "utf8");
+    expect(src).toContain("cmd_swap()");
+    expect(src).toContain("swapon /swapfile");
+    expect(src).toContain("swap)    cmd_swap");
+  });
+});
+
 describe("wiring 9.7", () => {
   const readSrc = (rel: string) => fs.readFileSync(path.resolve(process.cwd(), rel), "utf-8");
 
-  it("9.18pp (audit F2) — compression novabox : cap -threads 2 comme videoSlim (même risque OOM)", () => {
+  it("9.18pp→aaa — compression novabox : mêmes bornes mémoire que videoSlim (threads 1 + x264 bornés)", () => {
     const src = readSrc("src/bot/commands/novabox.ts");
     const m = /const ffmpegArgs = \[([\s\S]*?)runFfmpegKit\(ffmpegArgs/.exec(src);
     expect(m, "bloc ffmpegArgs introuvable").toBeTruthy();
     const block = m![1];
     expect(block).toContain("-threads");
-    expect(block).toContain("\"2\"");
+    expect(block).toContain("\"1\"");
+    expect(block).toContain("rc-lookahead=10:ref=1:bframes=0");
+    expect(block).not.toContain("\"2\"");
     // le cap de SORTIE doit exister APRÈS les options vidéo (fitOptions splice)
     const spliceIdx = block.indexOf("...(fitOptions");
-    const threadsIdx = block.indexOf("\"2\"");
+    const threadsIdx = block.indexOf("\"1\"");
     expect(spliceIdx).toBeGreaterThan(-1);
     expect(threadsIdx).toBeGreaterThan(spliceIdx);
   });

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- 9.18i : fond de l'icône adaptive = même navy que le dashboard (#0b1026) -->
-    <color name="ic_launcher_bg">#FF0B1026</color>
+    <color name="ic_launcher_bg">#FF0B0B0C</color>
     <color name="purple_200">#FFBB86FC</color>
     <color name="purple_500">#FF6200EE</color>
     <color name="purple_700">#FF3700B3</color>

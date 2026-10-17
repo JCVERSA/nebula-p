@@ -6,7 +6,7 @@ import AdmZip from "adm-zip";
 
 import { getConfig, updateConfig } from "./src/bot/config.js";
 import { getCommandsDir, getCommands, getCommand } from "./src/bot/commandRegistry.js";
-import { getBotState, startLiveBot, stopLiveBot, retryLiveConnection, clearSessionAuth, requestPairingCode, addLog, simulateMessage, clearLogs } from "./src/bot/botEngine.js";
+import { getBotState, startLiveBot, stopLiveBot, retryLiveConnection, clearSessionAuth, requestPairingCode, addLog, simulateMessage, clearLogs, runAsOwnerCommand } from "./src/bot/botEngine.js";
 
 import { getCommandStats } from "./src/bot/commandStats.js";
 import { getAgentHealth, getAgentMetricsTimeline } from "./src/bot/services/agentMetrics.js";
@@ -132,6 +132,8 @@ export function createApp(): express.Express {
   // Stricter limits for expensive / abuse-prone routes
   app.post("/api/auth/login", rateLimit(8, 60_000));
   app.post("/api/bot/simulate", rateLimit(30, 60_000));
+  // 9.18xx — télécommande Nova : exécution RÉELLE → plafond horaire dédié.
+  app.post("/api/bot/run", rateLimit(30, 3_600_000));
   app.post("/api/bot/commands/save", rateLimit(10, 60_000));
   app.post("/api/bot/commands/generate", rateLimit(10, 60_000));
   app.get("/api/bot/download-zip", rateLimit(5, 60_000));
@@ -407,6 +409,22 @@ export function createApp(): express.Express {
     const cleanSenderName = typeof senderName === "string" ? senderName.trim().slice(0, 40) : "Guest User";
     const result = await simulateMessage(cleanSenderName || "Guest User", text);
     res.json(result);
+  });
+
+  // ---------------------------------------------------------------------------
+  // API: Télécommande Nova (9.18xx) — exécution RÉELLE comme owner.
+  // Les réponses partent dans le chat WhatsApp de l'owner (canal naturel).
+  // ---------------------------------------------------------------------------
+  app.post("/api/bot/run", async (req, res) => {
+    const { text } = req.body;
+    if (typeof text !== "string" || !text.trim()) {
+      return res.status(400).json({ error: "Message text is required." });
+    }
+    if (text.length > 500) {
+      return res.status(400).json({ error: "Message text is too long (max 500 characters)." });
+    }
+    const result = await runAsOwnerCommand(text);
+    res.status(result.ok ? 200 : 422).json(result);
   });
 
   // ---------------------------------------------------------------------------

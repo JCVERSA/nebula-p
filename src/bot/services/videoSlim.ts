@@ -15,6 +15,17 @@
  * — hors de question sur un VPS à 1 Go. On réutilise les briques locales
  * déjà testées (runFfmpegKit, probeVideoInfo, whatsappFitVideoOptions).
  *
+ * 9.18aaa (retour terrain 17/10, 2e mort) : un 1080P de 536 Mo a tué le
+ * MOTEUR entier (OOM killer → SIGKILL, l'encodage x264 par défaut demande
+ * ~620 Mo de RAM pour du 1080p). Triple barrage désormais :
+ *  1. bornes mémoire x264 MESURÉES (sendrec #205, 1080p30 : défaut 622 Mo
+ *     → rc-lookahead=10:ref=1:bframes=0 + -threads 1 = 244 Mo, -61 %) ;
+ *  2. préflight : RAM disponible insuffisante (NEBULA_SLIM_MIN_FREE_MB,
+ *     défaut 350) ou fichier démesuré (NEBULA_SLIM_INPUT_CAP_MB, défaut
+ *     800) → pas d'encodage, l'original est livré (via lien /d/) ;
+ *  3. ffmpeg en priorité basse (runFfmpegKit, nice 10) : le moteur garde
+ *     le CPU pour la sonde santé — plus de « moteur gelé (SIGKILL) ».
+ *
  * Garanties :
  * - échec/timeout/sortie plus grosse → le fichier ORIGINAL est livré ;
  * - UN SEUL encodage à la fois (file de promesses — VPS 1 Go) ;
@@ -44,6 +55,79 @@ export function slimTriggerBytes(): number {
   return clamped * 1024 * 1024;
 }
 
+/** RAM minimale disponible pour tenter un encodage — NEBULA_SLIM_MIN_FREE_MB (défaut 350, 0 = garde off). */
+export function slimMinFreeBytes(): number {
+  const mb = Number(process.env.NEBULA_SLIM_MIN_FREE_MB);
+  if (!Number.isFinite(mb)) return 350 * 1024 * 1024;
+  return Math.max(0, Math.floor(mb)) * 1024 * 1024;
+}
+
+/** Taille d'entrée au-delà de laquelle l'encodage est sans espoir sur un petit VPS — NEBULA_SLIM_INPUT_CAP_MB (défaut 800, 0 = cap off). */
+export function slimInputCapBytes(): number {
+  const mb = Number(process.env.NEBULA_SLIM_INPUT_CAP_MB);
+  if (!Number.isFinite(mb)) return 800 * 1024 * 1024;
+  return Math.max(0, Math.floor(mb)) * 1024 * 1024;
+}
+
+/** Timeout d'encodage — NEBULA_SLIM_TIMEOUT_MS (défaut 30 min : 1080p très rapide sur 1 cœur). */
+export function slimTimeoutMs(): number {
+  const v = Number(process.env.NEBULA_SLIM_TIMEOUT_MS);
+  return Number.isFinite(v) && v >= 60_000 ? Math.floor(v) : 30 * 60_000;
+}
+
+/** Pur : extrait MemAvailable (octets) du texte /proc/meminfo, null si absent. */
+export function parseMemAvailableBytes(procText: string): number | null {
+  const m = /MemAvailable:\s+(\d+)\s+kB/.exec(procText || "");
+  return m ? Number(m[1]) * 1024 : null;
+}
+
+/** IO : RAM disponible (Linux), null ailleurs / en cas d'échec. */
+export function readMemAvailableBytes(): number | null {
+  try {
+    return parseMemAvailableBytes(fs.readFileSync("/proc/meminfo", "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export interface SlimPreflight {
+  run: boolean;
+  reason?: string;
+}
+
+/** Pur : peut-on raisonnablement lancer CET encodage sur CETTE machine ? */
+export function slimPreflightDecision(inputBytes: number, memAvailableBytes: number | null): SlimPreflight {
+  const cap = slimInputCapBytes();
+  if (cap > 0 && inputBytes > cap) {
+    return { run: false, reason: `entrée ${MB(inputBytes)} Mo > plafond ${MB(cap)} Mo — encodage sans espoir sur ce VPS` };
+  }
+  const minFree = slimMinFreeBytes();
+  if (minFree > 0 && memAvailableBytes !== null && memAvailableBytes < minFree) {
+    return { run: false, reason: `RAM disponible ${MB(memAvailableBytes)} Mo < ${MB(minFree)} Mo requis` };
+  }
+  return { run: true };
+}
+
+/**
+ * Pur : arguments ffmpeg de l'encodage SLIM. Bornes mémoire x264 mesurées
+ * (9.18aaa) — rc-lookahead/ref/bframes sont LES trois moteurs d'allocation
+ * de x264 (frames décodées pour le rate control, frames de référence, tampon
+ * de réordonnancement) : 622 Mo → 350 Mo, et -threads 1 (défaut x264 :
+ * 1,5×cœurs en frame-threads, un tampon par fil) amène à 244 Mo.
+ */
+export function slimEncodeArgs(inputPath: string, fitOptions: string[], outPath: string): string[] {
+  return [
+    "-y", "-fflags", "+genpts", "-threads", "1", "-i", inputPath,
+    ...fitOptions,
+    "-x264-params", "rc-lookahead=10:ref=1:bframes=0",
+    "-threads", "1",
+    "-af", "aresample=async=1:first_pts=0",
+    "-avoid_negative_ts", "make_zero",
+    "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart",
+    outPath
+  ];
+}
+
 // ── Un seul ffmpeg à la fois (le VPS n'a que 1 Go de RAM) ──────────────────
 let chain: Promise<unknown> = Promise.resolve();
 
@@ -64,7 +148,7 @@ const MB = (b: number) => (b / (1024 * 1024)).toFixed(1);
  */
 export async function slimVideoIfNeeded(
   inputPath: string,
-  opts: { triggerBytes?: number; targetMB?: number; timeoutMs?: number } = {}
+  opts: { triggerBytes?: number; targetMB?: number; timeoutMs?: number; memAvailableBytes?: number | null } = {}
 ): Promise<SlimResult> {
   const trigger = opts.triggerBytes ?? slimTriggerBytes();
   let originalBytes = 0;
@@ -94,11 +178,23 @@ export async function slimVideoIfNeeded(
     return unchanged();
   }
 
+  // 9.18aaa — préflight : un encodage qui ne TIENT PAS sur la machine ne
+  // part pas (RAM disponible, taille d'entrée). L'original est livré —
+  // la livraison >100 Mo passe de toute façon par le lien /d/.
+  const preflight = slimPreflightDecision(
+    originalBytes,
+    opts.memAvailableBytes !== undefined ? opts.memAvailableBytes : readMemAvailableBytes()
+  );
+  if (!preflight.run) {
+    console.log(`[SLIM] préflight : ${preflight.reason} — fichier original livré`);
+    return unchanged();
+  }
+
   const outPath = path.join(
     path.dirname(inputPath),
     `.${path.basename(inputPath)}.slim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`
   );
-  console.log(`[SLIM] ${MB(originalBytes)} Mo → cible ~${targetMB} Mo, même résolution (${fit.videoKbps} kbps plafonnés, ${fit.note})...`);
+  console.log(`[SLIM] ${MB(originalBytes)} Mo → cible ~${targetMB} Mo, même résolution (${fit.videoKbps} kbps plafonnés, x264 ≤244 Mo, 1 thread, ${fit.note})...`);
 
   // 9.18k — durcissement pour les entrées issues de TS consolidés (sortie
   // Cat-Catch) : leurs timestamps non monotones font ABORTER le muxer MP4
@@ -106,23 +202,11 @@ export async function slimVideoIfNeeded(
   // classique et déterministe. genpts régénère les PTS à la lecture,
   // aresample=async resynchronise l'audio, make_zero décale les timestamps
   // négatifs. Sans effet sur les fichiers sains.
+  // 9.18aaa — bornes mémoire x264 mesurées (622 → 244 Mo en 1080p) via
+  // slimEncodeArgs ; timeout 30 min par défaut (NEBULA_SLIM_TIMEOUT_MS) :
+  // un 1080p en veryfast sur 1 cœur dépasse l'ancien quota de 15 min.
   const r = await enqueue(() =>
-    runFfmpegKit(
-      [
-        "-y", "-fflags", "+genpts", "-threads", "0", "-i", inputPath,
-        ...fit.options,
-        // 9.18mm (retour terrain 16/10) — mort silencieuse de x264 en prod
-        // (frame=3, aucun message : OOM killer suspecté, VPS 1 Go). Sans cap,
-        // x264 alloue des buffers par thread = un par cœur virtuel ; 2 threads
-        // en veryfast divisent l'empreinte mémoire pour un encodage ~2× plus
-        // lent (acceptable : timeout 15 min).
-        "-threads", "2",
-        "-af", "aresample=async=1:first_pts=0",
-        "-avoid_negative_ts", "make_zero",
-        "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", outPath
-      ],
-      opts.timeoutMs ?? 15 * 60_000
-    )
+    runFfmpegKit(slimEncodeArgs(inputPath, fit.options, outPath), opts.timeoutMs ?? slimTimeoutMs())
   );
 
   let finalBytes = 0;

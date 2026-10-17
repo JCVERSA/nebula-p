@@ -5,7 +5,7 @@
 #  Usage   : ./manage.sh <commande>   (voir: ./manage.sh help)
 #
 #  Commandes : start | stop | restart | pair | status | update | setup | clone
-#              env [list|set|get|unset|edit] | logs [filtre] | clean
+#              env [list|set|get|unset|edit] | logs [filtre] | clean | swap
 #              doctor | watchdog | version
 # ============================================================================
 set -uo pipefail
@@ -1131,6 +1131,42 @@ cmd_version() {
   echo "Branche: $(git -C "${APP_DIR}" rev-parse --abbrev-ref HEAD)"
 }
 
+# 9.18aaa — swap d'urgence 512 Mo : le filet sous l'encodage vidéo.
+# L'audit 16/10 le recommandait ; le terrain 17/10 l'impose (2e OOM-tuerie du
+# moteur par un encodage x264). Idempotent, honnête sur les environnements
+# qui ne supportent pas le swap (certains conteneurs OpenVZ/LXC).
+cmd_swap() {
+  hdr "SWAP D'URGENCE (512 Mo) — 9.18aaa"
+  if [ "$(id -u)" -ne 0 ]; then die "à lancer en root (sudo nebula swap)"; fi
+  if swapon --show 2>/dev/null | grep -q .; then
+    ok "du swap est déjà actif :"
+    swapon --show
+    return 0
+  fi
+  if [ -e /swapfile ]; then
+    warn "/swapfile existe mais n'est pas actif — tentative d'activation…"
+  else
+    info "création de /swapfile (512 Mo)…"
+    if ! fallocate -l 512M /swapfile 2>/dev/null; then
+      info "fallocate indisponible (système de fichier ?) — repli dd…"
+      dd if=/dev/zero of=/swapfile bs=1M count=512 status=none || die "écriture de /swapfile impossible"
+    fi
+  fi
+  chmod 600 /swapfile
+  mkswap /swapfile >/dev/null 2>&1 || die "mkswap a échoué — le noyau/conteneur supporte-t-il le swap ?"
+  swapon /swapfile 2>/dev/null || die "swapon a échoué — conteneur sans swap (OpenVZ/LXC ?). Les bornes mémoire x264 (9.18aaa) restent la protection principale."
+  grep -q '^/swapfile' /etc/fstab 2>/dev/null || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  # Swappiness bas : le swap reste une réserve d'urgence, pas un cache.
+  if [ -d /etc/sysctl.d ]; then
+    grep -q '^vm.swappiness' /etc/sysctl.d/99-nebula-swap.conf 2>/dev/null \
+      || printf 'vm.swappiness=10\nvm.vfs_cache_pressure=50\n' > /etc/sysctl.d/99-nebula-swap.conf
+    sysctl -p /etc/sysctl.d/99-nebula-swap.conf >/dev/null 2>&1 || true
+  fi
+  ok "swap actif :"
+  swapon --show
+  info "réserve d'urgence posée — l'encodage vidéo ne peut plus OOM-tuer le moteur."
+}
+
 cmd_help() {
   local self; self="$(basename "$0")"
   cat <<EOF
@@ -1162,6 +1198,7 @@ ${C_BOLD}Configuration${C_RESET}
 
 ${C_BOLD}Maintenance${C_RESET}
    ${C_BOLD}clean${C_RESET}      Purge les temporaires orphelins (staging >1h, liens expirés >3h)
+   ${C_BOLD}swap${C_RESET}       Pose un swap d'urgence 512 Mo (anti-OOM encodage vidéo, idempotent)
    ${C_BOLD}doctor${C_RESET}     Diagnostic complet (node, ffmpeg, .env, RAM, disque, réseau…)
    ${C_BOLD}version${C_RESET}    Révision git du script + de l'app
    ${C_BOLD}watchdog${C_RESET}  Vérifie que le bot tourne, sinon le relance (pour cron)
@@ -1187,6 +1224,7 @@ case "${1:-help}" in
   env)     shift || true; cmd_env "$@" ;;
   logs)    shift || true; cmd_logs "$@" ;;
   clean)   shift || true; cmd_clean "$@" ;;
+  swap)    cmd_swap ;;
   doctor)  shift || true; cmd_doctor "$@" ;;
   watchdog) cmd_watchdog "$@" ;;
   version) shift || true; cmd_version "$@" ;;

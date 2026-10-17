@@ -57,7 +57,7 @@ function numberCandidates(raw: string | null | undefined): string[] {
   return s.split(/[^0-9]+/).filter(Boolean);
 }
 
-// ── 9.16b — mémoire process des LID owner reconnus ─────────────────────────
+// ── 9.16b → 9.18yy — mémoire process des LID owner reconnus ────────────────
 //
 // Retour terrain : l'owner s'est banni LUI-MÊME depuis le dashboard. Le gate
 // moteur l'a correctement ignoré (isOwner bypass), mais sa fiche affichait
@@ -69,8 +69,12 @@ function numberCandidates(raw: string | null | undefined): string[] {
 // (ban du gestionnaire d'utilisateurs, badge OWNER) peuvent alors refuser
 // honnêtement. Froid (avant le 1er message) : NEBULA_OWNER_LID couvre la
 // garde route, et le gate moteur reste la protection réelle dans tous les cas.
+//
+// 9.18yy : la mémoire devient lid → PN (quand il est connu) — les envois
+// PROACTIFS du moteur (digest, « bot en ligne », réponses télécommande)
+// livrent alors directement au LID (voir ownerDeliveryJid, F6 audit 16/10).
 
-const knownOwnerLids = new Set<string>();
+const knownOwnerLids = new Map<string, string | null>();
 
 /** Le jid (@lid ou téléphone) est-il un LID owner reconnu ce cycle de vie ? */
 export function isKnownOwnerLid(jid: string): boolean {
@@ -78,14 +82,37 @@ export function isKnownOwnerLid(jid: string): boolean {
   return !!d && knownOwnerLids.has(d);
 }
 
-function rememberOwnerLid(jid: string): void {
+function rememberOwnerLid(jid: string, pn: string | null): void {
   const d = jidDigits(jid);
-  if (d) knownOwnerLids.add(d);
+  if (d) knownOwnerLids.set(d, pn);
 }
 
 /** Tests uniquement. */
 export function __resetOwnerLidsForTests(): void {
   knownOwnerLids.clear();
+}
+
+/**
+ * 9.18yy (F6 audit 16/10) — jid de LIVRAISON de l'owner pour les envois
+ * proactifs du moteur (digest 8 h, « bot en ligne », réponses télécommande).
+ *
+ * Terrain : l'owner est derrière un LID (masquage du numéro). WhatsApp route
+ * le PN vers le LID « au mieux » — certains matins le digest peut se perdre.
+ * Quand le moteur a mémorisé le LID de CET owner (résolution Baileys au
+ * 1er message), on livre directement au LID ; à froid, NEBULA_OWNER_LID
+ * couvre ; sinon le PN configuré (comportement historique inchangé).
+ * Retourne "" si aucun PN exploitable (l'appelant garde sa garde).
+ */
+export function ownerDeliveryJid(pnDigits: string): string {
+  const pn = (pnDigits || "").replace(/[^0-9]/g, "");
+  if (pn) {
+    for (const [lid, mappedPn] of knownOwnerLids) {
+      if (mappedPn === pn) return `${lid}@lid`;
+    }
+  }
+  const envLid = numberCandidates(process.env.NEBULA_OWNER_LID)[0];
+  if (envLid) return `${envLid}@lid`;
+  return pn ? `${pn}@s.whatsapp.net` : "";
 }
 
 /**
@@ -123,7 +150,7 @@ export async function resolveOwnerIdentity(
     resolvedNumber = null;
   }
   if (resolvedNumber && owners.includes(resolvedNumber)) {
-    rememberOwnerLid(senderJid); // 9.16b — les routes panneau pourront le reconnaître
+    rememberOwnerLid(senderJid, resolvedNumber); // 9.16b routes panneau + 9.18yy livraison LID
     return { senderNumber, resolvedNumber, isOwner: true };
   }
 
@@ -136,7 +163,7 @@ export async function resolveOwnerIdentity(
     try {
       const lidJid = await sock?.signalRepository?.lidMapping?.getLIDForPN?.(`${pn}@s.whatsapp.net`);
       if (typeof lidJid === "string" && lidJid && jidDigits(lidJid) === senderNumber) {
-        rememberOwnerLid(senderJid); // 9.16b
+        rememberOwnerLid(senderJid, pn); // 9.16b + 9.18yy livraison LID
         return { senderNumber, resolvedNumber: pn, isOwner: true };
       }
     } catch {}
@@ -144,6 +171,6 @@ export async function resolveOwnerIdentity(
 
   // Dernier recours : NEBULA_OWNER_LID (comparaison exacte du LID).
   const lidOwners = numberCandidates(process.env.NEBULA_OWNER_LID);
-  if (lidOwners.includes(senderNumber)) rememberOwnerLid(senderJid); // 9.16b
+  if (lidOwners.includes(senderNumber)) rememberOwnerLid(senderJid, null); // 9.16b (PN non mappé)
   return { senderNumber, resolvedNumber, isOwner: lidOwners.includes(senderNumber) };
 }

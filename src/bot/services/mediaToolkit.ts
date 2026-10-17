@@ -18,6 +18,7 @@
 
 import { spawn } from "child_process";
 import fs from "fs";
+import os from "os";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
 
 export const WHATSAPP_DOC_SAFE_MB = 90; // delivery-as-document ceiling (buffer under the ~95 MB cap)
@@ -280,6 +281,12 @@ export function runFfmpegKit(args: string[], timeoutMs = 240000): Promise<Ffmpeg
     try {
       const bin = resolvedFfmpegPath || "ffmpeg";
       const p = spawn(bin, args);
+      // 9.18aaa — priorité basse (nice 10) : sur le VPS 1 cœur, un encodage
+      // x264 à pleine priorité affamait le moteur Node → sonde santé sans
+      // réponse → SIGKILL du superviseur. Nice n'arbitre SOUS CONTENTION :
+      // VPS inoccupé = vitesse pleine ; Node a besoin du CPU (sonde,
+      // keepalive Baileys) = il l'obtient immédiatement.
+      try { if (p.pid) os.setPriority(p.pid, 10); } catch { /* hors Linux / déjà parti */ }
       let stderr = "";
       p.stderr.on("data", (d: Buffer) => {
         // 9.18k — FENÊTRE GLISSANTE : garder la FIN, pas le début. L'ancien
