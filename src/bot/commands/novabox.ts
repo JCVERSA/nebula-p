@@ -41,7 +41,7 @@ import { acquireDiskClaim, availableForNewClaims } from "../diskClaims.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
 import { probeVideoInfo, whatsappFitVideoOptions, runFfmpegKit } from "../services/mediaToolkit.js";
-import { slimEtaMinutes, slimTargetMB, slimTriggerBytes } from "../services/videoSlim.js";
+import { slimEffectiveTargetMB, slimEtaMinutes, slimTargetMB, slimTriggerBytes } from "../services/videoSlim.js";
 import { registerSlimOffer, slimOfferLine } from "../services/slimOffer.js";
 import { organizeVfSelection } from "../services/voiranimeClient.js";
 import { enforceMemoryHeadroom } from "../services/memoryGuard.js";
@@ -3086,12 +3086,16 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       // livraison (jamais imposée, valable 10 min, .slim pour accepter).
       let slimOfferText = "";
       if (stats.size > slimTriggerBytes() && tempDownload && tempDownload.filePath) {
+        // 9.18fff : cible ADAPTÉE à la durée (probe léger) — l'offre annonce
+        // le vrai chiffre : ~190 Mo pour un épisode, ~590 Mo pour un film
+        // de 90 min (plancher qualité 800 kbps).
+        const probedOffer = await probeVideoInfo(tempDownload.filePath);
         const offer = registerSlimOffer(String(msg.key.remoteJid || context.sender || ""), {
           tempFilePath: tempDownload.filePath,
           sourceUrl: tempDownloadLink,
           filename: deliveredFilename,
           bytes: stats.size,
-          targetMB: slimTargetMB(),
+          targetMB: slimEffectiveTargetMB(stats.size, probedOffer.durationSec || 0, slimTargetMB()),
           meta: {
             title: session.animeTitle,
             season: session.selectedSeason?.name,

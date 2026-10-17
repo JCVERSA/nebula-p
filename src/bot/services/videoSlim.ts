@@ -172,6 +172,26 @@ export function slimTargetMB(): number {
 }
 
 /**
+ * Pur (9.18fff, terrain « film 90 min refusé ») : la cible S'ADAPTE à la
+ * durée. 190 Mo conviennent à un épisode de 24 min (~988 kbps) mais un
+ * film de 90 min à 190 Mo = 193 kbps = bouillie — d'où l'ancien refus
+ * honnête mais inutile. Désormais : la cible ne descend jamais sous
+ * ~800 kbps vidéo (plancher qualité long-métrage), et ne dépasse jamais
+ * 80 % de la source (aucun intérêt). Un épisode reste à ~190 Mo ; le film
+ * de 90 min vise ~590 Mo. NEBULA_SLIM_TARGET_MB devient le MINIMUM
+ * (une valeur haute rehausse la qualité de tout).
+ */
+export function slimEffectiveTargetMB(sourceBytes: number, durationSec: number, targetMB: number): number {
+  const VIDEO_FLOOR_KBPS = 800; // + audio 96k + conteneur ~2 %
+  const minMB = Math.ceil((((VIDEO_FLOOR_KBPS + 96) * Math.max(1, durationSec) * 1000) / 8 / 1048576) * 1.02);
+  const maxMB = Math.floor((sourceBytes / 1048576) * 0.8);
+  // Jamais sous le plancher qualité (les films longs visent plus que la
+  // base), jamais plus que 80 % de la source (aucun intérêt) — le garde
+  // 400 kbps de slimAggressiveKbps reste le filet anti-bouillie final.
+  return Math.min(Math.max(targetMB, minMB), Math.max(maxMB, 1));
+}
+
+/**
  * Pur (9.18ddd) : débit vidéo pour atteindre la cible exacte. Budget cible
  * (conteneur ≈ 2 %) − audio 96k. Plancher 400 kbps : en dessous, même en
  * 2-pass tune animation, l'image devient bouillie — on refuse plutôt.
@@ -321,7 +341,9 @@ export async function slimVideoIfNeeded(
   // de résolution (l'utilisateur a choisi), mais refuse l'absurde : cible
   // impossible (bouillie) ou source déjà plus légère que la cible.
   if (opts.mode === "aggressive") {
-    const targetMB = opts.targetMB ?? slimTargetMB();
+    // 9.18fff : la cible s'adapte à la durée (un film de 90 min ne vise pas
+    // 190 Mo — 193 kbps = bouillie — mais ~590 Mo à 800 kbps plancher).
+    const targetMB = slimEffectiveTargetMB(originalBytes, durationSec, opts.targetMB ?? slimTargetMB());
     const videoKbps = slimAggressiveKbps(originalBytes, durationSec, targetMB);
     const sourceKbps = Math.round((originalBytes * 8) / 1000 / durationSec);
     if (videoKbps === null) {

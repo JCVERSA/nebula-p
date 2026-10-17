@@ -18,6 +18,7 @@ import {
   parseMemAvailableBytes,
   slimAggressiveArgs,
   slimAggressiveKbps,
+  slimEffectiveTargetMB,
   slimEncodeArgs,
   slimEtaMinutes,
   slimFloorKbpsForHeight,
@@ -367,6 +368,35 @@ describe("9.18aaa — bornes mémoire + préflight (le SLIM ne tue plus le moteu
     expect(src).toContain("cmd_swap()");
     expect(src).toContain("swapon /swapfile");
     expect(src).toContain("swap)    cmd_swap");
+  });
+});
+
+describe("9.18fff — cible adaptative à la durée (le film de 90 min n'est plus refusé)", () => {
+  it("épisode 24 min : la cible de base (~190 Mo) reste la cible", () => {
+    expect(slimEffectiveTargetMB(465_600_000, 1440, 190)).toBe(190);
+  });
+
+  it("film 90 min / 1041 Mo (terrain Shiboyugi) : ~589 Mo — plus jamais de refus bouillie", () => {
+    // Hier : cible fixe 190 Mo → 193 kbps → « impossible sans bouillir l'image ».
+    // Maintenant : plancher 800 kbps vidéo → ~589 Mo (57 % de la source).
+    expect(slimEffectiveTargetMB(1_091_813_226, 5400, 190)).toBe(589);
+  });
+
+  it("source frugale : bornée à 80 % de la source — le garde kbps refusera après", () => {
+    const t = slimEffectiveTargetMB(314_572_800, 5400, 190); // 300 Mo / 90 min
+    expect(t).toBe(240); // 80 % de la source
+    expect(slimAggressiveKbps(314_572_800, 5400, t)).toBeNull(); // bouillie → refus honnête
+  });
+
+  it("NEBULA_SLIM_TARGET_MB élevé rehausse tout (c'est un MINIMUM désormais)", () => {
+    expect(slimEffectiveTargetMB(465_600_000, 1440, 400)).toBe(355); // plafonné à 80 % de la source
+  });
+
+  it("wiring : l'offre ET .slim utilisent la cible adaptative (annonce honnête)", () => {
+    const novabox = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/novabox.ts"), "utf8");
+    expect(novabox).toContain("slimEffectiveTargetMB");
+    const slimCmd = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/slim.ts"), "utf8");
+    expect(slimCmd).toContain("slimEffectiveTargetMB");
   });
 });
 

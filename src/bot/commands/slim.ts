@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { BotCommand } from "../types.js";
-import { slimAggressiveKbps, slimEtaMinutes, slimVideoIfNeeded, slimTargetMB } from "../services/videoSlim.js";
+import { slimAggressiveKbps, slimEffectiveTargetMB, slimEtaMinutes, slimVideoIfNeeded, slimTargetMB } from "../services/videoSlim.js";
 import { consumeSlimOffer } from "../services/slimOffer.js";
 import { ghEncoderConfig, githubSlimEncode } from "../services/githubEncode.js";
 import { probeVideoInfo } from "../services/mediaToolkit.js";
@@ -41,14 +41,16 @@ const slimCommand: BotCommand = {
       return;
     }
 
-    // Budget cible : le débit dépend de la durée (probe local, pas cher).
-    const targetMB = offer.targetMB || slimTargetMB();
+    // Budget cible (9.18fff) : la cible S'ADAPTE à la durée — un épisode de
+    // 24 min vise ~190 Mo, un film de 90 min ~590 Mo (plancher 800 kbps :
+    // 190 Mo sur 90 min = 193 kbps = bouillie, refusé à tort hier).
     const probed = await probeVideoInfo(offer.tempFilePath);
     const durationSec = probed.durationSec || 0;
+    const targetMB = slimEffectiveTargetMB(offer.bytes, durationSec, offer.targetMB || slimTargetMB());
     const videoKbps = durationSec > 0 ? slimAggressiveKbps(offer.bytes, durationSec, targetMB) : null;
     if (videoKbps === null) {
       await context.reply(
-        `⚠️ *Cible ~${targetMB} Mo impossible sans bouillir l'image* (durée ${Math.max(1, Math.round(durationSec / 60))} min) — le lien original reste valable.`
+        `⚠️ *Pas d'allègement utile trouvé* (durée ${Math.max(1, Math.round(durationSec / 60))} min, source déjà frugale) — le lien original reste valable.`
       );
       return;
     }
