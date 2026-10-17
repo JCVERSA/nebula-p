@@ -32,6 +32,7 @@ import helpCommand from "./commands/help.js";
 import swebCommand from "./commands/sweb.js";
 import watchCommand from "./commands/watch.js";
 import animeCommand from "./commands/novabox.js";
+import slimCommand from "./commands/slim.js";
 import { getCompiledPath } from "./commandCompiler.js";
 
 /**
@@ -95,6 +96,7 @@ const diskCommandCache = new Map<string, BotCommand>();
 function getBuiltinCommands(): BotCommand[] {
   return [
     pingCommand,
+    slimCommand,
     tradCommand,
     resumeCommand,
     remindCommand,

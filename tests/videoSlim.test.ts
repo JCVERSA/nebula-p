@@ -16,6 +16,8 @@ vi.mock("../src/bot/services/mediaToolkit.js", () => ({
 
 import {
   parseMemAvailableBytes,
+  slimAggressiveArgs,
+  slimAggressiveKbps,
   slimEncodeArgs,
   slimEtaMinutes,
   slimFloorKbpsForHeight,
@@ -320,14 +322,31 @@ describe("9.18aaa — bornes mémoire + préflight (le SLIM ne tue plus le moteu
     expect(slimEtaMinutes(1024)).toBe(1);                // plancher 1 min
   });
 
-  it("9.18ccc — wiring : message de patience avec ETA dans novabox et ytvideo", () => {
+  it("9.18ddd — wiring : plus de conversion imposée — l'offre .slim accompagne la livraison", () => {
     const novabox = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/novabox.ts"), "utf8");
-    expect(novabox).toContain("slimEtaMinutes");
-    expect(novabox).toContain("optimisation qualité en cours");
+    // AUCUN appel d'amincissement dans novabox (mono comme lot) : l'original
+    // part immédiatement, l'offre est la seule porte d'entrée.
+    expect(novabox).not.toContain("await slimVideoIfNeeded(");
+    // l'offre est posée APRÈS l'enregistrement du lien (chemin vivant).
+    const offerIdx = novabox.indexOf("registerSlimOffer(");
+    const regIdx = novabox.indexOf("registerTempDownload(activeSendPath");
+    expect(offerIdx).toBeGreaterThan(regIdx);
+    expect(novabox).toContain("slimOfferLine");
+    expect(novabox).toContain("slimTriggerBytes()");
+    // ytvideo garde sa patience (contrainte du plafond d'envoi WhatsApp).
     const ytv = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/ytvideo.ts"), "utf8");
     expect(ytv).toContain("slimEtaMinutes");
-    expect(ytv).toContain("compression intelligente en cours");
-    expect(ytv).not.toContain("targetMB"); // plus de cible forcée 92 Mo
+    expect(ytv).not.toContain("targetMB");
+  });
+
+  it("9.18ddd — wiring : commande .slim enregistrée (2-pass à la demande)", () => {
+    const cmd = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/slim.ts"), "utf8");
+    expect(cmd).toContain('mode: "aggressive"');
+    expect(cmd).toContain("keepOriginal: true");
+    expect(cmd).toContain("consumeSlimOffer");
+    expect(cmd).toContain("registerTempDownload");
+    const reg = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commandRegistry.ts"), "utf8");
+    expect(reg).toContain("slimCommand");
   });
 
   it("wiring — ffmpeg en priorité basse : Node garde le CPU (sonde santé)", () => {
@@ -370,16 +389,10 @@ describe("wiring 9.7", () => {
     expect(threadsIdx).toBeGreaterThan(spliceIdx);
   });
 
-  it("novabox : hooks mono-épisode ET batch (avant l'enregistrement du lien)", () => {
+  it("novabox : aucun hook d'amincissement (mono et lot livrent l'original, 9.18ddd)", () => {
     const src = readSrc("src/bot/commands/novabox.ts");
-    expect(src).toContain("slimVideoIfNeeded");
-    const hookCount = src.split("slimVideoIfNeeded(").length - 1;
-    expect(hookCount).toBeGreaterThanOrEqual(2); // mono + batch
-    // le hook batch précède registerTempDownload (tailles affichées = réelles)
-    const batchHook = src.indexOf("await slimVideoIfNeeded(localPath)");
-    const reg = src.indexOf("registerTempDownload(localPath, filename");
-    expect(batchHook).toBeGreaterThan(-1);
-    expect(batchHook).toBeLessThan(reg);
+    expect(src).not.toContain("slimVideoIfNeeded(");
+    // la décision owner est verrouillée : jamais de conversion sans demande.
   });
 
   it("ytvideo : plafond de téléchargement relevé + amincissement avant envoi", () => {
@@ -396,4 +409,64 @@ describe("wiring 9.7", () => {
     expect(readSrc(".env.example")).toContain("NEBULA_SLIM_MAX_MB");
   });
 
+});
+
+describe("9.18ddd — mode agressif (.slim) : cible exacte en 2-pass", () => {
+  it("slimAggressiveKbps : budget cible − audio − conteneur, refuse la bouillie", () => {
+    // 24 min, cible 190 Mo : 1106,8 kbps × 0,98 − 96 = 988 kbps.
+    expect(slimAggressiveKbps(465_600_000, 1440, 190)).toBe(988);
+    // Cible impossible (80 Mo sur 24 min) : sous 400 kbps → null.
+    expect(slimAggressiveKbps(465_600_000, 1440, 80)).toBeNull();
+  });
+
+  it("slimAggressiveArgs : tune animation + passes 1/2 distinctes", () => {
+    const p1 = slimAggressiveArgs("/tmp/in.mp4", 972, 1, "/tmp/pl", "/tmp/out.mp4");
+    expect(p1.join(" ")).toContain("-tune animation");
+    expect(p1.join(" ")).toContain("-pass 1");
+    expect(p1.join(" ")).toContain("/dev/null");
+    expect(p1.join(" ")).not.toContain("/tmp/out.mp4");
+    const p2 = slimAggressiveArgs("/tmp/in.mp4", 972, 2, "/tmp/pl", "/tmp/out.mp4");
+    expect(p2.join(" ")).toContain("-pass 2");
+    expect(p2[p2.length - 1]).toBe("/tmp/out.mp4");
+    expect(p2.join(" ")).toContain("-b:a 96k"); // hygiène TS conservée
+  });
+
+  it("DEUX passes, keepOriginal : l'original reste, la sortie vit à côté", async () => {
+    // 50 Mo / 100 s ≈ 4194 kbps de source ; cible 8 Mo → 561 kbps (≥400, < source).
+    mProbe.mockResolvedValue({ durationSec: 100, height: 1080, hasAudio: true, sizeBytes: 0 } as any);
+    mRun.mockImplementation(async (args: string[]) => {
+      if (args.join(" ").includes("-pass 1")) return { ok: true, code: 0, signal: null, stderr: "" };
+      const out = args[args.length - 1];
+      fs.writeFileSync(out, Buffer.alloc(20 * 1024 * 1024, 7)); // 20 Mo < 50 Mo
+      return { ok: true, code: 0, signal: null, stderr: "" };
+    });
+    const p = mkFile(50 * 1024 * 1024);
+    const r = await slimVideoIfNeeded(p, { triggerBytes: 1024, mode: "aggressive", targetMB: 8, keepOriginal: true });
+    expect(r.slimmed).toBe(true);
+    expect(r.path).not.toBe(p); // la version allégée vit à côté
+    expect(fs.existsSync(p)).toBe(true); // l'original (et son lien /d/) restent
+    expect(fs.statSync(p).size).toBe(50 * 1024 * 1024);
+    expect(r.finalBytes).toBe(20 * 1024 * 1024);
+    expect(mRun).toHaveBeenCalledTimes(2); // deux passes
+    expect(mRun.mock.calls[0][0].join(" ")).toContain("-pass 1");
+    expect(mRun.mock.calls[1][0].join(" ")).toContain("-pass 2");
+  });
+
+  it("passe 1 échoue → original intact, message honnête", async () => {
+    mProbe.mockResolvedValue({ durationSec: 100, height: 1080, hasAudio: true, sizeBytes: 0 } as any);
+    mRun.mockResolvedValue({ ok: false, code: null, signal: "SIGKILL", stderr: "boom" } as any);
+    const p = mkFile(50 * 1024 * 1024);
+    const r = await slimVideoIfNeeded(p, { triggerBytes: 1024, mode: "aggressive", targetMB: 8 });
+    expect(r.slimmed).toBe(false);
+    expect(fs.statSync(p).size).toBe(50 * 1024 * 1024);
+    expect(mRun).toHaveBeenCalledTimes(1); // la passe 2 ne part jamais
+  });
+
+  it("cible plus légère que la source → rien à gagner, aucun encodage", async () => {
+    mProbe.mockResolvedValue({ durationSec: 100, height: 1080, hasAudio: true, sizeBytes: 0 } as any);
+    const p = mkFile(1024); // source ~0 kbps
+    const r = await slimVideoIfNeeded(p, { triggerBytes: 128, mode: "aggressive", targetMB: 8 });
+    expect(r.slimmed).toBe(false);
+    expect(mRun).not.toHaveBeenCalled();
+  });
 });

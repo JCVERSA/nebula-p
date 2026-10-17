@@ -26,6 +26,7 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "w", aliases: ["watch", "veille", "watchlist"] },
   { name: "trace", aliases: ["tracemoe"] },
   { name: "anime", aliases: ["novabox", "a", "nv"] },
+  { name: "slim", aliases: [] }, // 9.18ddd — allègement à la demande (décision owner 17/10)
   { name: "ytvideo", aliases: ["ytv", "ytmp4", "ytvid", "video"] },
   { name: "song", aliases: ["play", "music", "yta", "mp3", "ytm"] },
   { name: "ytlink", aliases: ["ytsearch", "yts", "youtubelink"] },

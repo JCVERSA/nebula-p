@@ -41,7 +41,8 @@ import { acquireDiskClaim, availableForNewClaims } from "../diskClaims.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
 import { probeVideoInfo, whatsappFitVideoOptions, runFfmpegKit } from "../services/mediaToolkit.js";
-import { slimEtaMinutes, slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
+import { slimEtaMinutes, slimTargetMB, slimTriggerBytes } from "../services/videoSlim.js";
+import { registerSlimOffer, slimOfferLine } from "../services/slimOffer.js";
 import { organizeVfSelection } from "../services/voiranimeClient.js";
 import { enforceMemoryHeadroom } from "../services/memoryGuard.js";
 import {
@@ -2515,12 +2516,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           }
           totalMBDownloaded += thisMB;
 
-          // 9.7 : amincissement même résolution au-dessus du seuil — AVANT
-          // l'enregistrement du lien pour que la taille affichée soit la
-          // taille réelle. Échec → épisode original livré tel quel.
-          if (fs.statSync(localPath).size > slimTriggerBytes()) {
-            await slimVideoIfNeeded(localPath);
-          }
+          // 9.18ddd (décision owner) : plus d'amincissement imposé en lot
+          // non plus — l'épisode original est livré tel quel (le quota
+          // d'octets du lot reste la garde disque).
 
           // Move file into managed temporary store — TTL glissant 8.83 :
           // 30 min par défaut (NEBULA_LINK_TTL_MIN), remises à zéro à chaque
@@ -2959,20 +2957,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       let fileSizeMB = stats.size / 1e6; // 9.18mm — Mo DÉCIMALS : ce que montrent navigateurs/WhatsApp (avant : Mio binaires « 387.8 MB » pour 406.6 MB réels)
       console.log(`[NOVABOX] Downloaded raw file size: ${fileSizeMB.toFixed(2)} MB`);
 
-      // 9.7→ccc : amincissement MÊME RÉSOLUTION au-dessus du seuil owner
-      // (NEBULA_SLIM_MAX_MB, défaut 250 Mo) — échec → fichier original.
-      if (stats.size > slimTriggerBytes()) {
-        // 9.18ccc (décision owner) : message de patience pendant
-        // l'encodage, temps estimé selon la taille du fichier.
-        await context.reply(
-          `⏳ *Fichier lourd (${(stats.size / 1e6).toFixed(0)} Mo) — optimisation qualité en cours (~${slimEtaMinutes(stats.size)} min), le lien arrive juste après.*`
-        );
-        const slim = await slimVideoIfNeeded(localPath);
-        if (slim.slimmed) {
-          stats = fs.statSync(localPath);
-          fileSizeMB = stats.size / 1e6; // 9.18mm — décimal
-        }
-      }
+      // 9.18ddd (décision owner) : PLUS de conversion imposée — l'original
+      // part immédiatement. L'allègement devient une OFFRE (.slim) posée
+      // après l'enregistrement du lien : oui → 2-pass ~NEBULA_SLIM_TARGET_MB,
+      // non → rien (ce fichier ET son lien restent la livraison).
 
       // Auto-compress ONLY when the raw file exceeds the 100 MB WhatsApp
       // document ceiling (95-100 MB sends fine as a document — transcoding
@@ -3094,6 +3082,27 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
       const tempDownloadLink = tempDownload ? tempDownload.downloadUrl : "";
 
+      // 9.18ddd : l'offre d'allègement — la question qui accompagne la
+      // livraison (jamais imposée, valable 10 min, .slim pour accepter).
+      let slimOfferText = "";
+      if (stats.size > slimTriggerBytes() && tempDownload && tempDownload.filePath) {
+        const offer = registerSlimOffer(String(msg.key.remoteJid || context.sender || ""), {
+          tempFilePath: tempDownload.filePath,
+          filename: deliveredFilename,
+          bytes: stats.size,
+          targetMB: slimTargetMB(),
+          meta: {
+            title: session.animeTitle,
+            season: session.selectedSeason?.name,
+            episode: `Episode ${epNum}`,
+            resolution,
+            lang: deliveredLang,
+            player: activePlayerName
+          }
+        });
+        slimOfferText = "\n\n" + slimOfferLine(offer.bytes, offer.targetMB, slimEtaMinutes(offer.bytes, "aggressive"));
+      }
+
       // 8.63 (M2 tranche 1): shared caption builder — the success and the
       // delivery-error captions previously duplicated these lines; keeping
       // ONE source of truth so language honesty edits cannot drift apart.
@@ -3111,8 +3120,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         (vidmolyUrl ? `• 📺 *Play Ad-Free (${playerSourceLabel(vidmolyUrl)}):* ${vidmolyUrl}\n` : "") +
         `\n🌌 _Nebula Bot - Your ultimate media center_`;
 
-      const caption = captionHead + `📦 *Size:* ${fileSizeMB.toFixed(1)} MB\n` + captionTail(tempDownloadLink);
-      fallbackCaption = captionHead + captionTail("");
+      const caption = captionHead + `📦 *Size:* ${fileSizeMB.toFixed(1)} MB\n` + captionTail(tempDownloadLink) + slimOfferText;
+      fallbackCaption = captionHead + captionTail("") + slimOfferText;
 
       const tSend = Date.now();
       const logSendDone = (lane: string) =>

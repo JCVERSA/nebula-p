@@ -157,9 +157,61 @@ export function slimQualityDecision(inputBytes: number, durationSec: number, hei
  * superfast + 2 threads ≈ ×2 → 2,5 Mo/s retenus (prudent : mieux vaut
  * annoncer 3 min et livrer en 2 que l'inverse).
  */
-export function slimEtaMinutes(inputBytes: number): number {
+export function slimEtaMinutes(inputBytes: number, mode: "gentle" | "aggressive" = "gentle"): number {
   const mb = inputBytes / (1024 * 1024);
-  return Math.max(1, Math.round(mb / 2.5 / 60));
+  // aggressive = 2 passes : ~2,2× le temps d'une passe superfast.
+  const factor = mode === "aggressive" ? 2.2 : 1;
+  return Math.max(1, Math.round((mb / 2.5 / 60) * factor));
+}
+
+/** Cible de l'allègement à la demande (.slim) — NEBULA_SLIM_TARGET_MB (défaut 190, bornes 80-400). */
+export function slimTargetMB(): number {
+  const mb = Number(process.env.NEBULA_SLIM_TARGET_MB);
+  if (!Number.isFinite(mb)) return 190;
+  return Math.min(400, Math.max(80, Math.round(mb)));
+}
+
+/**
+ * Pur (9.18ddd) : débit vidéo pour atteindre la cible exacte. Budget cible
+ * (conteneur ≈ 2 %) − audio 96k. Plancher 400 kbps : en dessous, même en
+ * 2-pass tune animation, l'image devient bouillie — on refuse plutôt.
+ */
+export function slimAggressiveKbps(inputBytes: number, durationSec: number, targetMB: number): number | null {
+  const targetKbps = Math.floor((targetMB * 1024 * 1024 * 8) / 1000 / durationSec * 0.98) - 96;
+  if (targetKbps < 400) return null;
+  return targetKbps;
+}
+
+/**
+ * Pur (9.18ddd) : args d'UNE passe du mode agressif. 2-pass = la façon
+ * qualité-optimale d'atteindre une taille EXACTE (la passe 1 cartographie
+ * la complexité, la passe 2 distribue le budget). tune animation : flat
+ * areas/lignes de l'anime — gros gain qualité à bas débit. Bornes mémoire
+ * raisonnées (lookahead 12, ref 2, bframes 3 : l'ADN du tune animation
+ * sans l'empreinte des défauts).
+ */
+export function slimAggressiveArgs(
+  inputPath: string,
+  videoKbps: number,
+  pass: 1 | 2,
+  passlogfile: string,
+  outPath: string
+): string[] {
+  const common = [
+    "-y", "-fflags", "+genpts", "-threads", "1", "-i", inputPath,
+    "-c:v", "libx264", "-preset", "superfast", "-tune", "animation",
+    "-b:v", `${videoKbps}k`, "-maxrate", `${Math.round(videoKbps * 1.45)}k`, "-bufsize", `${videoKbps * 2}k`,
+    "-x264-params", "rc-lookahead=12:ref=2:bframes=3",
+    "-pass", String(pass), "-passlogfile", passlogfile
+  ];
+  if (pass === 1) return [...common, "-an", "-f", "null", "/dev/null"];
+  return [
+    ...common, "-threads", "2",
+    "-af", "aresample=async=1:first_pts=0",
+    "-c:a", "aac", "-b:a", "96k",
+    "-avoid_negative_ts", "make_zero", "-movflags", "+faststart",
+    outPath
+  ];
 }
 
 /**
@@ -208,7 +260,16 @@ const MB = (b: number) => (b / (1024 * 1024)).toFixed(1);
  */
 export async function slimVideoIfNeeded(
   inputPath: string,
-  opts: { triggerBytes?: number; timeoutMs?: number; memAvailableBytes?: number | null } = {}
+  opts: {
+    triggerBytes?: number;
+    timeoutMs?: number;
+    memAvailableBytes?: number | null;
+    /** 9.18ddd : gentle (auto, CRF 22) ou aggressive (.slim, cible exacte 2-pass). */
+    mode?: "gentle" | "aggressive";
+    targetMB?: number;
+    /** 9.18ddd : ne pas remplacer l'original — la sortie vit à outPath (.slim). */
+    keepOriginal?: boolean;
+  } = {}
 ): Promise<SlimResult> {
   const trigger = opts.triggerBytes ?? slimTriggerBytes();
   let originalBytes = 0;
@@ -254,6 +315,74 @@ export async function slimVideoIfNeeded(
     path.dirname(inputPath),
     `.${path.basename(inputPath)}.slim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`
   );
+
+  // ── 9.18ddd — mode AGRESSIF (.slim, à la demande) : cible de taille
+  // exacte en 2-pass tune animation. Contourne VOLONTAIREMENT le plancher
+  // de résolution (l'utilisateur a choisi), mais refuse l'absurde : cible
+  // impossible (bouillie) ou source déjà plus légère que la cible.
+  if (opts.mode === "aggressive") {
+    const targetMB = opts.targetMB ?? slimTargetMB();
+    const videoKbps = slimAggressiveKbps(originalBytes, durationSec, targetMB);
+    const sourceKbps = Math.round((originalBytes * 8) / 1000 / durationSec);
+    if (videoKbps === null) {
+      console.log(`[SLIM] cible ${targetMB} Mo impossible sans bouillie (durée ${Math.round(durationSec / 60)} min) — original conservé`);
+      return unchanged();
+    }
+    if (videoKbps >= sourceKbps) {
+      console.log(`[SLIM] source déjà plus légère que la cible ${targetMB} Mo (${sourceKbps} kbps) — original conservé`);
+      return unchanged();
+    }
+    const passlogfile = `${outPath}.passlog`;
+    const cleanupPassFiles = () => {
+      const dirName = path.dirname(outPath);
+      const base = path.basename(passlogfile);
+      try {
+        for (const f of fs.readdirSync(dirName)) {
+          if (f.startsWith(base)) {
+            try { fs.unlinkSync(path.join(dirName, f)); } catch {}
+          }
+        }
+      } catch {}
+    };
+    console.log(`[SLIM] ${MB(originalBytes)} Mo → cible ~${targetMB} Mo en 2-pass tune animation (${videoKbps} kbps)...`);
+    const r1 = await enqueue(() =>
+      runFfmpegKit(slimAggressiveArgs(inputPath, videoKbps, 1, passlogfile, outPath), opts.timeoutMs ?? slimTimeoutMs())
+    );
+    if (!r1.ok) {
+      cleanupPassFiles();
+      console.log(`[SLIM] passe 1 échouée (${r1.signal ? `signal ${r1.signal}` : `code ${r1.code ?? "?"}`}) — original conservé`);
+      return unchanged();
+    }
+    const r2 = await enqueue(() =>
+      runFfmpegKit(slimAggressiveArgs(inputPath, videoKbps, 2, passlogfile, outPath), opts.timeoutMs ?? slimTimeoutMs())
+    );
+    cleanupPassFiles();
+    let aggBytes = 0;
+    try {
+      aggBytes = fs.existsSync(outPath) ? fs.statSync(outPath).size : 0;
+    } catch {}
+    if (!r2.ok || aggBytes === 0 || aggBytes >= originalBytes) {
+      try { if (aggBytes > 0) fs.unlinkSync(outPath); } catch {}
+      console.log(`[SLIM] passe 2 sans résultat utile — original conservé`);
+      return unchanged();
+    }
+    if (opts.keepOriginal) {
+      // .slim : l'original garde son lien /d/ — la version allégée vit à
+      // côté (outPath), l'appelant l'enregistre sous son propre token.
+      console.log(`[SLIM] ✔ ${MB(originalBytes)} → ${MB(aggBytes)} Mo (2-pass, cible ~${targetMB} Mo, original intact)`);
+      return { path: outPath, originalBytes, finalBytes: aggBytes, slimmed: true, note: `2-pass ${videoKbps} kbps, cible ${targetMB} Mo` };
+    }
+    try {
+      fs.renameSync(outPath, inputPath);
+    } catch {
+      try { fs.unlinkSync(outPath); } catch {}
+      console.log("[SLIM] remplacement impossible — fichier original livré");
+      return unchanged();
+    }
+    console.log(`[SLIM] ✔ ${MB(originalBytes)} → ${MB(aggBytes)} Mo (2-pass, cible ~${targetMB} Mo)`);
+    return { path: inputPath, originalBytes, finalBytes: aggBytes, slimmed: true, note: `2-pass ${videoKbps} kbps, cible ${targetMB} Mo` };
+  }
+
   console.log(`[SLIM] ${MB(originalBytes)} Mo → CRF ${decision.crf} plafonné à ${decision.maxrateKbps} kbps (75 % du source), même résolution, superfast 2 threads, x264 ≤267 Mo...`);
 
   // 9.18k : +genpts/make_zero — les DTS non monotones des TS consolidés
