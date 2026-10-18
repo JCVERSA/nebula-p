@@ -17,6 +17,7 @@
  */
 
 import { spawn } from "child_process";
+import { trackSpawn } from "./spawnRegistry.js";
 import fs from "fs";
 import os from "os";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
@@ -228,12 +229,14 @@ export function probeVideoInfo(filePath: string, timeoutMs = 8000): Promise<Vide
         "default=noprint_wrappers=1",
         filePath
       ]);
+      trackSpawn(p); // 9.18ggg — orphelins tués à l'arrêt du moteur (audit §6)
       let out = "";
       p.stdout.on("data", (d: Buffer) => (out += d.toString()));
       p.on("error", () => resolve(fallback));
 
       // audio probe in parallel via a second bounded call
       const pa = spawn("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=codec_type", "-of", "csv=p=0", filePath]);
+      trackSpawn(pa);
       let audioOut = "";
       pa.stdout.on("data", (d: Buffer) => (audioOut += d.toString()));
       pa.on("error", () => {});
@@ -280,7 +283,7 @@ export function runFfmpegKit(args: string[], timeoutMs = 240000): Promise<Ffmpeg
   return new Promise(resolve => {
     try {
       const bin = resolvedFfmpegPath || "ffmpeg";
-      const p = spawn(bin, args);
+      const p = trackSpawn(spawn(bin, args));
       // 9.18aaa — priorité basse (nice 10) : sur le VPS 1 cœur, un encodage
       // x264 à pleine priorité affamait le moteur Node → sonde santé sans
       // réponse → SIGKILL du superviseur. Nice n'arbitre SOUS CONTENTION :

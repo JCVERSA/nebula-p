@@ -5,6 +5,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { spawn } from "child_process";
+import { trackSpawn } from "./spawnRegistry.js";
 import { isSafeDownloadUrl, safeAxiosGet } from "../urlSafety.js";
 import { animeProxyOptions } from "./scrapingProxy.js";
 
@@ -807,6 +808,7 @@ export async function downloadHlsAppLevel(
     const runFfmpegConvert = (args: string[]): Promise<boolean> => {
       return new Promise<boolean>((resolveFfmpeg) => {
         const proc = spawn(resolvedFfmpegPath, args, { stdio: ["ignore", "ignore", "pipe"] });
+        trackSpawn(proc); // 9.18ggg — orphelins tués à l'arrêt du moteur (audit §6)
         let stderrLog = "";
         proc.stderr?.on("data", (chunk) => {
           stderrLog += chunk.toString();

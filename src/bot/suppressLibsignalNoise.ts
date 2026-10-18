@@ -40,12 +40,33 @@ const SUPPRESSED_ERR_PREFIX = "Session error:";
  */
 const SUPPRESSED_DUMP_PREFIX = "Removing old closed session";
 
-function isSessionDump(args: unknown[]): boolean {
+export function isSessionDump(args: unknown[]): boolean {
   return (
     args.length > 0 &&
     typeof args[0] === "string" &&
     args[0].startsWith(SUPPRESSED_DUMP_PREFIX)
   );
+}
+
+/**
+ * 9.18ggg (audit 17/10 §4) — libsignal 6 imprime « Session error: »
+ * CONCATÉNÉ à l'erreur, en UN SEUL argument :
+ *   session_cipher.js → console.error("Session error:" + e, e.stack)
+ * L'égalité stricte args[0] === "Session error:" de 9.18b ne pouvait donc
+ * JAMAIS matcher (preuve : le flot « Session error:Error: Bad MAC » du log
+ * du 17/10). On avale désormais tout « Session error:*Bad MAC* », Bad MAC
+ * étant cherché dans le 1er argument (format réel) OU dans le 2e (ancien
+ * format supposé). Toute AUTRE erreur de session passe toujours.
+ */
+export function shouldSuppressSessionError(args: unknown[]): boolean {
+  const first = args[0];
+  if (typeof first !== "string" || !first.startsWith(SUPPRESSED_ERR_PREFIX)) {
+    return false;
+  }
+  if (first.includes("Bad MAC")) return true;
+  const second = args[1];
+  const text = String(second instanceof Error ? second.message : (second ?? ""));
+  return text.includes("Bad MAC");
 }
 
 const g = globalThis as { __nebulaLibsignalNoiseSuppressed?: boolean };
@@ -73,11 +94,7 @@ if (!g.__nebulaLibsignalNoiseSuppressed) {
 
   const originalError = console.error.bind(console);
   console.error = (...args: unknown[]) => {
-    if (args.length > 1 && args[0] === SUPPRESSED_ERR_PREFIX) {
-      const second = args[1] as { message?: unknown } | undefined;
-      const text = String(second instanceof Error ? second.message : (second ?? ""));
-      if (text.includes("Bad MAC")) return; // bruit connu → jeté
-    }
+    if (shouldSuppressSessionError(args)) return; // bruit Bad MAC connu → jeté
     originalError(...args);
   };
 }

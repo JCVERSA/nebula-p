@@ -1,5 +1,6 @@
 import { synthesizeVoiceNote, sanitizeTtsText } from "./ttsService.js";
 import { isVoiceModeEnabled } from "./voiceModeStore.js";
+import { resolveLiveSocket } from "../liveSocket.js";
 
 /**
  * 9.18ii (P6b) — livraison vocale des réponses conversationnelles de
@@ -52,13 +53,16 @@ export async function sendAgentTextOrVoice(
   if (wantsVoice) {
     try {
       // Présence « recording » pendant la synthèse (best-effort).
+      // 9.18ggg — socket vivant résolu à CHAQUE envoi : la synthèse prend
+      // plusieurs secondes, la connexion peut changer entre-temps (audit §1).
       try {
-        if (sock && typeof sock.sendPresenceUpdate === "function") {
-          await sock.sendPresenceUpdate("recording", chatJid);
+        const presenceSock = resolveLiveSocket(sock);
+        if (presenceSock && typeof presenceSock.sendPresenceUpdate === "function") {
+          await presenceSock.sendPresenceUpdate("recording", chatJid);
         }
       } catch {}
       const ogg = await synthesizeVoiceNote(t, { sender: opts.sender });
-      await sock.sendMessage(
+      await resolveLiveSocket(sock).sendMessage(
         chatJid,
         { audio: ogg, mimetype: "audio/ogg; codecs=opus", ptt: true },
         { quoted }
@@ -68,12 +72,13 @@ export async function sendAgentTextOrVoice(
       console.warn("[VOICE] synthèse échouée, repli texte :", String(e?.message || e).slice(0, 120));
     } finally {
       try {
-        if (sock && typeof sock.sendPresenceUpdate === "function") {
-          await sock.sendPresenceUpdate("paused", chatJid);
+        const presenceSock = resolveLiveSocket(sock);
+        if (presenceSock && typeof presenceSock.sendPresenceUpdate === "function") {
+          await presenceSock.sendPresenceUpdate("paused", chatJid);
         }
       } catch {}
     }
   }
-  await sock.sendMessage(chatJid, { text: t }, { quoted });
+  await resolveLiveSocket(sock).sendMessage(chatJid, { text: t }, { quoted });
   return "text";
 }

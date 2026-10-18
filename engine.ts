@@ -5,6 +5,8 @@ import { createApp } from "./app.js";
 import { initRegistry } from "./src/bot/commandRegistry.js";
 import { initAgentStatePersistence } from "./src/bot/services/agentStateStore.js";
 import { startReminderScheduler } from "./src/bot/services/reminderService.js";
+import { getLiveSocket } from "./src/bot/liveSocket.js";
+import { terminateTrackedSpawns } from "./src/bot/services/spawnRegistry.js";
 import { addLog, startLiveBot, stopLiveBot } from "./src/bot/botEngine.js";
 import { hasRegisteredCreds } from "./src/bot/botsConfig.js";
 import { resolvedFfmpegPath } from "./src/bot/ffmpeg.js";
@@ -52,7 +54,9 @@ function verifyFfmpegAtBoot(): void {
       // 9.18mm — la version dans le boot : un ffmpeg 4.4 (apt Ubuntu 22.04)
       // et un ffmpeg 6.x ne plantent pas pareil, sans elle un log terrain
       // ne dit rien de l'outil qui a tourné.
-      const firstLine = String(result.stdout || "").split("\n")[0].trim();
+      const firstLine = String(result.stdout || "")
+        .split("\n")[0]
+        .trim();
       const version = /ffmpeg version (\S+)/.exec(firstLine)?.[1] || "version inconnue";
       log(`ffmpeg OK — ${candidate === "ffmpeg" ? "sur le PATH" : candidate} (${version})`);
       return;
@@ -99,6 +103,13 @@ async function shutdown(code: number): Promise<void> {
       new Promise<void>((resolve) => setTimeout(resolve, 3000)),
     ]);
   } catch {}
+  // 9.18ggg — terminer les enfants média (ffmpeg/ffprobe/yt-dlp) avant de
+  // sortir : sinon un encodage orphelin continue de consommer le cœur du
+  // VPS après notre mort (audit 17/10 §6 — le SIGKILL du superviseur ne
+  // touche que le moteur, jamais ses petits-fils).
+  try {
+    await terminateTrackedSpawns(2000);
+  } catch {}
   try {
     server?.close();
   } catch {}
@@ -116,8 +127,10 @@ async function main(): Promise<void> {
   // boot du moteur, puis persisté à chaque mutation (dataDir dédié au slot).
   initAgentStatePersistence();
   // 9.18bb (P7) : livraison des rappels programmés (sock lu à chaque tick).
-  const { getBotState } = await import("./src/bot/botEngine.js");
-  startReminderScheduler(() => (getBotState() as { socket?: any }).socket);
+  // 9.18ggg — via liveSocket : l'ancien cast lisait getBotState().socket, un
+  // champ qui n'EXISTE PAS dans l'objet retourné → les rappels n'ont jamais
+  // été livrés (audit 17/10 §5).
+  startReminderScheduler(getLiveSocket);
   verifyFfmpegAtBoot();
 
   if (!fs.existsSync(AUTH_DIR)) {

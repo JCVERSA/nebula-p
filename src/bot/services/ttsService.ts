@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { trackSpawn } from "./spawnRegistry.js";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 import { resolvedFfmpegPath } from "../ffmpeg.js";
 import { getAIClient } from "../geminiClient.js";
@@ -175,6 +176,7 @@ async function transcodeToVoiceOgg(mp3: Buffer): Promise<Buffer> {
       ["-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-c:a", "libopus", "-b:a", "48k", "-ar", "48000", "-ac", "1", "-f", "ogg", "pipe:1"],
       { stdio: ["pipe", "pipe", "pipe"] }
     );
+    trackSpawn(proc); // 9.18ggg — orphelins tués à l'arrêt du moteur (audit §6)
     const chunks: Buffer[] = [];
     let stderr = "";
     const timer = setTimeout(() => {

@@ -8,6 +8,7 @@ import { mountStaticPanel } from "./src/panel/staticAssets.js";
 import { initRegistry } from "./src/bot/commandRegistry.js";
 import { initAgentStatePersistence } from "./src/bot/services/agentStateStore.js";
 import { startReminderScheduler } from "./src/bot/services/reminderService.js";
+import { getLiveSocket } from "./src/bot/liveSocket.js";
 import { resolvedFfmpegPath } from "./src/bot/ffmpeg.js";
 import { createPanelApp } from "./src/panel/panelApp.js";
 import { BotSupervisor, ensurePanelToken } from "./src/bot/botSupervisor.js";
@@ -128,8 +129,9 @@ async function startDevServer(PORT: number): Promise<void> {
   // avant le premier message — puis persistance disque à chaque mutation.
   initAgentStatePersistence();
   // 9.18bb (P7) : livraison des rappels programmés (sock lu à chaque tick).
-  const { getBotState } = await import("./src/bot/botEngine.js");
-  startReminderScheduler(() => (getBotState() as { socket?: any }).socket);
+  // 9.18ggg — via liveSocket (l'ancien cast lisait un champ inexistant —
+  // audit 17/10 §5).
+  startReminderScheduler(getLiveSocket);
   const { addLog } = await import("./src/bot/botEngine.js");
   verifyFfmpegAtBoot(addLog);
 

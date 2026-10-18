@@ -61,6 +61,7 @@ import {
   messageSuggestsMultiIntent
 } from "./agentBrain.js";
 import { sendAgentTextOrVoice } from "./agentVoice.js";
+import { resolveLiveSocket } from "../liveSocket.js";
 import {
   parsePreferenceDeclaration,
   getChatPreference,
@@ -157,18 +158,23 @@ export async function handleAgentMessage(
   // .on/.off) décide alors note vocale (Henri) ou texte, avec repli texte
   // intégral si la synthèse échoue (jamais de réponse perdue).
   const sendText = async (t: string, opts: { voice?: boolean; force?: boolean } = {}) => {
+    // 9.18ggg — envoi via le socket VIVANT au moment d'écrire (audit 17/10
+    // §1) : un tour d'agent qui traverse une reconnexion ne doit pas mourir
+    // sur le socket capturé à l'arrivée du message.
+    const target = resolveLiveSocket(sock);
     try {
-      await sendAgentTextOrVoice(sock, info.senderJid, msg, t, { ...opts, sender: info.actorJid });
+      await sendAgentTextOrVoice(target, info.senderJid, msg, t, { ...opts, sender: info.actorJid });
     } catch {
       try {
-        await sock.sendMessage(info.senderJid, { text: t }, { quoted: msg });
+        await target.sendMessage(info.senderJid, { text: t }, { quoted: msg });
       } catch {}
     }
   };
   const setPresence = async (state: "composing" | "paused") => {
     try {
-      if (sock && typeof sock.sendPresenceUpdate === "function") {
-        await sock.sendPresenceUpdate(state, info.senderJid);
+      const target = resolveLiveSocket(sock);
+      if (target && typeof target.sendPresenceUpdate === "function") {
+        await target.sendPresenceUpdate(state, info.senderJid);
       }
     } catch {}
   };

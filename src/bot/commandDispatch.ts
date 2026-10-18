@@ -30,6 +30,7 @@ import { replySuggestsOtherCatalog } from "./services/agentBrain.js";
 // au lieu d'exécuter .a 3 (constat prod).
 import { setLastObservation } from "./services/agentObservation.js";
 import { addLog, bufferFromDataUri, getCachedGroupMetadata, maskLogNumber } from "./botEngine.js";
+import { resolveLiveSocket } from "./liveSocket.js";
 
 export interface DispatchInfo {
   senderJid: string;
@@ -112,14 +113,19 @@ export async function dispatchBotCommand(
         if (replyLooksLikeError(textStr)) outcome.hadError = true;
         if (replySuggestsOtherCatalog(textStr)) outcome.vfFallbackHint = true;
       }
+      // 9.18ggg — le socket VIVANT au moment d'envoyer : un flux long qui
+      // traverse une reconnexion (408/515) ne doit plus livrer dans le
+      // socket capturé à l'arrivée du message — mort → « Connection Closed »
+      // avalé, réponse perdue (audit 17/10 §1).
+      const target = resolveLiveSocket(sock);
       // Typing simulation to enhance interaction realism
-      if (sock && typeof sock.sendPresenceUpdate === "function") {
+      if (target && typeof target.sendPresenceUpdate === "function") {
         try {
-          await sock.sendPresenceUpdate("composing", senderJid);
+          await target.sendPresenceUpdate("composing", senderJid);
           // Simulated typing delay depending on text length (approx 15ms per character, capped between 600ms and 2.5s)
           const typingDelay = Math.min(Math.max(textStr.length * 15, 600), 2500);
           await new Promise((resolve) => setTimeout(resolve, typingDelay));
-          await sock.sendPresenceUpdate("paused", senderJid);
+          await target.sendPresenceUpdate("paused", senderJid);
         } catch (presErr: any) {
           addLog(`[Presence] Failed to send typing simulation: ${presErr.message}`);
         }
@@ -131,18 +137,18 @@ export async function dispatchBotCommand(
         if (mediaUrl.startsWith("data:")) {
           const buffer = bufferFromDataUri(mediaUrl);
           if (buffer) {
-            return await sock.sendMessage(senderJid, {
+            return await target.sendMessage(senderJid, {
               image: buffer,
               caption: textStr
             }, { quoted: msg });
           }
         }
-        return await sock.sendMessage(senderJid, {
+        return await target.sendMessage(senderJid, {
           image: { url: mediaUrl },
           caption: textStr
         }, { quoted: msg });
       } else {
-        return await sock.sendMessage(senderJid, { text: textStr }, { quoted: msg });
+        return await target.sendMessage(senderJid, { text: textStr }, { quoted: msg });
       }
     } catch (e: any) {
       addLog(`Error sending message: ${e.message}`);
@@ -151,7 +157,7 @@ export async function dispatchBotCommand(
 
   const reactHandler = async (emoji: string) => {
     try {
-      return await sock.sendMessage(senderJid, {
+      return await resolveLiveSocket(sock).sendMessage(senderJid, {
         react: { text: emoji, key: msg.key }
       });
     } catch (e: any) {

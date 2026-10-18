@@ -1,6 +1,7 @@
 import axios from "axios";
 import { safeAxiosGet } from "../urlSafety.js";
 import { spawn } from "child_process";
+import { trackSpawn } from "./spawnRegistry.js";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -1405,6 +1406,7 @@ export async function executeDirectOrFfmpegDownload(
       ];
 
       const proc = spawn(resolvedFfmpegPath, args, { stdio: ["ignore", "ignore", "pipe"] });
+      trackSpawn(proc); // 9.18ggg — orphelins tués à l'arrêt du moteur (audit §6)
       
       let stderrLog = "";
       proc.stderr?.on("data", (chunk) => {

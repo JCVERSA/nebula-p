@@ -25,6 +25,7 @@
  */
 
 import { spawn } from "child_process";
+import { trackSpawn } from "./spawnRegistry.js";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -93,7 +94,7 @@ export function runYtDlp(
     let stdout = "";
     let stderr = "";
     try {
-      const p = spawn(bin, args); // PAS de shell — args transmis tels quels
+      const p = trackSpawn(spawn(bin, args)); // PAS de shell — args transmis tels quels
       p.stdout.on("data", (d: Buffer) => {
         if (stdout.length < maxStdoutChars) stdout += d.toString();
       });

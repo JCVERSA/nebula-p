@@ -16,6 +16,8 @@ import pino from "pino";
 // 9.0c (SEC) : avant toute connexion — libsignal console.info des sessions
 // complètes (rootKey/privKey…) à la fermeture ; on les avale ICI.
 import "./suppressLibsignalNoise.js";
+// 9.18ggg (audit 17/10) — publication du socket vivant pour les envois tardifs.
+import { setLiveSocket } from "./liveSocket.js";
 import { Boom } from "@hapi/boom";
 import fs from "fs";
 import { getConfig } from "./config.js";
@@ -158,6 +160,31 @@ export function getBotState() {
 }
 
 /**
+ * 9.18ggg — budget de reconnexion (audit 17/10 §3) : 5 tentatives à 5 s,
+ * puis une pause longue de 5 min et un NOUVEAU budget — indéfiniment.
+ * L'ancien comportement s'arrêtait DÉFINITIVEMENT au 5e échec consécutif
+ * alors que le process vivait (health-check 200, superviseur sans
+ * incident) : plus personne ne relançait jamais le bot.
+ */
+export const RECONNECT_SERIES = 5;
+export const RECONNECT_LONG_PAUSE_MS = 5 * 60_000;
+
+export interface ReconnectPlan {
+  delayMs: number;
+  /** Nouveau compteur après décision. */
+  count: number;
+  /** true = série épuisée → pause longue avant une nouvelle série. */
+  longPause: boolean;
+}
+
+export function nextReconnectPlan(reconnectCount: number): ReconnectPlan {
+  if (reconnectCount >= RECONNECT_SERIES) {
+    return { delayMs: RECONNECT_LONG_PAUSE_MS, count: 0, longPause: true };
+  }
+  return { delayMs: 5_000, count: reconnectCount + 1, longPause: false };
+}
+
+/**
  * 9.18xx — télécommande Nova (agent dans la poche).
  *
  * Exécute un texte EXACTEMENT comme si l'owner l'avait tapé sur WhatsApp :
@@ -180,6 +207,7 @@ export const REMOTE_EXCLUDED_COMMANDS = new Set(["stop", "update", "restart", "p
 /** Tests uniquement — simule un moteur connecté avec le sock donné. */
 export function __setRemoteStateForTests(socket: any, status: string): void {
   botState.socket = socket;
+  setLiveSocket(socket); // 9.18ggg — cohérence avec le socket vivant publié
   botState.status = status as any;
 }
 
@@ -545,6 +573,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
       }
     } catch (e) {}
     botState.socket = null;
+    setLiveSocket(null);
   }
 
   addLog(pairingPhone ? `🔌 Starting Baileys in Pairing Code mode for +${botState.pairingNumber}...` : "🔌 Starting Baileys Live Connection (QR mode)...");
@@ -589,12 +618,17 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
       markOnlineOnConnect: true,
       connectTimeoutMs: 60_000,
       defaultQueryTimeoutMs: 60_000,
-      keepAliveIntervalMs: 10_000,
+      // 9.18ggg : 30 s = le défaut Baileys. Le 10 s d'avant abaissait le
+      // seuil d'auto-coupure « 408 Connection was lost » à 15 s de silence
+      // reçu (keepAliveIntervalMs + 5 s dans socket.js) : une pause GC/CPU
+      // pendant un gros média suffisait à couper la connexion (audit 17/10 §2).
+      keepAliveIntervalMs: 30_000,
       generateHighQualityLinkPreview: false,
       retryRequestDelayMs: 250,
     });
 
     botState.socket = sock;
+    setLiveSocket(sock); // 9.18ggg — socket vivant publiable pour les envois tardifs
 
     // If account is already registered, ensure pairing mode flags are cleared
     if (state.creds.registered || state.creds.me?.id) {
@@ -695,9 +729,12 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           if (downtime.notify) {
             addLog(`🔄 [CHUTE] retour après ${formatDowntimeDuration(downtime.downtimeMs)} d'indisponibilité`);
             sock.sendMessage(ownerJid, { text: formatReturnMessage(config.botName, downtime) }).catch(() => {});
-          } else {
-            sock.sendMessage(ownerJid, { text: `🌌 *${config.botName}* is online and connected!\nPrefix: \`${config.prefix}\`` }).catch(() => {});
           }
+          // 9.18ggg : plus de « is online and connected! » à CHAQUE
+          // (re)connexion — les 515 de routine en généraient plusieurs par
+          // jour côté owner et nourrissaient l'impression d'instabilité
+          // (audit 17/10 §7). Seules les vraies chutes (assessDowntime)
+          // notifient désormais.
         }
 
         // Episode watcher (`.a watch`, audit S4): refresh the sender with the
@@ -759,6 +796,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         }
 
         botState.socket = null;
+        setLiveSocket(null);
 
         if (isBadSession) {
           addLog("🗑️ Session is invalid, unlinked, or conflicted. Clearing stored credentials to allow a clean fresh scan/pairing...");
@@ -778,12 +816,18 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           if (isRestartRequired) {
             delayMs = 1200; // Allow credentials to flush to disk before re-initializing
           } else {
-            if (botState.reconnectCount >= 5) {
-              addLog("🚫 Reconnection failure limit reached. Bot stopped.");
-              return;
+            // 9.18ggg : PLUS D'ARRÊT DÉFINITIF AU 5e ÉCHEC — le process
+            // vivait (health-check 200) et plus personne ne relançait le
+            // bot (audit 17/10 §3). Le budget se renouvelle après une
+            // pause longue, indéfiniment.
+            const plan = nextReconnectPlan(botState.reconnectCount);
+            botState.reconnectCount = plan.count;
+            if (plan.longPause) {
+              addLog(`⏳ ${RECONNECT_SERIES} échecs consécutifs — pause de ${Math.round(plan.delayMs / 60000)} min puis reprise des tentatives (le moteur reste debout).`);
+            } else {
+              addLog(`🔄 Attempting reconnect (${plan.count}/${RECONNECT_SERIES}) in 5 seconds...`);
             }
-            botState.reconnectCount++;
-            addLog(`🔄 Attempting reconnect (${botState.reconnectCount}/5) in 5 seconds...`);
+            delayMs = plan.delayMs;
           }
 
           if (botState.reconnectTimeout) {
@@ -1296,6 +1340,7 @@ export function stopLiveBot() {
       }
     } catch (e) {}
     botState.socket = null;
+    setLiveSocket(null);
   }
   botState.status = "disconnected";
   botState.qrCode = "";
