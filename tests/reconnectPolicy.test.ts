@@ -8,13 +8,19 @@
  * §2 : keepAliveIntervalMs 10 s → 30 s (défaut Baileys) : le seuil
  *      d'auto-coupure « 408 Connection was lost » passe de 15 s à 35 s de
  *      silence reçu.
- * §7 : plus de « is online and connected! » à chaque reconnexion (les 515
- *      de routine en généraient plusieurs par jour côté owner).
+ * §7/9.18mmm (décision owner 18/10, inverse ggg P6) : le message « online »
+ *      revient à CHAQUE (re)connexion — ce n'était pas du spam pour lui —
+ *      amélioré : cause (515 routine vs 408 perdue) + temps de rétablissement.
  */
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
-import { nextReconnectPlan, RECONNECT_SERIES, RECONNECT_LONG_PAUSE_MS } from "../src/bot/botEngine.js";
+import {
+  nextReconnectPlan,
+  RECONNECT_SERIES,
+  RECONNECT_LONG_PAUSE_MS,
+  formatOnlineNotice
+} from "../src/bot/botEngine.js";
 
 describe("9.18ggg — nextReconnectPlan (pur)", () => {
   it("série normale : 5 tentatives espacées de 5 s", () => {
@@ -58,10 +64,40 @@ describe("9.18ggg — moteur (source)", () => {
     expect(src).not.toContain("keepAliveIntervalMs: 10_000");
   });
 
-  it("§7 : plus de « is online and connected! » inconditionnel à chaque reconnexion", () => {
-    // Le seul reste autorisé est le commentaire explicatif de 9.18ggg.
-    const hits = src.split("is online and connected").length - 1;
-    expect(hits).toBe(1); // le commentaire, pas l'envoi
-    expect(src).not.toContain("is online and connected!\\nPrefix");
+  it("§7/9.18mmm : message à CHAQUE (re)connexion — classique au boot, cause+temps ensuite", () => {
+    // Décision owner 18/10 : « ce n'était pas un spam pour moi » — ggg P6
+    // inversé. L'envoi est inconditionnel (hors downtime prioritaire).
+    expect(src).toContain("is online and connected!");
+    expect(src).toContain("formatOnlineNotice(config.botName, config.prefix, !bootOpenNotified, lastDisconnectMemo)");
+    expect(src).toContain("bootOpenNotified = true;");
+    expect(src).toContain("lastDisconnectMemo = {"); // cause mémorisée à la fermeture
+    // Priorité conservée : une vraie chute (assessDowntime) parle avant tout.
+    const chute = src.indexOf("downtime.notify");
+    const online = src.indexOf("formatOnlineNotice(config.botName");
+    expect(chute).toBeGreaterThan(-1);
+    expect(online).toBeGreaterThan(chute);
+  });
+
+  it("9.18mmm — formatOnlineNotice (pur) : boot classique, cause 515/408, temps, mémo périmé", () => {
+    const now = Date.now();
+    // Démarrage du process → le message classique.
+    expect(formatOnlineNotice("Nebula Bot", ".", true, null, now))
+      .toBe("🌌 *Nebula Bot* is online and connected!\nPrefix: `.`");
+    // Reconnexion de routine (515) rétablie en 9 s.
+    expect(formatOnlineNotice("Nebula Bot", ".", false, { statusCode: 515, routine: true, at: now - 9000 }, now))
+      .toContain("reconnecté ⚡");
+    expect(formatOnlineNotice("Nebula Bot", ".", false, { statusCode: 515, routine: true, at: now - 9000 }, now))
+      .toContain("flux synchronisé");
+    expect(formatOnlineNotice("Nebula Bot", ".", false, { statusCode: 515, routine: true, at: now - 9000 }, now))
+      .toContain("rétabli en 9 s");
+    // Connexion perdue (408) rétablie en 4 s — cause distincte.
+    const lost = formatOnlineNotice("Nebula Bot", ".", false, { statusCode: 408, routine: false, at: now - 4000 }, now);
+    expect(lost).toContain("connexion perdue puis rétablie");
+    expect(lost).toContain("rétabli en 4 s");
+    // Mémo périmé (> 10 min = facto un redémarrage) → classique.
+    expect(formatOnlineNotice("Nebula Bot", ".", false, { statusCode: 515, routine: true, at: now - 15 * 60_000 }, now))
+      .toContain("is online and connected!");
+    // Pas de mémo → classique.
+    expect(formatOnlineNotice("Nebula Bot", ".", false, null, now)).toContain("is online and connected!");
   });
 });

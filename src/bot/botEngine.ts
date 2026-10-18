@@ -119,6 +119,58 @@ const botState: BotState = {
   reconnectTimeout: null,
 };
 
+/**
+ * 9.18mmm — notification de (re)connexion, DÉCISION OWNER 18/10 : le
+ * « is online and connected! » à chaque reconnexion n'était PAS un spam
+ * pour lui — 9.18ggg (P6) l'avait supprimé sur lecture de l'audit, il
+ * revient INTÉGRALEMENT, amélioré :
+ *  - première connexion du démarrage → le message classique ;
+ *  - chaque reconnexion → « reconnecté ⚡ » avec la CAUSE (flux synchronisé
+ *    515/428 = routine WhatsApp, vs connexion perdue 408) et le temps de
+ *    rétablissement — l'owner sait d'un coup d'œil si c'est bénin ;
+ *  - vraie chute (assessDowntime) → message de downtime détaillé (priorité).
+ */
+let bootOpenNotified = false;
+
+/** Mémo de la dernière fermeture (cause de la reconnexion suivante). */
+export interface DisconnectMemo {
+  statusCode: number | null;
+  /** true = 515/428/restartRequired (flux synchronisé — routine WhatsApp). */
+  routine: boolean;
+  at: number;
+}
+
+let lastDisconnectMemo: DisconnectMemo | null = null;
+
+/** Plus vieille reconnexion qu'on décrive encore en « rétabli en X s ». */
+const RECONNECT_MEMO_MAX_MS = 10 * 60_000;
+
+/**
+ * Message « en ligne » pour l'owner (pur, testé) :
+ *  - démarrage du process (ou mémo périmé > 10 min = facto un redémarrage)
+ *    → le message classique que l'owner aime retrouver ;
+ *  - reconnexion fraîche → cause + temps de rétablissement.
+ */
+export function formatOnlineNotice(
+  botName: string,
+  prefix: string,
+  firstBootOpen: boolean,
+  memo: DisconnectMemo | null,
+  now = Date.now()
+): string {
+  const classic = `🌌 *${botName}* is online and connected!\nPrefix: \`${prefix}\``;
+  if (firstBootOpen || !memo) return classic;
+  const elapsed = now - memo.at;
+  if (elapsed > RECONNECT_MEMO_MAX_MS) return classic;
+  const secs = Math.max(1, Math.round(elapsed / 1000));
+  const cause = memo.routine
+    ? "flux synchronisé (routine WhatsApp)"
+    : memo.statusCode === 408
+      ? "connexion perdue puis rétablie"
+      : "reconnexion";
+  return `🌌 *${botName}* reconnecté ⚡\n${cause} — rétabli en ${secs} s\nPrefix: \`${prefix}\``;
+}
+
 /** M6: mask a WhatsApp number in logs (keep only the last 4 digits). */
 export function maskLogNumber(value: string): string {
   const digits = String(value || "").replace(/[^0-9]/g, "");
@@ -729,12 +781,16 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           if (downtime.notify) {
             addLog(`🔄 [CHUTE] retour après ${formatDowntimeDuration(downtime.downtimeMs)} d'indisponibilité`);
             sock.sendMessage(ownerJid, { text: formatReturnMessage(config.botName, downtime) }).catch(() => {});
+          } else {
+            // 9.18mmm (décision owner 18/10) : à CHAQUE (re)connexion — le
+            // message classique au démarrage, cause + temps de rétablissement
+            // sur les reconnexions de routine.
+            sock.sendMessage(ownerJid, {
+              text: formatOnlineNotice(config.botName, config.prefix, !bootOpenNotified, lastDisconnectMemo),
+            }).catch(() => {});
           }
-          // 9.18ggg : plus de « is online and connected! » à CHAQUE
-          // (re)connexion — les 515 de routine en généraient plusieurs par
-          // jour côté owner et nourrissaient l'impression d'instabilité
-          // (audit 17/10 §7). Seules les vraies chutes (assessDowntime)
-          // notifient désormais.
+          bootOpenNotified = true;
+          lastDisconnectMemo = null;
         }
 
         // Episode watcher (`.a watch`, audit S4): refresh the sender with the
@@ -783,6 +839,9 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         const isBadSession = statusCode === DisconnectReason.loggedOut || statusCode === DisconnectReason.badSession || statusCode === 403 || isConflict;
         const isRestartRequired = statusCode === DisconnectReason.restartRequired || statusCode === 515 || statusCode === 428;
         const shouldReconnect = !isBadSession;
+        // 9.18mmm : mémoire de la cause — le prochain « open » pourra dire à
+        // l'owner POURQUOI on s'est reconnecté et en combien de temps.
+        lastDisconnectMemo = { statusCode: statusCode ?? null, routine: isRestartRequired, at: Date.now() };
 
         if (isRestartRequired) {
           addLog("🔄 WhatsApp session synchronized / stream refresh (Status Code: 515). Resuming connection with saved credentials in 1.2s...");
