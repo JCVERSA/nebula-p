@@ -6,6 +6,7 @@ import {
   isAgentDeniedCommand,
   isConfirmationAffirmative,
   deterministicNextEpisodeDecision,
+  type NextEpisodeContext,
   isHeavyAgentCommand,
   messageSuggestsMultiIntent,
   keepHeadAndTail,
@@ -266,7 +267,7 @@ describe("9.18x (P1) — « épisode suivant » déterministe (zéro token)", ()
   const LAST = { title: "mushoku tensei", source: "va", seasonName: "Saison 1", quality: "480P", lastEpisode: 5 };
 
   /** Narrowing typé : args de la décision execute, null sinon. */
-  const argsOf = (t: string, last: typeof LAST): string | null => {
+  const argsOf = (t: string, last: NextEpisodeContext): string | null => {
     const d = deterministicNextEpisodeDecision(t, last);
     return d && d.action === "execute" ? d.args : null;
   };
@@ -274,6 +275,17 @@ describe("9.18x (P1) — « épisode suivant » déterministe (zéro token)", ()
   it("phrase simple → exécution anime construite localement", () => {
     const d = deterministicNextEpisodeDecision("l'épisode suivant", LAST);
     expect(d).toEqual({ action: "execute", command: "anime", args: "va mushoku tensei s1 e6 480p", say: "⚡ La suite — épisode 6 !" });
+  });
+
+  it("9.18rrr (audit) : la langue du dernier téléchargement survit — VOSTFR → flag vostfr", () => {
+    // Après un téléchargement VOSTFR, « l'épisode suivant » restait sur le
+    // défaut VF : bascule de langue silencieuse (interdite, politique 8.69).
+    const vostfrLast = { ...LAST, language: "VOSTFR" as const };
+    expect(argsOf("l'épisode suivant", vostfrLast)).toContain("vostfr");
+    const vfLast = { ...LAST, language: "VF" as const };
+    expect(argsOf("l'épisode suivant", vfLast)).not.toContain("vostfr");
+    // Langue inconnue → fail-open, pas de flag (comportement par défaut).
+    expect(argsOf("l'épisode suivant", { ...LAST, language: "???" })).not.toContain("vostfr");
   });
 
   it("variantes : prochain épisode / next episode / ép d'après / politesse", () => {

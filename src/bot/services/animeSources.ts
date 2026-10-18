@@ -1,12 +1,13 @@
 /**
  * Chosen-source anime catalogs (refonte 2026-09-21, owner decisions).
  *
- * Model: ONE catalog per query, picked by the user with a short flag —
- * `as` (default: the full dual-language catalog) or `va` (the VF-dub
- * specialist). Search, seasons, episodes AND downloads all happen on that
+ * Model: ONE catalog per query — the default (owner 8.96/9.18rrr: va, the
+ * VF-first catalog, which also carries the VOSTFR pages since ooo/ppp) or
+ * the explicit `as` flag (the other catalog, kept as an explicit
+ * alternative). Search, seasons, episodes AND downloads all happen on that
  * catalog. There is NO cross-source fallback anymore: when the title (or
  * the requested language) is missing, the bot answers honestly and points
- * to the OTHER flag — the user switches himself.
+ * to the OTHER flag — the user switches himself (or the agent offers it).
  *
  * Language truth is STRUCTURAL (no external oracle):
  *  - "as" catalog: season sub-paths carry the language ("saison1/vf" vs
@@ -30,8 +31,9 @@ export type SeasonLanguage = "VF" | "VOSTFR" | null;
 /**
  * Default catalog when the user types no flag. Owner decision 2026-10-10
  * (8.96): voir-anime (va) — the VF catalog, aligned with the VF-by-default
- * language policy and the .w watcher. `.a as <titre>` reaches the full
- * catalog explicitly.
+ * language policy and the .w watcher. 9.18rrr (owner 18/10): VOSTFR
+ * downloads come from va TOO (VOSTFR coverage complete since ooo/ppp).
+ * `.a as <titre>` reaches the other catalog explicitly.
  */
 export const DEFAULT_ANIME_SOURCE: AnimeSourceId = "va";
 

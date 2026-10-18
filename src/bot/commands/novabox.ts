@@ -104,6 +104,9 @@ export interface AnimeSession {
    *  alimente la réservation disque RÉELLE du batch (plus le plafond entier). */
   selectedVariantEstimatedMB?: number;
   languageForcedByUser?: boolean; // true after an explicit .a vf / .a vostfr
+  /** 9.18rrr : liste COMPLÈTE va derrière un écran VOSTFR filtré — la
+   *  bascule `.a vf`/`.a vostfr` doit retrouver les saisons des deux langues. */
+  fullVaResults?: SourceSearchResult[];
   userSearchQuery?: string; // 8.55: raw user query — voir-anime indexes romaji,
   // nakanime returns French titles; the VF probe needs BOTH as candidates.
   singleStreamDetected?: {
@@ -148,6 +151,28 @@ export function bareLanguageAnswer(text: string): "oui" | "non" | null {
 const MAX_ACTIVE_SESSIONS = 500;
 
 const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutes (8.70: 5 cut users mid-flow)
+
+/**
+ * 9.18sss : dernière recherche organisée (va) par utilisateur — un
+ * `.a vostfr` / `.a vf` SEUL rebascule l'écran sans retaper le titre.
+ * TTL = session ; en mémoire (un redémarrage invalide les écrans de toute façon).
+ */
+const lastVaSearches = new Map<string, { query: string; results: SourceSearchResult[]; ts: number }>();
+
+export function rememberVaSearch(sender: string, query: string, results: SourceSearchResult[]): void {
+  if (!sender || !query || !results.length) return;
+  lastVaSearches.set(sender, { query, results, ts: Date.now() });
+  if (lastVaSearches.size > 100) {
+    const cutoff = Date.now() - SESSION_TIMEOUT;
+    for (const [k, v] of lastVaSearches) if (v.ts < cutoff) lastVaSearches.delete(k);
+  }
+}
+
+export function getLastVaSearch(sender: string): { query: string; results: SourceSearchResult[] } | null {
+  const last = lastVaSearches.get(sender);
+  if (!last || Date.now() - last.ts > SESSION_TIMEOUT) return null;
+  return last;
+}
 
 // Resource ceilings for batch work triggered by untrusted WhatsApp users.
 const MAX_BATCH_EPISODES = Math.max(1, Number(process.env.NEBULA_NOVABOX_MAX_EPISODES || 12));
@@ -218,10 +243,13 @@ async function isPublicFetchTarget(rawUrl: string, label: string): Promise<boole
 // `.a` failures on the live host — see scripts/anime-repro.ts header).
 /**
  * 8.69 (refonte sources choisies): mono-source search router. The catalog is
- * chosen by the user (`as` flag, default / `va` flag) — there is NO fallback:
- * an empty result IS the answer, the caller shows the other-flag hint.
+ * chosen by the user (`va` flag / `as` flag) — there is NO fallback: an empty
+ * result IS the answer, the caller shows the other-flag hint.
+ * 9.18rrr (audit) : le défaut du paramètre EST le défaut effectif — l'ancien
+ * « as » codé dur contredisait effectiveDefaultSource() (va depuis 8.96) et
+ * piégeait tout nouvel appelant (scripts/anime-repro compris).
  */
-export async function searchAnime(query: string, source: AnimeSourceId = "as") {
+export async function searchAnime(query: string, source: AnimeSourceId = effectiveDefaultSource()) {
   const results = await searchAnimeBySource(query, source);
   console.log(`[NOVABOX] ${sourceLogLabel(source)} search: ${results.length} result(s) for "${query}"`);
   return results;
@@ -553,7 +581,9 @@ export async function wireSessionSeasons(
   wantLang: "VF" | "VOSTFR"
 ): Promise<LanguagePolicyResult<PolicySeason>> {
   if (session.source === "va") {
-    const entries = session.searchResults || [];
+    // 9.18rrr : après un écran VOSTFR filtré, la liste COMPLÈTE (VF inclus)
+    // reste câblée — la bascule `.a vf` retrouve les saisons des deux langues.
+    const entries = session.fullVaResults || session.searchResults || [];
     session.sourceSeasons = entries.map((e, i) => ({
       name: e.title,
       subPath: e.slug || `${i}`,
@@ -1003,7 +1033,8 @@ function searchFailureMessage(err: any): string {
  * `.a N` suit cet ordre), les étiquettes, et une note d'orientation.
  */
 export function organizeVfScreen(
-  results: SourceSearchResult[]
+  results: SourceSearchResult[],
+  opts?: { explicitVostfr?: boolean }
 ): { results: SourceSearchResult[]; labels: Map<SourceSearchResult, string> | null; note: string | null } {
   const vfEntries = results.filter((r) => r.language === "VF" && r.slug);
   const vostfrEntries = results.filter((r) => r.language === "VOSTFR" && r.slug);
@@ -1029,7 +1060,7 @@ export function organizeVfScreen(
       results: vostfrEntries.length > 0 ? organize(vostfrEntries, "VOSTFR") : results,
       labels: vostfrEntries.length > 0 ? labels : null,
       note:
-        results.length > 0
+        results.length > 0 && !opts?.explicitVostfr
           ? "🔍 _Aucune entrée VF pour cette recherche — voici tout ce que le catalogue propose :_"
           : null,
     };
@@ -1051,6 +1082,49 @@ export function organizeVfScreen(
   };
 }
 
+/**
+ * 9.18sss (owner 18/10 : « oui » à la bascule automatique) — VOSTFR demandée
+ * sur le catalogue par défaut mais aucune entrée VOSTFR : on cherche
+ * AUTOMATIQUEMENT sur l'autre catalogue avant de répondre. Réponse honnête
+ * seulement s'il n'en a pas non plus (ou s'il est injoignable).
+ */
+export async function resolveVostfrRequest(
+  query: string,
+  vaResults: SourceSearchResult[]
+): Promise<
+  | { kind: "results" | "switched"; results: SourceSearchResult[] }
+  | { kind: "missing"; message: string }
+> {
+  const vostfrEntries = vaResults.filter((r) => r.language === "VOSTFR");
+  if (vostfrEntries.length > 0) return { kind: "results", results: vostfrEntries };
+  const hasVf = vaResults.some((r) => r.language === "VF");
+  let otherFailed = false;
+  try {
+    const other = await searchAnime(query, "as");
+    if (other.length > 0) return { kind: "switched", results: other };
+  } catch {
+    otherFailed = true;
+  }
+  return { kind: "missing", message: vostfrAutoMissingMessage(query, hasVf, otherFailed) };
+}
+
+/** Message honnête quand la VOSTFR manque PARTOUT (bascule automatique tentée). */
+export function vostfrAutoMissingMessage(query: string, hasVf: boolean, otherFailed: boolean): string {
+  const vfNote = hasVf ? `\n\n_ℹ️ Ce titre existe en VF : \`.a ${query}\`._` : ``;
+  if (otherFailed) {
+    return (
+      `❌ *Aucune VOSTFR pour ce titre sur le catalogue par défaut.*\n\n` +
+      `⚠️ *L'autre catalogue est injoignable en ce moment* — réessaie dans un instant.` +
+      vfNote
+    );
+  }
+  return (
+    `❌ *Aucune VOSTFR trouvée pour « ${query} ».*\n\n` +
+    `J'ai cherché sur les deux catalogues — vérifie l'orthographe ou essaie le titre international.` +
+    vfNote
+  );
+}
+
 const animeCommand: BotCommand = {
   name: "anime",
   category: "Novabox",
@@ -1062,13 +1136,12 @@ const animeCommand: BotCommand = {
     const firstArg = (args[0] || "").toLowerCase();
     const sender = context.sender;
     const quickParams = parseQuickDownloadParams(args);
-    // 8.69: the chosen catalog (`as` default / `va` flag) — mono-source flow.
+    // 8.69: the chosen catalog — mono-source flow, user flag wins.
     // 8.96 : défaut = voir-anime (owner) — sauf si l'opérateur l'a désactivé.
-    // 9.9 (owner) : VOSTFR demandée explicitement → anime-sama DIRECTEMENT
-    // (plus de détour par voir-anime puis bascule croisée).
-    const source =
-      quickParams.source ||
-      (quickParams.language === "VOSTFR" ? "as" : effectiveDefaultSource());
+    // 9.18rrr (owner 18/10) : la VOSTFR vient AUSSI de voir-anime (couverture
+    // complète depuis ooo/ppp) — plus de détour systématique par l'autre
+    // catalogue, qui reste joignable explicitement (`.a as <titre> vostfr`).
+    let source = quickParams.source || effectiveDefaultSource();
 
     // Reset session helper
     const refreshSessionTimer = (session: AnimeSession) => {
@@ -1078,6 +1151,69 @@ const animeCommand: BotCommand = {
         context.reply("⏳ *Session expirée* — trop longtemps sans activité.\n\n🔁 Relance ta recherche quand tu veux : `.a <titre>`");
       }, SESSION_TIMEOUT);
     };
+
+    // 9.18sss : `.a vostfr` / `.a vf` SEUL — bascule l'écran de sélection
+    // affiché (session active) ou la dernière recherche de ce chat dans
+    // l'autre langue. Avant, ce mot seul partait en recherche LITTÉRALE du
+    // mot « vostfr » comme titre. Les bascules d'une session plus avancée
+    // (étapes season/language) gardent leur handler dédié ci-dessous.
+    if (
+      args.length === 1 &&
+      (firstArg === "vostfr" || firstArg === "vf") &&
+      (!sessions.has(sender) || sessions.get(sender)!.step === "select_anime")
+    ) {
+      const langChoice: "VF" | "VOSTFR" = firstArg === "vostfr" ? "VOSTFR" : "VF";
+      const session = sessions.get(sender);
+      const base = session
+        ? {
+            query: session.userSearchQuery || session.pendingQuickParams?.animeQuery || session.animeTitle,
+            results: session.fullVaResults || session.searchResults || []
+          }
+        : getLastVaSearch(sender);
+      if (!base || !base.results.length || !base.results.some((r) => r.language)) {
+        return context.reply(
+          `🔎 *Pas de recherche récente à basculer* — relance avec \`.a <titre> ${langChoice.toLowerCase()}\`.`
+        );
+      }
+      const entries = base.results.filter((r) => r.language === langChoice);
+      if (entries.length === 0) {
+        return context.reply(
+          langChoice === "VOSTFR"
+            ? `❌ *Aucune entrée VOSTFR dans cette recherche* — relance avec \`.a ${base.query} vostfr\`.`
+            : `❌ *Aucune entrée VF dans cette recherche* — relance avec \`.a ${base.query}\`.`
+        );
+      }
+      const screen = organizeVfScreen(entries, { explicitVostfr: langChoice === "VOSTFR" });
+      const listText = screen.results
+        .map(
+          (r, i) =>
+            `*${i + 1}.* ${screen.labels?.get(r) ?? `${r.title}${r.subtitle ? ` (_${r.subtitle}_)` : ""}`}`
+        )
+        .join("\n");
+      clearUserSession(sender);
+      const newSession: AnimeSession = {
+        step: "select_anime",
+        source: "va",
+        fullVaResults: base.results,
+        searchResults: screen.results,
+        animeTitle: "",
+        animeUrl: "",
+        languages: [],
+        seasons: [],
+        userSearchQuery: base.query,
+        timer: null
+      };
+      setUserSession(sender, newSession);
+      refreshSessionTimer(newSession);
+      await context.react("🔄");
+      return context.reply(
+        `🎬 *Novabox - Sélectionner l'Anime* 🎬\n\n` +
+          (screen.note ? `${screen.note}\n\n` : ``) +
+          `Résultats ${langChoice} pour *"${base.query}"*. Choisissez l'anime souhaité:\n\n` +
+          `${listText}\n\n` +
+          `👉 Répondez avec: \`.a [numéro]\` (ex: \`.a 1\`)`
+      );
+    }
 
     // Episode watcher has its own dedicated command (audit 8.31): a bare
     // `.a watch` used to fall through to a literal search for the word
@@ -1719,8 +1855,10 @@ const animeCommand: BotCommand = {
 
       try {
         let searchResults = await searchAnime(quickParams.canonicalQuery, source);
+        let matchedQuery = quickParams.canonicalQuery;
         if (searchResults.length === 0 && quickParams.canonicalQuery !== quickParams.animeQuery) {
           searchResults = await searchAnime(quickParams.animeQuery, source);
+          matchedQuery = quickParams.animeQuery;
         }
 
         if (searchResults.length === 0) {
@@ -1728,11 +1866,40 @@ const animeCommand: BotCommand = {
           return context.reply(searchEmptyMessage(quickParams.animeQuery, source));
         }
 
-        // 9.9 (owner) : défaut VF → entrées VF seules, liste organisée
-        // (saisons regroupées/étiquetées, films nommés).
+        // 9.18rrr/sss (owner 18/10) : VOSTFR demandée → écran VOSTFR (entrées
+        // VOSTFR seules, organisées) sur le catalogue par défaut ; la liste
+        // COMPLÈTE part en session (bascule `.a vf`). Aucune VOSTFR → bascule
+        // AUTOMATIQUE vers l'autre catalogue (owner : « oui ») — réponse
+        // honnête seulement s'il n'en a pas non plus.
+        let fullVaResults: SourceSearchResult[] | undefined;
+        if (source === "va" && quickParams.language === "VOSTFR") {
+          const resolved = await resolveVostfrRequest(matchedQuery, searchResults);
+          if (resolved.kind === "missing") {
+            await context.react("❌");
+            return context.reply(resolved.message);
+          }
+          if (resolved.kind === "switched") {
+            source = "as";
+            searchResults = resolved.results;
+            console.log(
+              `[NOVABOX] bascule vostfr automatique « ${matchedQuery} » : autre catalogue, ${resolved.results.length} entrée(s)`
+            );
+            await context.reply("🔄 *Aucune VOSTFR sur le catalogue par défaut — je continue sur l'autre…*");
+          } else {
+            fullVaResults = searchResults;
+            searchResults = resolved.results;
+          }
+        }
+        // 9.9 (owner) : défaut VF → écran mixte (VF d'abord, VOSTFR à la suite).
         const vfScreen =
-          source === "va" && !quickParams.language ? organizeVfScreen(searchResults) : null;
+          source === "va" && !quickParams.language
+            ? organizeVfScreen(searchResults)
+            : fullVaResults
+              ? organizeVfScreen(searchResults, { explicitVostfr: true })
+              : null;
         if (vfScreen) searchResults = vfScreen.results;
+        // 9.18sss : mémorise la recherche va (liste complète) pour `.a vostfr`/`.a vf` seul.
+        if (source === "va") rememberVaSearch(sender, matchedQuery, fullVaResults || searchResults);
 
         // Clear previous session
         clearUserSession(sender);
@@ -1751,6 +1918,7 @@ const animeCommand: BotCommand = {
           const newSession: AnimeSession = {
             step: "select_anime",
             source,
+            fullVaResults,
             searchResults,
             animeTitle: autoChoice.title,
             animeUrl: autoChoice.url,
@@ -1773,6 +1941,7 @@ const animeCommand: BotCommand = {
           const newSession: AnimeSession = {
             step: "select_anime",
             source,
+            fullVaResults,
             searchResults,
             animeTitle: chosen.title,
             animeUrl: chosen.url,
@@ -1791,6 +1960,7 @@ const animeCommand: BotCommand = {
           const newSession: AnimeSession = {
             step: "select_anime",
             source,
+            fullVaResults,
             searchResults,
             animeTitle: "",
             animeUrl: "",
@@ -1832,13 +2002,38 @@ const animeCommand: BotCommand = {
 
     try {
       let searchResults = await searchAnime(searchQuery, source);
+      let matchedQuery = searchQuery;
       if (searchResults.length === 0 && searchQuery !== query) {
         searchResults = await searchAnime(query, source);
+        matchedQuery = query;
       }
 
       if (searchResults.length === 0) {
         await context.react("❌");
         return context.reply(searchEmptyMessage(query, source));
+      }
+
+      // 9.18rrr/sss : VOSTFR demandée → écran VOSTFR (entrées VOSTFR seules),
+      // liste complète conservée pour la bascule `.a vf` ; aucune VOSTFR →
+      // bascule AUTOMATIQUE vers l'autre catalogue (owner 18/10 : « oui »).
+      let fullVaResults: SourceSearchResult[] | undefined;
+      if (source === "va" && quickParams.language === "VOSTFR") {
+        const resolved = await resolveVostfrRequest(matchedQuery, searchResults);
+        if (resolved.kind === "missing") {
+          await context.react("❌");
+          return context.reply(resolved.message);
+        }
+        if (resolved.kind === "switched") {
+          source = "as";
+          searchResults = resolved.results;
+          console.log(
+            `[NOVABOX] bascule vostfr automatique « ${matchedQuery} » : autre catalogue, ${resolved.results.length} entrée(s)`
+          );
+          await context.reply("🔄 *Aucune VOSTFR sur le catalogue par défaut — je continue sur l'autre…*");
+        } else {
+          fullVaResults = searchResults;
+          searchResults = resolved.results;
+        }
       }
 
       // Clear any existing session to start fresh
@@ -1852,6 +2047,7 @@ const animeCommand: BotCommand = {
         const newSession: AnimeSession = {
           step: "select_anime",
           source,
+          fullVaResults,
           searchResults,
           animeTitle: chosen.title,
           animeUrl: chosen.url,
@@ -1903,6 +2099,7 @@ const animeCommand: BotCommand = {
       const newSession: AnimeSession = {
         step: "select_anime",
         source,
+        fullVaResults,
         searchResults,
         animeTitle: "",
         animeUrl: "",
@@ -1915,12 +2112,21 @@ const animeCommand: BotCommand = {
       setUserSession(sender, newSession);
       refreshSessionTimer(newSession);
 
-      // 9.9 (owner) : défaut VF → entrées VF seules, liste organisée.
+      // 9.9 (owner) : défaut VF → écran mixte ; 9.18rrr : écran VOSTFR
+      // organisé (saisons regroupées) quand la VOSTFR est demandée.
       const vfScreen =
-        newSession.source === "va" && !quickParams.language ? organizeVfScreen(searchResults) : null;
+        newSession.source === "va" && !quickParams.language
+          ? organizeVfScreen(searchResults)
+          : newSession.source === "va" && quickParams.language === "VOSTFR"
+            ? organizeVfScreen(searchResults, { explicitVostfr: true })
+            : null;
       if (vfScreen) {
         searchResults = vfScreen.results;
         newSession.searchResults = searchResults;
+      }
+      // 9.18sss : mémorise la recherche va (liste complète) pour `.a vostfr`/`.a vf` seul.
+      if (newSession.source === "va") {
+        rememberVaSearch(sender, matchedQuery, newSession.fullVaResults || searchResults);
       }
 
       // Print list of matching anime

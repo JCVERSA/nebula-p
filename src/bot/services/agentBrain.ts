@@ -353,6 +353,10 @@ export interface NextEpisodeContext {
   seasonName: string;
   quality: string;
   lastEpisode: number | null;
+  /** 9.18rrr (audit) : langue du dernier téléchargement — sans elle,
+   *  « l'épisode suivant » repartait en VF après un téléchargement VOSTFR
+   *  (bascule de langue SILENCIEUSE, interdite par la politique 8.69). */
+  language?: string;
 }
 
 /**
@@ -421,11 +425,16 @@ export function deterministicNextEpisodeDecision(
   }
 
   const quality = String(last.quality || "").trim().toLowerCase();
+  // 9.18rrr (audit) : conserver la langue du dernier téléchargement —
+  // strict « VOSTFR » uniquement (toute valeur inconnue → pas de flag,
+  // fail-open sur le comportement par défaut).
+  const langFlag = last.language === "VOSTFR" ? ["vostfr"] : [];
   const args = [
     source,
     ...title.split(/\s+/).filter(Boolean),
     `s${seasonMatch[0]}`,
     `e${nextEp}`,
+    ...langFlag,
     ...(quality ? [quality] : [])
   ];
   return {

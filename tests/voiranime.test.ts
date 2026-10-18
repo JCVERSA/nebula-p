@@ -145,9 +145,15 @@ describe("organizeVfSelection (9.9)", () => {
 describe("wiring 9.9 (novabox + guidage agent)", () => {
   const readSrc = (rel: string) => require("fs").readFileSync(rel, "utf-8");
 
-  it("VOSTFR explicite → anime-sama directement (plus de détour voir-anime)", () => {
+  it("9.18rrr : VOSTFR explicite → le catalogue par défaut (voir-anime), as reste explicite", () => {
     const src = readSrc("src/bot/commands/novabox.ts");
-    expect(src).toContain('quickParams.language === "VOSTFR" ? "as"');
+    // Owner 18/10 : la VOSTFR suit le défaut (voir-anime) — l'ancien détour
+    // 9.9 par l'autre catalogue est retiré.
+    expect(src).toContain("quickParams.source || effectiveDefaultSource()");
+    expect(src).not.toContain('quickParams.language === "VOSTFR" ? "as"');
+    // L'écran VOSTFR filtré et son message honnête sont branchés (2 flux).
+    expect(src).toContain('organizeVfScreen(searchResults, { explicitVostfr: true })');
+    expect(src).toContain("resolveVostfrRequest("); // 9.18sss : bascule auto
   });
 
   it("les DEUX écrans de sélection organisent le VF par défaut", () => {
@@ -158,7 +164,8 @@ describe("wiring 9.9 (novabox + guidage agent)", () => {
 
   it("la fiche agent .a documente le routing — SANS nommer la source (8.42)", () => {
     const src = readSrc("src/bot/commandKnowledge.ts");
-    expect(src).toContain("liste organisée par saisons");
+    expect(src).toContain("VF d'abord"); // écran mixte 9.18ooo
+    expect(src).toContain("écran VOSTFR seul"); // 9.18rrr
     expect(src).toContain("vostfr");
     expect(src).not.toContain("anime-sama"); // règle 8.42 : jamais de source privée nommée
   });

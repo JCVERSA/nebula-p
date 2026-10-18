@@ -69,9 +69,11 @@ describe("Wiring novabox 8.95 (fallback croisé + ask-first)", () => {
     expect(src).not.toContain("Je continue en");
   });
 
-  it("8.96 : le défaut de catalogue est effectif (va, sauf désactivation opérateur)", () => {
-    // 9.9 : le défaut va reste effectif — la VOSTFR explicite part sur l'autre catalogue
-    expect(src).toContain('quickParams.language === "VOSTFR" ? "as" : effectiveDefaultSource()');
+  it("8.96/9.18rrr : le défaut de catalogue est effectif — la VOSTFR suit le défaut (voir-anime)", () => {
+    // 9.9 inversé par l'owner le 18/10 : la VOSTFR vient du catalogue par
+    // défaut ; l'autre catalogue reste joignable explicitement (.a as).
+    expect(src).toContain("quickParams.source || effectiveDefaultSource()");
+    expect(src).not.toContain('quickParams.language === "VOSTFR" ? "as"');
   });
 
   it("le fallback croisé est branché (lookup + candidat exact)", () => {

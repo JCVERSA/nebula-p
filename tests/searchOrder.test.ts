@@ -49,7 +49,7 @@ async function loadFn<T>(path: string, name: string): Promise<T> {
 }
 
 describe("searchAnime source routing (8.69)", () => {
-  it("default (no flag) searches the as catalog and touches nothing else", async () => {
+  it("the `as` flag searches the as catalog and touches nothing else", async () => {
     axiosPostMock.mockResolvedValue({ data: SAMA_HTML });
     const nakanimeSearch0 = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/nakanimeClient.js", "nakanimeSearch");
     const voiranimeSearch0 = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
@@ -57,7 +57,7 @@ describe("searchAnime source routing (8.69)", () => {
     voiranimeSearch0.mockClear();
     const { searchAnime } = await loadNovabox();
 
-    const results = await searchAnime("vinland");
+    const results = await searchAnime("vinland", "as");
 
     expect(results).toHaveLength(1);
     expect(results[0].title).toBe("Vinland Saga");
@@ -113,7 +113,24 @@ describe("searchAnime source routing (8.69)", () => {
     expect(results[1].subtitle).toBe("VOSTFR");
   });
 
-  it("no fallback: an EMPTY result is the answer (no second catalog tried)", async () => {
+  it("no flag → the EFFECTIVE DEFAULT (va, 8.96/9.18rrr) — as is never touched", async () => {
+    const nakanimeSearch0 = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/nakanimeClient.js", "nakanimeSearch");
+    nakanimeSearch0.mockClear();
+    const { searchAnime } = await loadNovabox();
+    // L'instance utilisée par CE module régistry-fraîche : impl posée après.
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    voiranimeSearch.mockResolvedValue([]);
+
+    const results = await searchAnime("vinland");
+
+    expect(results).toEqual([]); // réponse vide = la réponse (pas de bascule as)
+    expect(axiosPostMock).not.toHaveBeenCalled(); // fetch.php (as) jamais touché
+    expect(voiranimeSearch).toHaveBeenCalled(); // c'est bien va qui a cherché
+    const nakanimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/nakanimeClient.js", "nakanimeSearch");
+    expect(nakanimeSearch).not.toHaveBeenCalled();
+  });
+
+  it("no fallback: an EMPTY result is the answer (explicit as, no second catalog tried)", async () => {
     axiosPostMock.mockResolvedValue({ data: "<html>no results</html>" });
     const nakanimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/nakanimeClient.js", "nakanimeSearch");
     const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
@@ -121,7 +138,7 @@ describe("searchAnime source routing (8.69)", () => {
     voiranimeSearch.mockClear();
     const { searchAnime } = await loadNovabox();
 
-    const results = await searchAnime("zzz");
+    const results = await searchAnime("zzz", "as");
 
     expect(results).toEqual([]);
     expect(axiosPostMock).toHaveBeenCalledTimes(1);
@@ -133,7 +150,10 @@ describe("searchAnime source routing (8.69)", () => {
     axiosPostMock.mockRejectedValue(Object.assign(new Error("cf 403"), { response: { status: 403 } }));
     const { searchAnime } = await loadNovabox();
 
-    await expect(searchAnime("vinland")).rejects.toThrow();
+    await expect(searchAnime("vinland", "as")).rejects.toThrow(); // as explicite
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    voiranimeSearch.mockRejectedValue(new Error("network down"));
+    await expect(searchAnime("vinland")).rejects.toThrow(); // défaut va (9.18rrr)
   });
 });
 

@@ -170,3 +170,22 @@ describe("9.18kkk — titre exact trouvé par recherche web (retour terrain 18/1
     expect(k).toContain("JAMIS un catalogue");
   });
 });
+
+describe("9.18rrr — la VOSTFR vit sur le catalogue par défaut (connaissance agent à jour)", () => {
+  it("la fiche décrit l'écran mixte, l'écran VOSTFR et as = dépannage", () => {
+    const k = buildAgentKnowledge(".");
+    expect(k).toContain("VOSTFR étiquetées à la suite");
+    expect(k).toContain("écran VOSTFR seul");
+    expect(k).toContain("un numéro VOSTFR charge cette version");
+    expect(k).toContain("l'autre catalogue, en dépannage");
+    expect(k).not.toContain("catalogue complet"); // l'ancienne étiquette de as, trompeuse
+  });
+});
+
+describe("9.18sss — l'agent comprend `.a vostfr` seul (bascule d'écran)", () => {
+  it("la règle agent et la fiche documentent la bascule seule", () => {
+    const k = buildAgentKnowledge(".");
+    expect(k).toContain("SEUL : bascule l'écran affiché ou la dernière recherche");
+    expect(k).toContain("ou la dernière recherche");
+  });
+});

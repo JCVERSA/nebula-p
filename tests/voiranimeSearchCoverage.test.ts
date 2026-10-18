@@ -19,11 +19,13 @@ import fs from "fs";
 import path from "path";
 
 let axiosGetMock: ReturnType<typeof vi.fn>;
+let axiosPostMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   axiosGetMock = vi.fn();
+  axiosPostMock = vi.fn();
   vi.resetModules();
-  vi.doMock("axios", () => ({ default: { post: vi.fn(), get: axiosGetMock } }));
+  vi.doMock("axios", () => ({ default: { post: axiosPostMock, get: axiosGetMock } }));
   vi.doMock("../src/bot/urlSafety.js", async (importOriginal) => {
     const orig = await importOriginal<Record<string, unknown>>();
     return { ...orig, isSafeDownloadUrl: vi.fn(async () => true) };
@@ -239,5 +241,130 @@ describe("9.18ppp — complétion de franchise : les saisons ratées par la rech
     expect(results.find((r) => r.slug === S4VF)!.subtitle).toBe("VF");
     expect(results.find((r) => r.slug === BARE)!.language).toBe("VOSTFR"); // slug nu (9.18ooo)
     expect(results[0].language).toBe("VF"); // VF-first inchangé
+  });
+});
+
+describe("9.18rrr — la VOSTFR vient du catalogue par défaut (voir-anime)", () => {
+  it("le détour 9.9 (VOSTFR → autre catalogue) est retiré : la VOSTFR suit le défaut", () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/novabox.ts"), "utf-8");
+    expect(src).not.toContain('quickParams.language === "VOSTFR" ? "as"');
+    expect(src).toContain("quickParams.source || effectiveDefaultSource()");
+  });
+
+  it("organizeVfScreen(explicitVostfr) : entrées VOSTFR organisées, SANS la note « Aucune entrée VF »", async () => {
+    const { organizeVfScreen } = await import("../src/bot/commands/novabox.js");
+    const vostfrOnly = [
+      { title: "X Saison 2", url: "u2", slug: "x-2", isVf: false, language: "VOSTFR" },
+      { title: "X Saison 1", url: "u1", slug: "x", isVf: false, language: "VOSTFR" },
+    ] as never[];
+    const screen = organizeVfScreen(vostfrOnly, { explicitVostfr: true });
+    expect(screen.results).toHaveLength(2);
+    expect(screen.results[0]).toMatchObject({ slug: "x" }); // saisons triées
+    expect(screen.note).toBeNull(); // la VOSTFR était DEMANDÉE : pas de note VF
+    expect(screen.labels!.get(screen.results[1] as never)).toContain("Saison 2");
+    // Sans l'option (écran par défaut), la note honnête reste là.
+    expect(organizeVfScreen(vostfrOnly).note).toContain("Aucune entrée VF");
+  });
+
+  it("resolveVostfrRequest : des VOSTFR sur le catalogue par défaut → results, l'autre jamais interrogé", async () => {
+    const { resolveVostfrRequest } = await import("../src/bot/commands/novabox.js");
+    const va = [
+      { title: "X", url: "u1", slug: "x-vf", isVf: true, language: "VF" },
+      { title: "X", url: "u2", slug: "x", isVf: false, language: "VOSTFR" }
+    ] as never[];
+    const r: any = await resolveVostfrRequest("x", va);
+    expect(r.kind).toBe("results");
+    expect(r.results).toHaveLength(1);
+    expect(r.results[0].language).toBe("VOSTFR");
+    expect(axiosPostMock).not.toHaveBeenCalled(); // pas de coût réseau inutile
+  });
+
+  it("resolveVostfrRequest (owner : bascule AUTO) : aucune VOSTFR → l'autre catalogue est cherché et adopté", async () => {
+    axiosPostMock.mockResolvedValue({
+      data: `<a class="asn-search-result" href="https://anime-sama.to/catalogue/tokyo-ghoul/">
+        <div class="asn-search-result-title">Tokyo Ghoul</div>
+        <div class="asn-search-result-subtitle">VOSTFR/VF</div></a>`
+    });
+    const { resolveVostfrRequest } = await import("../src/bot/commands/novabox.js");
+    const va = [{ title: "Tokyo Ghoul", url: "u1", slug: "tokyo-ghoul-vf", isVf: true, language: "VF" }] as never[];
+    const r: any = await resolveVostfrRequest("tokyo ghoul", va);
+    expect(r.kind).toBe("switched");
+    expect(r.results[0].url).toContain("anime-sama.to");
+    expect(axiosPostMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolveVostfrRequest : VOSTFR absente des DEUX catalogues → message honnête (+ note VF)", async () => {
+    axiosPostMock.mockResolvedValue({ data: "<html>no results</html>" });
+    const { resolveVostfrRequest } = await import("../src/bot/commands/novabox.js");
+    const va = [{ title: "X", url: "u1", slug: "x-vf", isVf: true, language: "VF" }] as never[];
+    const r: any = await resolveVostfrRequest("x", va);
+    expect(r.kind).toBe("missing");
+    expect(r.message).toContain("Aucune VOSTFR trouvée");
+    expect(r.message).toContain("deux catalogues");
+    expect(r.message).toContain("existe en VF"); // le consoler : la VF existe
+  });
+
+  it("resolveVostfrRequest : l'autre catalogue injoignable → message dédié, pas d'échec brut", async () => {
+    axiosPostMock.mockRejectedValue(new Error("network down"));
+    const { resolveVostfrRequest, vostfrAutoMissingMessage } = await import("../src/bot/commands/novabox.js");
+    const va = [] as never[];
+    const r: any = await resolveVostfrRequest("x", va);
+    expect(r.kind).toBe("missing");
+    expect(r.message).toContain("injoignable");
+    expect(vostfrAutoMissingMessage("x", false, false)).not.toContain("existe en VF");
+  });
+
+  it("écran VOSTFR filtré : le wiring garde la liste complète (bascule .a vf retrouve la VF)", async () => {
+    const { wireSessionSeasons } = await import("../src/bot/commands/novabox.js");
+    const vf = { title: "X Saison 1", url: "https://voir-anime.to/anime/x-vf/", slug: "x-vf", isVf: true, language: "VF" };
+    const vostfr = { title: "X Saison 1", url: "https://voir-anime.to/anime/x/", slug: "x", isVf: false, language: "VOSTFR" };
+    const session: any = {
+      source: "va",
+      searchResults: [vostfr], // l'écran n'a montré que la VOSTFR
+      fullVaResults: [vf, vostfr], // la liste complète part en session (9.18rrr)
+      animeTitle: "X",
+      animeUrl: vostfr.url,
+      languages: [],
+      seasons: []
+    };
+    const r1: any = await wireSessionSeasons(session, vostfr, "VOSTFR");
+    expect(r1.status).toBe("ok");
+    expect(r1.language).toBe("VOSTFR");
+    expect(session.seasons).toHaveLength(1);
+    // Bascule `.a vf` : la saison VF est retrouvée grâce à la liste complète.
+    const r2: any = await wireSessionSeasons(session, vf, "VF");
+    expect(r2.status).toBe("ok");
+    expect(r2.language).toBe("VF");
+    expect(session.seasons[0].url).toContain("-vf/");
+  });
+});
+
+describe("9.18sss — `.a vostfr` / `.a vf` seul : bascule d'écran + mémoire de recherche", () => {
+  it("rememberVaSearch / getLastVaSearch : mémoire par utilisateur, TTL = session", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-18T05:00:00Z"));
+    try {
+      const { rememberVaSearch, getLastVaSearch } = await import("../src/bot/commands/novabox.js");
+      const entries = [
+        { title: "X S1", url: "u1", slug: "x-vf", isVf: true, language: "VF" },
+        { title: "X S1", url: "u2", slug: "x", isVf: false, language: "VOSTFR" }
+      ] as never[];
+      rememberVaSearch("chatA", "x", entries);
+      expect(getLastVaSearch("chatA")?.query).toBe("x");
+      expect(getLastVaSearch("chatA")?.results).toHaveLength(2);
+      expect(getLastVaSearch("chatB")).toBeNull(); // mémoire par chat
+      vi.setSystemTime(new Date("2026-10-18T05:12:00Z")); // +12 min > TTL 10 min
+      expect(getLastVaSearch("chatA")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("le handler est branché : mot seul bascule l'écran, la recherche littérale « vostfr » est morte", () => {
+    const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/novabox.ts"), "utf-8");
+    expect(src).toContain('firstArg === "vostfr" || firstArg === "vf"');
+    expect(src).toContain("getLastVaSearch(sender)");
+    expect(src).toContain("rememberVaSearch(sender, matchedQuery");
+    expect(src).toContain("bascule vostfr automatique"); // log terrain
   });
 });
