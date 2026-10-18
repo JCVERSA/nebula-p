@@ -21,7 +21,7 @@
 import { isExactAnimeMatch } from "../utils/quickAnimeParser.js";
 import axios from "axios";
 import * as cheerio from "cheerio";
-import { voiranimeSearch } from "./voiranimeClient.js";
+import { completeVoiranimeFranchises, voiranimeSearch } from "./voiranimeClient.js";
 import { animeProxyOptions } from "./scrapingProxy.js";
 
 export type AnimeSourceId = "as" | "va";
@@ -308,6 +308,11 @@ export function searchQueryVariants(query: string): string[] {
   };
   const bare = q.replace(QUERY_LEADING_ARTICLE_RE, "").trim();
   if (bare) push(bare);
+  // 9.18ppp : « Re:Zero » tapé « rezero » ne matche pas le titre (WordPress
+  // cherche le mot entier, deux-points compris) — la variante scindée
+  // « re zero » y parvient (« zero » matche « Re:Zero »). Ne s'applique
+  // qu'aux mots simples « re… » d'au moins 6 lettres.
+  if (/^re[a-z]{4,}$/i.test(q)) push(`re ${q.slice(2)}`);
   const words = (bare || q).split(" ");
   const inflectable = (w: string) => w.length >= 4 && !QUERY_NO_INFLECT.has(w.toLowerCase());
   push(words.map((w) => (inflectable(w) && /s$/i.test(w) && !/(?:ss|us|is)$/i.test(w) ? w.slice(0, -1) : w)).join(" "));
@@ -335,6 +340,11 @@ export async function searchAnimeBySource(
         break;
       }
     }
+    // 9.18ppp (terrain 18/10 04:41) : la recherche du site rate des SAISONS
+    // entières (« rezero » ne matche pas « Re:Zero » — les deux-points ; 2
+    // saisons VF remontées sur 4). Compléter chaque franchise trouvée via
+    // son titre de base : le titre matche le titre, deux-points compris.
+    rawResults = await completeVoiranimeFranchises(rawResults);
     const results = rawResults;
     const withLang: SourceSearchResult[] = results.map((r) => {
       // 9.18ooo (terrain 18/10 « ça n'a pas changé ») : sur ce catalogue, un

@@ -173,3 +173,71 @@ describe("9.18nnn — la note vit aussi dans l'écran standard (source)", () => 
     expect(hits).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("9.18ppp — complétion de franchise : les saisons ratées par la recherche sont retrouvées", () => {
+  const S1VF = S1; // rezero-kara-hajimeru-isekai-seikatsu-vf
+  const S2VF = S2;
+  const S3VF = S3;
+  const S4VF = "rezero-kara-hajimeru-isekai-seikatsu-s4-vf"; // LE lien de l'owner
+  const BARE = "rezero-kara-hajimeru-isekai-seikatsu"; // S1 VOSTFR (slug nu)
+  const S2V = "rezero-kara-hajimeru-isekai-seikatsu-s2";
+  const S3V = "rezero-kara-hajimeru-isekai-seikatsu-s3";
+  const S4V = "rezero-kara-hajimeru-isekai-seikatsu-s4";
+  const REEDIT_VF = "rezero-re-edit-vf";
+  const REEDIT = "rezero-re-edit";
+
+  /** Les 5 entrées du terrain 04:41 (union incomplète de la recherche du site). */
+  const TERRAIN = [
+    { title: "Re:Zero kara Hajimeru Isekai Seikatsu S2", url: `https://voir-anime.to/anime/${S2VF}/`, slug: S2VF, isVf: true },
+    { title: "Re:ZERO -Starting Life in Another World- (Re-Edit)", url: `https://voir-anime.to/anime/${REEDIT_VF}/`, slug: REEDIT_VF, isVf: true },
+    { title: "Re:Zero kara Hajimeru Isekai Seikatsu", url: `https://voir-anime.to/anime/${BARE}/`, slug: BARE, isVf: false },
+    { title: "Re:Zero kara Hajimeru Isekai Seikatsu S2", url: `https://voir-anime.to/anime/${S2V}/`, slug: S2V, isVf: false },
+    { title: "Re:ZERO -Starting Life in Another World- (Re-Edit)", url: `https://voir-anime.to/anime/${REEDIT}/`, slug: REEDIT, isVf: false },
+  ];
+
+  it("LE CAS TERRAIN : S1/S3/S4 VF (lien owner …-s4-vf) et S3/S4 VOSTFR retrouvées via le titre de base", async () => {
+    axiosGetMock.mockImplementation(async (url: string) => {
+      const s = decodeURIComponent((url.match(/[?&]s=([^&]*)/) || [])[1] || "");
+      if (s.toLowerCase() === "rezero") {
+        return { status: 200, data: cards([S2VF, REEDIT_VF, BARE, S2V, REEDIT]) };
+      }
+      // Recherche par titre de franchise (complétion) — avec du bruit.
+      return { status: 200, data: cards([S1VF, S2VF, S3VF, S4VF, BARE, S2V, S3V, S4V, "one-piece-vf"]) };
+    });
+    const { completeVoiranimeFranchises } = await loadClient();
+
+    const out = await completeVoiranimeFranchises(TERRAIN);
+
+    const slugs = out.map((r) => r.slug);
+    expect(slugs).toContain(S1VF); // Saison 1 VF — invisible avant
+    expect(slugs).toContain(S3VF); // Saison 3 VF — invisible avant
+    expect(slugs).toContain(S4VF); // LE lien de l'owner
+    expect(slugs).toContain(S3V); // VOSTFR complétées aussi
+    expect(slugs).toContain(S4V);
+    expect(slugs).not.toContain("one-piece-vf"); // bruit filtré (base ≠ franchise)
+    expect(slugs).toHaveLength(10); // 5 terrain + 5 retrouvées, dédupliquées
+  });
+
+  it("échec réseau de la complétion → liste inchangée (jamais de régression)", async () => {
+    axiosGetMock.mockRejectedValue(new Error("network down"));
+    const { completeVoiranimeFranchises } = await loadClient();
+    await expect(completeVoiranimeFranchises(TERRAIN)).resolves.toHaveLength(5);
+  });
+
+  it("INTÉGRATION : searchAnimeBySource(« rezero », « va ») → les 4 saisons VF avec leur langue structurelle", async () => {
+    axiosGetMock.mockImplementation(async (url: string) => {
+      const s = decodeURIComponent((url.match(/[?&]s=([^&]*)/) || [])[1] || "");
+      if (s.toLowerCase() === "rezero") return { status: 200, data: cards([S2VF, BARE]) };
+      return { status: 200, data: cards([S1VF, S2VF, S3VF, S4VF, BARE, S2V, S3V, S4V]) };
+    });
+    const { searchAnimeBySource } = await import("../src/bot/services/animeSources.js");
+
+    const results = await searchAnimeBySource("rezero", "va");
+
+    expect(results.map((r) => r.slug)).toContain(S4VF);
+    expect(results.find((r) => r.slug === S4VF)!.language).toBe("VF");
+    expect(results.find((r) => r.slug === S4VF)!.subtitle).toBe("VF");
+    expect(results.find((r) => r.slug === BARE)!.language).toBe("VOSTFR"); // slug nu (9.18ooo)
+    expect(results[0].language).toBe("VF"); // VF-first inchangé
+  });
+});

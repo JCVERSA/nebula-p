@@ -10,7 +10,13 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 vi.mock("../src/bot/services/voiranimeClient.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../src/bot/services/voiranimeClient.js")>();
-  return { ...orig, voiranimeSearch: vi.fn() };
+  return {
+    ...orig,
+    voiranimeSearch: vi.fn(),
+    // 9.18ppp : la complétion de franchise fait ses propres requêtes réseau
+    // — neutralisée ici (ces tests pilotent voiranimeSearch directement).
+    completeVoiranimeFranchises: vi.fn(async (results: unknown[]) => results)
+  };
 });
 
 import { voiranimeSearch } from "../src/bot/services/voiranimeClient.js";
@@ -35,6 +41,17 @@ describe("9.18kkk — searchQueryVariants (pur)", () => {
     const v = searchQueryVariants("the ramparts of ice");
     expect(v).toContain("rampart of ice");
     expect(v).toContain("ramparts of ice");
+  });
+
+  it("9.18ppp : « rezero » (Re:Zero tapé sans les deux-points) produit la variante scindée « re zero »", () => {
+    const v = searchQueryVariants("rezero");
+    expect(v[0]).toBe("rezero"); // l'originale toujours en premier
+    expect(v).toContain("re zero"); // « zero » matche « Re:Zero » côté WordPress
+  });
+
+  it("la scission « re … » ne touche que les mots simples d'au moins 6 lettres", () => {
+    expect(searchQueryVariants("rem")).toEqual(["rem"]); // trop court
+    expect(searchQueryVariants("re zero")).toEqual(["re zero", "re zeros"]); // déjà scindé
   });
 
   it("mots courts et mots vides jamais fléchis : « zzz » n'a qu'UNE variante", () => {

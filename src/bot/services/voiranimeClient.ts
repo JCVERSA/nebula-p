@@ -224,6 +224,96 @@ export async function voiranimeSearch(query: string): Promise<VoiranimeSearchRes
   return merged;
 }
 
+/**
+ * 9.18ppp : décompose un slug en franchise — base (sans langue ni marqueur
+ * de saison), saison détectée, langue structurelle. Pur. « …-s4-vf » →
+ * base « … », saison 4, VF ; « …-vf » → saison null (convention S1) ;
+ * « mushoku-tensei-3-vf » → saison 3 (marqueur numérique nu du site).
+ */
+export function voiranimeSlugFamily(slug: string): { base: string; season: number | null; language: "VF" | "VOSTFR" | null } {
+  const s = (slug || "").toLowerCase().replace(/\/+$/, "");
+  let language: "VF" | "VOSTFR" | null = null;
+  let rest = s;
+  if (/(^|[-_])vost(?:fr)?$/.test(rest)) {
+    language = "VOSTFR";
+    rest = rest.replace(/[-_]vost(?:fr)?$/, "");
+  } else if (/(^|[-_])vf$/.test(rest)) {
+    language = "VF";
+    rest = rest.replace(/[-_]vf$/, "");
+  }
+  let season: number | null = null;
+  const m =
+    rest.match(/-saison-(\d+)$/) || rest.match(/-s(\d+)$/) ||
+    rest.match(/-r(\d+)$/) || rest.match(/-(\d+)$/);
+  if (m && m.index !== undefined) {
+    season = parseInt(m[1], 10);
+    rest = rest.slice(0, m.index);
+  }
+  return { base: rest, season, language };
+}
+
+/**
+ * 9.18ppp (terrain 18/10 04:41) : la recherche du site rate des SAISONS
+ * entières d'une franchise — « rezero » ne matche pas « Re:Zero » dans le
+ * titre (WordPress cherche le mot entier, deux-points compris), donc seules
+ * les pages dont le CONTENU contient la requête remontent : 2 saisons VF
+ * sur 4 (lien owner : …/rezero-kara-hajimeru-isekai-seikatsu-s4-vf/).
+ * Correctif générique, sans aucune URL devinée : dès qu'une saison d'une
+ * franchise est trouvée, on RECHERCHE LE TITRE DE BASE de la franchise —
+ * tous les titres de ses saisons le contiennent (le titre matche le titre).
+ * Les résultats hors franchise sont filtrés par base de slug (pas de bruit),
+ * la fusion est dédupliquée, ≤ 3 familles (latence), et un échec réseau
+ * laisse la liste inchangée — jamais de régression.
+ */
+export async function completeVoiranimeFranchises(
+  results: VoiranimeSearchResult[]
+): Promise<VoiranimeSearchResult[]> {
+  if (!results.length) return results;
+  const families = new Map<string, VoiranimeSearchResult[]>();
+  for (const r of results) {
+    if (!r.slug) continue;
+    const base = voiranimeSlugFamily(r.slug).base;
+    if (!base) continue;
+    const list = families.get(base);
+    if (list) list.push(r);
+    else families.set(base, [r]);
+  }
+  const seen = new Set(results.map((r) => r.slug));
+  const additions = await Promise.all(
+    Array.from(families.entries())
+      .slice(0, 3)
+      .map(async ([base, members]) => {
+        try {
+          // Titre le plus court de la famille (= titre de base de la franchise).
+          const title = members
+            .map((m) => stripSeasonMarker(m.title).replace(/\s*\(vf\)\s*$/i, "").trim())
+            .filter((t) => t.length >= 3)
+            .sort((a, b) => a.length - b.length)[0];
+          if (!title) return [] as VoiranimeSearchResult[];
+          const html = await fetchHtml(
+            `${VOIRANIME_ORIGIN}/?s=${encodeURIComponent(title)}&post_type=wp-manga`
+          );
+          const fresh = parseVoiranimeSearch(html).filter((f) => {
+            if (!f.slug || seen.has(f.slug)) return false;
+            const fb = voiranimeSlugFamily(f.slug).base;
+            return fb === base || fb.startsWith(`${base}-`);
+          });
+          for (const f of fresh) seen.add(f.slug);
+          if (fresh.length) {
+            console.log(
+              `[NOVABOX] complétion « ${title} » : +${fresh.length} entrée(s) — saisons retrouvées via le titre de la franchise`
+            );
+          }
+          return fresh;
+        } catch {
+          return [] as VoiranimeSearchResult[]; // une famille en échec ne bloque jamais
+        }
+      })
+  );
+  const flat = additions.flat().slice(0, 40 - results.length);
+  return flat.length ? [...results, ...flat] : results;
+}
+
 export interface VoiranimeEpisode {
   n: number; // episode number from the URL (0 for film/oav)
   url: string;
