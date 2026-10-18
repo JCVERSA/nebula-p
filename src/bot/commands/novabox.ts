@@ -4,7 +4,13 @@ import axios from "axios";
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
+import {
+  registerTempDownload,
+  getLinkTtlMinutes,
+  wouldExceedTempQuota,
+  getTempStorageStats,
+  getTempMaxTotalBytes
+} from "../tempDownloadManager.js";
 import { animeReuseKey, lookupMediaReuse, storeMediaReuse } from "../services/mediaReuseStore.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
 import { formatFailedEpisodes, fastLaneMismatch } from "../services/batchRecap.js";
@@ -2702,6 +2708,14 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     // another ~120 MB episode pipeline is how the kernel OOM-killer ended the
     // 8.50 batch. Stop claiming new episodes and tell the user to re-ask.
     let memoryStop = false;
+    // 9.18yyy (terrain 18/10, run 2) : le coffre de livraison (plafond 2 Go)
+    // était encore occupé par les liens du run précédent — restaurés au boot,
+    // donc bien vivants — quand E05/E07/E08 ont terminé leur téléchargement.
+    // registerTempDownload jetait « quota reached », le catch générique
+    // comptait l'épisode « refusé par la source » (faux : la source avait
+    // livré) et le fichier était libéré sans lien. Ces épisodes sont
+    // désormais différés avec leur VRAIE cause, hors « Épisodes échoués ».
+    const vaultDeferredEpisodes: Array<{ epNum: number; sizeMB: number }> = [];
 
     const processEpisodeTask = async (i: number) => {
       if (quotaExceeded) return;
@@ -2712,13 +2726,52 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       let filename = sanitizeFilename(filenameBase) + ".mp4";
       const localPath = path.join(os.tmpdir(), `batch_${Date.now()}_${i}_${filename}`);
 
+      // 9.18yyy : défér honnête quand le coffre de livraison est plein —
+      // l'épisode est TÉLÉCHARGÉ mais non stockable : ce n'est jamais un
+      // refus de la source, et le rapport doit le dire avec sa vraie cause.
+      const deferForFullVault = (sizeBytes: number) => {
+        vaultDeferredEpisodes.push({ epNum, sizeMB: Math.round(sizeBytes / 1e6) });
+        const stats = getTempStorageStats();
+        console.warn(
+          `[NOVABOX] 🗄️ Coffre de livraison plein (${Math.round(stats.totalMB)}/${Math.round(
+            getTempMaxTotalBytes() / (1024 * 1024)
+          )} Mo) — ép. ${epNum} (${Math.round(
+            sizeBytes / 1e6
+          )} Mo) téléchargé mais non stocké : ce n'est pas la source qui refuse, ce sont les liens déjà livrés qui occupent le coffre. Réessaie dans quelques minutes.`
+        );
+        updateEpisodeProgress(batchJob.id, epNum, {
+          status: "failed",
+          progressPercent: 0,
+          error: "Coffre de livraison plein — pas un refus de la source, réessaie dans quelques minutes"
+        });
+      };
+
       // 9.15 : épisode déjà présent dans le cache (quelqu'un l'a téléchargé
       // dans les dernières 24 h) ? Lien instantané SANS re-téléchargement.
       const cachedEp = lookupMediaReuse(reuseKeyFor(epNum));
       if (cachedEp) {
         try {
-          const rec = registerTempDownload(cachedEp.filePath, filename, { noCopy: true, jobId: batchJob.id });
-          generatedLinks.push({ epNum, downloadUrl: rec.downloadUrl, sizeMB: rec.sizeMB, filename, expiresAt: rec.expiresAt });
+          // 9.18yyy : honnêteté qualité AUSSI depuis le cache — la vérité
+          // reste le fichier (terrain : E08 réellement 1080P resservi en
+          // « 480P » depuis le cache du run précédent sans cette sonde).
+          let cacheFilename = filename;
+          try {
+            if (fastLaneMismatch(resolution, cachedEp.bytes, null)) {
+              const probedCache = await probeVideoInfo(cachedEp.filePath);
+              const realCache = fastLaneMismatch(resolution, cachedEp.bytes, probedCache.height);
+              if (realCache) {
+                cacheFilename = sanitizeFilename(filenameBase.replace(`_${resolution}_`, `_${realCache}_`)) + ".mp4";
+                qualityLies.push({ epNum, real: realCache, sizeMB: Math.round(cachedEp.bytes / 1e6) });
+                console.warn(
+                  `[NOVABOX] Qualité réelle E${String(epNum).padStart(2, "0")} : ${realCache} (cache, demandé ${resolution}, ${Math.round(
+                    cachedEp.bytes / 1e6
+                  )} Mo) — étiquette corrigée honnêtement.`
+                );
+              }
+            }
+          } catch {}
+          const rec = registerTempDownload(cachedEp.filePath, cacheFilename, { noCopy: true, jobId: batchJob.id });
+          generatedLinks.push({ epNum, downloadUrl: rec.downloadUrl, sizeMB: rec.sizeMB, filename: cacheFilename, expiresAt: rec.expiresAt });
           zipEpisodeFiles.push({ epNum, filePath: cachedEp.filePath }); // 9.18m : le cache participe au ZIP (Z1)
           cacheHits++;
           updateEpisodeProgress(batchJob.id, epNum, { status: "completed", progressPercent: 100, sizeMB: rec.sizeMB, downloadUrl: rec.downloadUrl });
@@ -2813,10 +2866,30 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           // zéro octet supplémentaire) — le prochain demandeur l'aura instantanément.
           try { storeMediaReuse(reuseKeyFor(epNum), localPath, filename); } catch {}
 
-          const tempDownload = registerTempDownload(localPath, filename, {
-            moveFile: true,
-            jobId: batchJob.id // 8.88 : la purge owner épargne ce batch tant que son claim est vivant
-          });
+          // 9.18yyy : si le coffre est plein (liens déjà livrés vivants), on
+          // ne jette PAS l'épisode : le fichier vient d'entrer au cache de
+          // réutilisation — un lien noCopy le sert TEL QUEL sans occuper un
+          // octet du coffre (terrain : E6 passait à 56 Mo près, E7 était
+          // refusé pour 33 Mo de trop, tous deux « refusés par la source »).
+          const episodeBytes = fs.statSync(localPath).size;
+          let tempDownload: ReturnType<typeof registerTempDownload> | null = null;
+          if (wouldExceedTempQuota(episodeBytes)) {
+            const cachedNow = lookupMediaReuse(reuseKeyFor(epNum));
+            if (cachedNow) {
+              try {
+                tempDownload = registerTempDownload(cachedNow.filePath, filename, { noCopy: true, jobId: batchJob.id });
+                console.warn(
+                  `[NOVABOX] 🗄️ Coffre de livraison plein — ép. ${epNum} servi sans copie depuis le cache de réutilisation (zéro octet de coffre).`
+                );
+              } catch {} // retombe sur l'essai classique ci-dessous
+            }
+          }
+          if (!tempDownload) {
+            tempDownload = registerTempDownload(localPath, filename, {
+              moveFile: true,
+              jobId: batchJob.id // 8.88 : la purge owner épargne ce batch tant que son claim est vivant
+            });
+          }
 
           zipEpisodeFiles.push({ epNum, filePath: tempDownload.filePath }); // 9.18m : apparié, plus de décalage d'index (Z1)
 
@@ -2845,8 +2918,18 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: "Stream unavailable" });
         }
       } catch (err: any) {
+        let caughtBytes = 0;
+        try { caughtBytes = fs.statSync(localPath).size; } catch {}
         if (fs.existsSync(localPath)) {
           try { fs.unlinkSync(localPath); } catch {}
+        }
+        // 9.18yyy : un refus de quota du coffre n'est PAS un refus de la
+        // source — l'épisode est différé avec sa vraie cause (terrain :
+        // E5/E7/E8 annoncés « la source les refuse » alors qu'elle avait
+        // livré — c'était le coffre qui débordait des liens précédents).
+        if (String(err?.message || "").includes("Temporary download storage quota")) {
+          deferForFullVault(caughtBytes);
+          return;
         }
         failedEpisodeCount++;
         updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: err?.message || "Stream error" });
@@ -2888,6 +2971,13 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     // Episodes never claimed by a worker = deferred by the memory guard (an
     // episode claimed and failed is NOT deferred — it is reported as failed).
     const memoryDeferredCount = memoryStop ? indices.length - nextEpisodeIdx : 0;
+    // 9.18yyy : filtres du rapport — les différés coffre plein ne sont pas
+    // « refusés par la source », et la ligne qualité réelle ne doit parler
+    // QUE des liens réellement livrés (terrain run 2 : elle annonçait des
+    // liens « étiquetés 1080P » qui n'existaient pas).
+    const vaultDeferredSet = new Set(vaultDeferredEpisodes.map(v => v.epNum));
+    const deliveredEpSet = new Set(generatedLinks.map(g => g.epNum));
+    const deliveredLies = qualityLies.filter(q => deliveredEpSet.has(q.epNum));
 
     // If season zip was requested and multiple files downloaded, create a Season ZIP archive
     let zipDownloadUrl = "";
@@ -2936,14 +3026,24 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       updateJobStatus(
         batchJob.id,
         "completed",
-        memoryDeferredCount > 0 ? `Batch ready (partiel — ${memoryDeferredCount} épisode(s) différé(s) par la garde mémoire)` : "Batch download ready"
+        memoryDeferredCount > 0 || vaultDeferredEpisodes.length > 0
+          ? `Batch ready (partiel — ${memoryDeferredCount} différé(s) garde mémoire, ${vaultDeferredEpisodes.length} différé(s) coffre plein)`
+          : "Batch download ready"
       );
     } else {
       updateJobStatus(
         batchJob.id,
         "failed",
-        memoryDeferredCount > 0 ? "Memory guard deferred all episodes" : "No streams could be resolved",
-        memoryDeferredCount > 0 ? "Pression RAM critique — réessaye dans quelques minutes" : "Aucun épisode téléchargeable (sources indisponibles)"
+        memoryDeferredCount > 0
+          ? "Memory guard deferred all episodes"
+          : vaultDeferredEpisodes.length > 0
+            ? "Delivery vault full — episodes deferred"
+            : "No streams could be resolved",
+        memoryDeferredCount > 0
+          ? "Pression RAM critique — réessaye dans quelques minutes"
+          : vaultDeferredEpisodes.length > 0
+            ? "Coffre de livraison plein — réessaie dans quelques minutes"
+            : "Aucun épisode téléchargeable (sources indisponibles)"
       );
     }
 
@@ -2986,6 +3086,13 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         }
       }
 
+      // 9.18xxx/9.18yyy : « Épisodes échoués » = épisodes TENTÉS et non
+      // livrés — ni les différés mémoire (jamais lancés), ni les différés
+      // coffre plein (téléchargés puis non stockés : la source a livré).
+      const attemptedEpNums = indices
+        .slice(0, indices.length - memoryDeferredCount)
+        .map(i => i + 1)
+        .filter(n => !vaultDeferredSet.has(n));
       let responseMsg =
         `🚀 *NEBULA NOVABOX - BATCH DOWNLOAD COMPLETED* 🚀\n\n` +
         `🎬 *Anime:* ${session.animeTitle}\n` +
@@ -2993,14 +3100,14 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         `⚙️ *Quality:* ${resolution}\n` +
         `📦 *Ready Episodes:* ${generatedLinks.length}/${indices.length}\n` +
         formatFailedEpisodes(
-          // 9.18xxx : uniquement les épisodes TENTÉS — les différés par la
-          // garde mémoire n'ont jamais été lancés, ce n'est pas la source
-          // qui les refuse (terrain : E9/E10 listés « refusés » à tort).
-          indices.slice(0, indices.length - memoryDeferredCount).map(i => i + 1),
+          attemptedEpNums,
           generatedLinks.map(g => g.epNum)
         ) +
-        (qualityLies.length > 0
-          ? `⚠️ *Qualité réelle :* ép. ${qualityLies.map(q => `${q.epNum} servi en ${q.real} (${q.sizeMB} Mo)`).join(", ")} — la source n'a pas servi le ${resolution} demandé pour ${qualityLies.length > 1 ? "ces épisodes" : "cet épisode"}, liens étiquetés avec la qualité réelle.\n`
+        (deliveredLies.length > 0
+          ? `⚠️ *Qualité réelle :* ép. ${deliveredLies.map(q => `${q.epNum} servi en ${q.real} (${q.sizeMB} Mo)`).join(", ")} — la source n'a pas servi le ${resolution} demandé pour ${deliveredLies.length > 1 ? "ces épisodes" : "cet épisode"}, liens étiquetés avec la qualité réelle.\n`
+          : "") +
+        (vaultDeferredEpisodes.length > 0
+          ? `🗄️ *Coffre de livraison plein :* ép. ${vaultDeferredEpisodes.map(v => `${v.epNum} (${v.sizeMB} Mo)`).join(", ")} téléchargé(s) mais non stocké(s) — les liens déjà livrés occupent le coffre. Ce n'est pas la source qui refuse : redemande ces épisodes dans quelques minutes.\n`
           : "") +
         (cacheHits > 0
           ? `⚡ *Cache:* ${cacheHits}/${indices.length} épisode(s) déjà présents — servis instantanément, sans re-téléchargement.\n`

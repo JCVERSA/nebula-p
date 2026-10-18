@@ -26,9 +26,27 @@ const TEMP_DOWNLOAD_DIR = path.join(os.tmpdir(), "nebula_temp_downloads");
 // fill the host disk via temp downloads.
 // 8.83 : défaut abaissé à 2 Go — calibré pour les petits conteneurs (7-8 Go)
 // où l'ancien 4 Go ne pouvait jamais être atteint sans remplir le disque.
-function getTempMaxTotalBytes(): number {
+export function getTempMaxTotalBytes(): number {
   const raw = Number(process.env.NEBULA_TEMP_MAX_BYTES);
   return Number.isFinite(raw) && raw > 0 ? raw : 2 * 1024 * 1024 * 1024;
+}
+
+/**
+ * 9.18yyy : le coffre accepterait-il ce fichier ? (usage actuel + taille vs
+ * plafond) — lecture PURE, jamais de throw. Terrain 18/10 run 2 : le coffre
+ * était encore occupé par les liens du run précédent (sidecars uuu restaurés
+ * au boot) quand E05/E07/E08 ont terminé ; registerTempDownload a jeté
+ * « quota reached » et le batch a annoncé « la source les refuse » — faux.
+ * Ce prédicat permet au batch de prendre le chemin PRUDENT (lien noCopy
+ * depuis le cache de réutilisation) AVANT que register ne jette.
+ */
+export function wouldExceedTempQuota(sizeBytes: number): boolean {
+  try {
+    const currentTotal = getTempStorageStats().totalMB * 1024 * 1024;
+    return currentTotal + sizeBytes > getTempMaxTotalBytes();
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -98,7 +98,9 @@ describe("batch recap wiring (8.40)", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
     expect(src).toContain("formatFailedEpisodes(");
     // 9.18xxx : épisodes TENTÉS seulement (les différés mémoire ne sont pas « refusés »).
-    expect(src).toContain("indices.slice(0, indices.length - memoryDeferredCount).map(i => i + 1)");
+    // 9.18yyy : les différés coffre plein non plus — la source a livré.
+    expect(src).toContain("const attemptedEpNums = indices");
+    expect(src).toContain(".filter(n => !vaultDeferredSet.has(n))");
   });
 });
 
@@ -133,7 +135,8 @@ describe("9.18xxx — fastLaneMismatch : la seule vérité est le fichier (terra
 describe("9.18xxx — rapport de batch : attribution honnête (source pins)", () => {
   it("les différés par la garde mémoire ne sont plus listés « refusés par la source »", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
-    expect(src).toContain("indices.slice(0, indices.length - memoryDeferredCount).map(i => i + 1)");
+    expect(src).toContain("const attemptedEpNums = indices");
+    expect(src).toContain(".filter(n => !vaultDeferredSet.has(n))");
     expect(src).not.toContain("formatFailedEpisodes(\n          indices.map(i => i + 1)");
   });
 

@@ -72,7 +72,12 @@ export function reuseMaxBytes(): number {
   const raw = Number(process.env.NEBULA_UPLOAD_MAX_MB); // (garde-fou typo éventuel)
   void raw;
   const mb = Number(process.env.NEBULA_REUSE_MAX_MB);
-  const value = Number.isFinite(mb) && mb > 0 ? Math.min(4096, Math.max(64, Math.floor(mb))) : 1024;
+  // 9.18yyy : défaut relevé à 2048 Mo — terrain 18/10 : un batch de 8
+  // épisodes pèse 1,81 Go (dont deux « 480P » réellement 1080P à 710-725
+  // Mo). À 1 GiB le cache évictait EN PLEIN BATCH (LRU) : au run suivant,
+  // chaque lookup arrivait APRÈS l'éviction de son épisode — 1,7 Go
+  // re-téléchargés pour rien. 2048 tient un batch terrain entier.
+  const value = Number.isFinite(mb) && mb > 0 ? Math.min(4096, Math.max(64, Math.floor(mb))) : 2048;
   return value * 1024 * 1024;
 }
 

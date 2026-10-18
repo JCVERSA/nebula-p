@@ -13,6 +13,7 @@ import {
   normalizeTitleForReuse,
   pruneMediaReuse,
   purgeAllMediaReuse,
+  reuseMaxBytes,
   storeMediaReuse,
   ytvReuseKey
 } from "../src/bot/services/mediaReuseStore.js";
@@ -256,5 +257,29 @@ describe("9.18t — TTL par entrée : 5 h social, 24 h défaut", () => {
     expect(songReuseKey("https://youtu.be/dQw4w9WgXcQ?t=30")).toBe("m|dQw4w9WgXcQ");
     expect(songReuseKey("https://www.youtube.com/shorts/abcdefghijk")).toBe("m|abcdefghijk");
     expect(songReuseKey("https://m.tiktok.com/x")).toBe(""); // pas YouTube → pas de cache
+  });
+});
+
+// ── 9.18yyy : cap calibré terrain — un batch entier tient au cache ─────────
+describe("9.18yyy — cap calibré terrain (plus de thrash en plein batch)", () => {
+  it("défaut 2048 Mo (terrain 18/10 : 8 épisodes = 1,81 Go, dont deux « 480P » réellement 1080P)", () => {
+    expect(reuseMaxBytes()).toBe(2048 * 1024 * 1024);
+  });
+
+  it("le run 2 du terrain ne thrash plus : les 6 épisodes restent tous cachés (fichiers creux)", () => {
+    // Tailles EXACTES du terrain (octets réels) : E03-E08 de Jaadugar.
+    const sizes = [90_871_818, 95_108_933, 725_592_829, 97_074_069, 89_877_934, 709_731_409];
+    const keys = sizes.map((_, i) => animeReuseKey("Jaadugar: A Witch in Mongolia", 1, i + 3, "VF", "480P"));
+    sizes.forEach((sz, i) => {
+      const p = path.join(staging, `terrain_${i}.mp4`);
+      fs.writeFileSync(p, Buffer.alloc(64, 1));
+      fs.truncateSync(p, sz); // fichier creux : taille apparente sans occuper le disque
+      expect(storeMediaReuse(keys[i], p, `Jaadugar_E${String(i + 3).padStart(2, "0")}.mp4`)).not.toBeNull();
+    });
+    // Run 2 : chaque lookup doit TOUCHER — à l'ancien cap 1 GiB, les stores
+    // de E03/E04/E05 évictaient E06 puis E07/E08 AVANT leurs lookups.
+    for (const k of keys) {
+      expect(lookupMediaReuse(k)).not.toBeNull();
+    }
   });
 });
