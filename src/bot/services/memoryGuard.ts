@@ -10,6 +10,7 @@
  */
 
 import os from "os";
+import fs from "fs";
 
 export const RSS_PAUSE_THRESHOLD_MB = 700; // gros hôtes (≥ 1,4 Go) — audit 8.50
 export const RSS_CRITICAL_MB = 820;
@@ -27,14 +28,55 @@ const SMALL_HOST_BYTES = 1.4 * 1024 * 1024 * 1024;
 
 export type MemoryPressure = "ok" | "high" | "critical";
 
-export function rssPauseThresholdMb(totalMemBytes: number = os.totalmem()): number {
+// ── 9.18vvv : la limite qui compte est celle du CGROUP, pas de l'hôte ──────
+// Terrain 18/10 : le VPS est un conteneur (Docker/LXC). os.totalmem() peut y
+// voir la RAM de l'HÔTE (dizaines de Go) alors que le kernel tue le moteur à
+// la limite du conteneur (~1 Go) — les seuils adaptatifs uuu restaient alors
+// calés sur 700/820 Mo et le garde était sourd. On lit la limite cgroup
+// (v2 puis v1) et on prend le MIN avec la RAM vue.
+const CGROUP_UNLIMITED_BYTES = 1024 * 1024 * 1024 * 1024; // ≥ 1 To = illimité
+
+export function readCgroupMemLimitBytes(
+  readFile: (p: string) => string = (p) => fs.readFileSync(p, "utf-8")
+): number | null {
+  // cgroup v2 : /sys/fs/cgroup/memory.max — "max" ou un nombre d'octets.
+  try {
+    const t = (readFile("/sys/fs/cgroup/memory.max") || "").trim();
+    if (/^\d+$/.test(t)) {
+      const v = Number(t);
+      if (v > 0 && v < CGROUP_UNLIMITED_BYTES) return v;
+    }
+  } catch {}
+  // cgroup v1 : /sys/fs/cgroup/memory/memory.limit_in_bytes.
+  try {
+    const t = (readFile("/sys/fs/cgroup/memory/memory.limit_in_bytes") || "").trim();
+    if (/^\d+$/.test(t)) {
+      const v = Number(t);
+      if (v > 0 && v < CGROUP_UNLIMITED_BYTES) return v;
+    }
+  } catch {}
+  return null;
+}
+
+/** Pur : la limite effective entre cgroup et RAM vue (le kernel tue au plus bas). */
+export function pickEffectiveMemBytes(totalMemBytes: number, cgroupBytes: number | null): number {
+  if (cgroupBytes !== null && cgroupBytes > 0 && cgroupBytes < totalMemBytes) return cgroupBytes;
+  return totalMemBytes;
+}
+
+/** Limite mémoire effective de CE process (cgroup si présent, sinon RAM vue). */
+export function effectiveTotalMemBytes(): number {
+  return pickEffectiveMemBytes(os.totalmem(), readCgroupMemLimitBytes());
+}
+
+export function rssPauseThresholdMb(totalMemBytes: number = effectiveTotalMemBytes()): number {
   const env = Number(process.env.NEBULA_RSS_PAUSE_MB);
   if (Number.isFinite(env) && env > 0) return Math.floor(env);
   if (totalMemBytes >= SMALL_HOST_BYTES) return RSS_PAUSE_THRESHOLD_MB;
   return Math.max(200, Math.round((totalMemBytes / 1048576) * 0.42));
 }
 
-export function rssCriticalThresholdMb(totalMemBytes: number = os.totalmem()): number {
+export function rssCriticalThresholdMb(totalMemBytes: number = effectiveTotalMemBytes()): number {
   const env = Number(process.env.NEBULA_RSS_CRITICAL_MB);
   if (Number.isFinite(env) && env > 0) return Math.floor(env);
   if (totalMemBytes >= SMALL_HOST_BYTES) return RSS_CRITICAL_MB;
@@ -46,7 +88,7 @@ export function rssMb(): number {
 }
 
 /** Pure classification for tests + the batch worker's decision. */
-export function memoryPressure(currentRssMb: number, totalMemBytes: number = os.totalmem()): MemoryPressure {
+export function memoryPressure(currentRssMb: number, totalMemBytes: number = effectiveTotalMemBytes()): MemoryPressure {
   if (currentRssMb >= rssCriticalThresholdMb(totalMemBytes)) return "critical";
   if (currentRssMb >= rssPauseThresholdMb(totalMemBytes)) return "high";
   return "ok";
@@ -59,7 +101,7 @@ export function memoryPressure(currentRssMb: number, totalMemBytes: number = os.
  */
 export async function enforceMemoryHeadroom(
   label: string,
-  totalMemBytes: number = os.totalmem()
+  totalMemBytes: number = effectiveTotalMemBytes()
 ): Promise<MemoryPressure> {
   let mb = rssMb();
   let level = memoryPressure(mb, totalMemBytes);

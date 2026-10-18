@@ -5,6 +5,8 @@ import {
   RSS_PAUSE_THRESHOLD_MB,
   enforceMemoryHeadroom,
   memoryPressure,
+  readCgroupMemLimitBytes,
+  pickEffectiveMemBytes,
   rssCriticalThresholdMb,
   rssMb,
   rssPauseThresholdMb
@@ -87,6 +89,48 @@ describe("9.18uuu — seuils adaptés à l'hôte (terrain : crash à chaque batc
       delete process.env.NEBULA_RSS_PAUSE_MB;
       delete process.env.NEBULA_RSS_CRITICAL_MB;
     }
+  });
+});
+
+describe("9.18vvv — cgroup : la limite du conteneur, pas la RAM de l'hôte", () => {
+  it("readCgroupMemLimitBytes : v2 numérique, « max », v1 géant (illimité), absent", () => {
+    const reader = (content: Record<string, string>) => (p: string) => {
+      if (!(p in content)) throw new Error("ENOENT");
+      return content[p];
+    };
+    // v2 lisible → la limite.
+    expect(readCgroupMemLimitBytes(reader({ "/sys/fs/cgroup/memory.max": "1073741824\n" }))).toBe(1073741824);
+    // v2 « max » (illimité) et pas de v1 → null.
+    expect(readCgroupMemLimitBytes(reader({ "/sys/fs/cgroup/memory.max": "max\n" }))).toBeNull();
+    // v1 seul, lisible → la limite.
+    expect(
+      readCgroupMemLimitBytes(reader({ "/sys/fs/cgroup/memory/memory.limit_in_bytes": "1000343040\n" }))
+    ).toBe(1000343040);
+    // v1 géant = « illimité » → null (le garde retombe sur la RAM vue).
+    expect(
+      readCgroupMemLimitBytes(reader({ "/sys/fs/cgroup/memory/memory.limit_in_bytes": "9223372036854771712\n" }))
+    ).toBeNull();
+    // Rien de lisible → null, jamais d'exception.
+    expect(readCgroupMemLimitBytes(reader({}))).toBeNull();
+  });
+
+  it("pickEffectiveMemBytes : le MIN gagne (le kernel tue au plus bas)", () => {
+    expect(pickEffectiveMemBytes(64 * 1024 * MB, 1024 * MB)).toBe(1024 * MB);
+    expect(pickEffectiveMemBytes(1024 * MB, 64 * 1024 * MB)).toBe(1024 * MB); // cgroup > RAM vue → RAM
+    expect(pickEffectiveMemBytes(1024 * MB, null)).toBe(1024 * MB); // pas de cgroup → RAM vue
+  });
+
+  it("LE cas terrain : hôte Docker de 64 Go VU, conteneur limité à 1 Go — sans cgroup le garde était sourd", () => {
+    const hostSeen = 64 * 1024 * MB;
+    const cgroup = 1024 * MB;
+    // Sans lecture cgroup : seuils « gros hôte » 700/820 → sourd (le bug).
+    expect(rssPauseThresholdMb(hostSeen)).toBe(RSS_PAUSE_THRESHOLD_MB);
+    // Avec la limite cgroup : seuils adaptés au conteneur réel.
+    const effective = pickEffectiveMemBytes(hostSeen, cgroup);
+    expect(rssPauseThresholdMb(effective)).toBe(430);
+    expect(rssCriticalThresholdMb(effective)).toBe(512);
+    expect(memoryPressure(430, effective)).toBe("high");
+    expect(memoryPressure(512, effective)).toBe("critical");
   });
 });
 
