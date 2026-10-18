@@ -133,6 +133,31 @@ update_lock_acquire() {
 
 update_lock_release() { rm -rf "${UPDATE_LOCK_DIR}" 2>/dev/null || true; }
 
+# ── 9.18ttt : garde « batch en cours » ──────────────────────────────────────
+# Terrain 18/10 : une mise à jour lancée au milieu d'un téléchargement
+# multi-épisodes a tué le batch sans préavis. Un batch actif = un claim
+# disque vivant (PID vivant) dans nebula-disk-claims (registre partagé).
+# NEBULA_FORCE_UPDATE=1 passe outre (décision délibérée).
+live_batch_claims() {
+  local cdir f pid
+  cdir="${NEBULA_CLAIMS_DIR:-${TMPDIR:-/tmp}/nebula-disk-claims}"
+  [ -d "$cdir" ] || return 1
+  for f in "$cdir"/*.json; do
+    [ -f "$f" ] || continue
+    pid="$(sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' "$f" | head -1)"
+    [ -n "$pid" ] || continue
+    kill -0 "$pid" 2>/dev/null && return 0
+  done
+  return 1
+}
+
+require_no_live_batch() {
+  [ "${NEBULA_FORCE_UPDATE:-0}" = "1" ] && return 0
+  if live_batch_claims; then
+    die "Un téléchargement est en cours (batch actif) — attends la fin ou NEBULA_FORCE_UPDATE=1 pour forcer."
+  fi
+}
+
 # Valeur par défaut documentée dans .env.example (pour l'affichage du menu env)
 env_example_default() {
   grep -E "^${1}=" "${APP_DIR}/.env.example" 2>/dev/null | tail -1 | cut -d= -f2- | sed 's/^"//; s/"$//'
@@ -279,7 +304,7 @@ cmd_stop() {
   ok "Moteurs enfants arrêtés."
 }
 
-cmd_restart() { cmd_stop; cmd_start; }
+cmd_restart() { require_no_live_batch; cmd_stop; cmd_start; }  # 9.18ttt
 
 # ---------------------------------------------------------------------------
 # Connexion par code d'appariement (8.74) : appelle l'API panneau locale
@@ -538,6 +563,7 @@ cmd_status() {
 # ---------------------------------------------------------------------------
 cmd_update() {
   require_repo
+  require_no_live_batch   # 9.18ttt : ne jamais tuer un batch en cours
   update_lock_acquire
   trap update_lock_release EXIT   # libéré même en cas de die()
   UPDATE_IN_PROGRESS=1            # autorise cmd_start/cmd_restart internes

@@ -157,7 +157,9 @@ describe("8.95b — fiche agent : qualité explicite, say sans langue/qualité",
 
   it("la règle say interdit langue, disponibilité ET qualité, avec exemple ✗", () => {
     const knowledge = readFileSync(join(__dirname, "../src/bot/commandKnowledge.ts"), "utf-8");
-    expect(knowledge).toContain("jamais la langue, la disponibilité ni la qualité");
+    // 9.18ttt : la duplication dans le contrat de réponse a été compactée
+    // (budget 6000) — la règle vit ENTIERE dans la puce « Animes : ».
+    expect(knowledge).toContain("JAMAIS la langue, la disponibilité ni la qualité");
     expect(knowledge).toContain("Voici X en VF en 480p");
   });
 });

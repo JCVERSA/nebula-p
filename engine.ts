@@ -8,6 +8,7 @@ import { startReminderScheduler } from "./src/bot/services/reminderService.js";
 import { getLiveSocket } from "./src/bot/liveSocket.js";
 import { terminateTrackedSpawns } from "./src/bot/services/spawnRegistry.js";
 import { addLog, startLiveBot, stopLiveBot } from "./src/bot/botEngine.js";
+import { readBuildSha } from "./src/bot/buildInfo.js";
 import { hasRegisteredCreds } from "./src/bot/botsConfig.js";
 import { resolvedFfmpegPath } from "./src/bot/ffmpeg.js";
 
@@ -120,7 +121,8 @@ process.on("SIGTERM", () => void shutdown(0));
 process.on("SIGINT", () => void shutdown(0));
 
 async function main(): Promise<void> {
-  log(`démarrage (port local ${ENGINE_PORT}, auth: ${AUTH_DIR})`);
+  // 9.18ttt : le sha dit CE qui tourne — un « nebula logs » suffit à vérifier un déploiement.
+  log(`démarrage (port local ${ENGINE_PORT}, auth: ${AUTH_DIR}, build ${readBuildSha()})`);
 
   await initRegistry();
   // 9.18w : état volatil de l'agent (confirmations + budget/h) restauré au

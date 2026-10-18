@@ -2,6 +2,7 @@ import { execFile, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 import type { Express } from "express";
+import { listDiskClaims } from "../bot/diskClaims.js";
 
 /**
  * 9.2 — Section « Système » du panneau : mini-console admin.
@@ -212,6 +213,22 @@ export interface SystemRouteOptions {
 }
 
 export function registerSystemRoutes(app: Express, options: SystemRouteOptions = {}): void {
+  // 9.18ttt (terrain 18/10) : update/restart ARRÊTE le moteur — un batch de
+  // téléchargement en cours serait tué sans préavis (8 épisodes perdus en
+  // pleine préparation). Un batch actif = un claim disque VIVANT (registre
+  // fichier inter-processus, auto-nettoyé des PID morts). Refus honnête ;
+  // « stop » reste libre (arrêt délibéré) ; force possible en CLI.
+  const batchGuardBlocked = (req: any): string | null => {
+    try {
+      const claims = listDiskClaims();
+      if (claims.length === 0) return null;
+      const force = req?.query?.force === "1" || req?.body?.force === true;
+      if (force) return null;
+      return `Un téléchargement est en cours (${claims.length} batch actif(s)) — attends le message de fin, puis relance. _(Force CLI : NEBULA_FORCE_UPDATE=1)_`;
+    } catch {
+      return null; // fail-open : une erreur de lecture ne bloque jamais la maintenance
+    }
+  };
   const actions = options.actions || createDefaultSystemActions();
   const limiter = options.actionRateLimit;
 
@@ -238,7 +255,14 @@ export function registerSystemRoutes(app: Express, options: SystemRouteOptions =
     res.json({ lines: await actions.tailBotLog(lines) });
   });
 
-  const runAction = (action: SystemAction) => async (_req: any, res: any) => {
+  const runAction = (action: SystemAction) => async (req: any, res: any) => {
+    if (action === "update" || action === "restart") {
+      const blocked = batchGuardBlocked(req);
+      if (blocked) {
+        res.status(409).json({ ok: false, error: blocked });
+        return;
+      }
+    }
     const result = actions.launch(action);
     if (!result.ok) {
       res.status(action === "update" && result.error?.includes("déjà en cours") ? 409 : 400);

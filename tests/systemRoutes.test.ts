@@ -42,10 +42,17 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "system-routes-"));
   writeFileSync(join(dir, "package.json"), JSON.stringify({ version: "9.2.0-test" }), "utf-8");
   writeFileSync(join(dir, "bot.log"), "ligne 1\nligne 2\nligne 3\n", "utf-8");
+  // 9.18ttt : claims disque ISOLÉS par test — la garde « batch en cours »
+  // lit un registre fichier partagé ; sans isolation, un claim vivant créé
+  // par un AUTRE fichier de tests (processus séparé, même /tmp) bloquerait
+  // ces tests de façon non déterministe.
+  process.env.NEBULA_CLAIMS_DIR = join(dir, "claims");
+  mkdirSync(process.env.NEBULA_CLAIMS_DIR, { recursive: true });
 });
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+  delete process.env.NEBULA_CLAIMS_DIR;
 });
 
 describe("GET /api/system/info", () => {
@@ -180,5 +187,51 @@ describe("GET /api/system/info — processStale (9.18f)", () => {
     require("fs").utimesSync(join(dir, "dist", "server.cjs"), past, past);
     const res = await request(buildApp()).get("/api/system/info").expect(200);
     expect(res.body.processStale).toBe(false);
+  });
+});
+
+describe("9.18ttt — garde « batch en cours » : update/restart ne tuent plus un téléchargement", () => {
+  /** Un claim VIVANT : PID du process de test (kill -0 réussit). */
+  function writeLiveClaim() {
+    writeFileSync(
+      join(process.env.NEBULA_CLAIMS_DIR!, "batch-ttt.json"),
+      JSON.stringify({ jobId: "batch-ttt", botId: "nebula", pid: process.pid, expectedBytes: 1, createdAt: Date.now() }),
+      "utf-8"
+    );
+  }
+
+  it("batch actif → update REFUSÉ (409) avec un message honnête", async () => {
+    writeFakeManageSh();
+    writeLiveClaim();
+    const res = await request(buildApp()).post("/api/system/update").expect(409);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toContain("téléchargement");
+    expect(res.body.error).toContain("1 batch");
+  });
+
+  it("batch actif → restart REFUSÉ aussi ; stop reste LIBRE (arrêt délibéré)", async () => {
+    writeFakeManageSh();
+    writeLiveClaim();
+    await request(buildApp()).post("/api/system/restart").expect(409);
+    const res = await request(buildApp()).post("/api/system/stop").expect(200);
+    expect(res.body.started).toBe(true);
+  });
+
+  it("claim d'un PID MORT → auto-nettoyé, l'update repart (pas de blocage fantôme)", async () => {
+    writeFakeManageSh();
+    writeFileSync(
+      join(process.env.NEBULA_CLAIMS_DIR!, "batch-mort.json"),
+      JSON.stringify({ jobId: "batch-mort", botId: "nebula", pid: 99999999, expectedBytes: 1, createdAt: Date.now() }),
+      "utf-8"
+    );
+    const res = await request(buildApp()).post("/api/system/update").expect(200);
+    expect(res.body.started).toBe(true);
+  });
+
+  it("force explicite (?force=1) → l'update passe (décision délibérée)", async () => {
+    writeFakeManageSh();
+    writeLiveClaim();
+    const res = await request(buildApp()).post("/api/system/update?force=1").expect(200);
+    expect(res.body.started).toBe(true);
   });
 });

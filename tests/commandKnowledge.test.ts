@@ -189,3 +189,18 @@ describe("9.18sss — l'agent comprend `.a vostfr` seul (bascule d'écran)", () 
     expect(k).toContain("ou la dernière recherche");
   });
 });
+
+describe("9.18ttt — l'agent ne refuse plus sur une date du web, et suit le titre de la conversation", () => {
+  it("web ≠ catalogue : « pas encore sorti » → essayer quand même .a avec le titre exact", () => {
+    const k = buildAgentKnowledge(".");
+    expect(k).toContain("EXÉCUTE quand même");
+    expect(k).toContain("seul le catalogue décide");
+    expect(k).toContain("Jamais de refus en boucle fondé sur une date du web");
+  });
+
+  it("sans titre, l'anime dont on PARLE dans le chat prime sur l'historique", () => {
+    const k = buildAgentKnowledge(".");
+    expect(k).toContain("PRIME sur l'historique");
+    expect(k).toContain("jamais le dernier téléchargé");
+  });
+});
