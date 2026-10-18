@@ -212,28 +212,30 @@ export function getBotState() {
 }
 
 /**
- * 9.18ggg — budget de reconnexion (audit 17/10 §3) : 5 tentatives à 5 s,
- * puis une pause longue de 5 min et un NOUVEAU budget — indéfiniment.
- * L'ancien comportement s'arrêtait DÉFINITIVEMENT au 5e échec consécutif
- * alors que le process vivait (health-check 200, superviseur sans
- * incident) : plus personne ne relançait jamais le bot.
+ * 9.18ggg → 9.18qqq (owner 18/10 « tout s'éteint ~5 min ») — budget de
+ * reconnexion. ggg avait raison de supprimer l'arrêt définitif au 5e échec
+ * (audit 17/10 §3) mais l'a remplacé par une pause longue de 5 MINUTES :
+ * or les échecs en RAFALE sont la norme côté Baileys 7.x (408/515, issue
+ * upstream #2192) — 5 échecs consécutifs tombaient en ~30 s, puis le bot
+ * restait TOTALEMENT éteint 5 minutes, même si le réseau était rétabli
+ * depuis 4 min 30. Backoff exponentiel plafonné : 5 s, 5 s, 10 s, 20 s,
+ * 40 s, puis 60 s pour toujours. Une panne longue coûte au plus 1
+ * tentative/min (même protection anti-hammering), une panne brève se
+ * répare en ≤ ~1 min, et on ne s'arrête JAMAIS seul (garantie ggg).
  */
-export const RECONNECT_SERIES = 5;
-export const RECONNECT_LONG_PAUSE_MS = 5 * 60_000;
+export const RECONNECT_BASE_DELAY_MS = 5_000;
+export const RECONNECT_MAX_DELAY_MS = 60_000;
 
 export interface ReconnectPlan {
   delayMs: number;
   /** Nouveau compteur après décision. */
   count: number;
-  /** true = série épuisée → pause longue avant une nouvelle série. */
-  longPause: boolean;
 }
 
 export function nextReconnectPlan(reconnectCount: number): ReconnectPlan {
-  if (reconnectCount >= RECONNECT_SERIES) {
-    return { delayMs: RECONNECT_LONG_PAUSE_MS, count: 0, longPause: true };
-  }
-  return { delayMs: 5_000, count: reconnectCount + 1, longPause: false };
+  const exp = Math.max(0, reconnectCount - 1); // 1re et 2e tentative à 5 s
+  const delayMs = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** exp, RECONNECT_MAX_DELAY_MS);
+  return { delayMs, count: reconnectCount + 1 };
 }
 
 /**
@@ -579,6 +581,10 @@ export async function simulateMessage(senderName: string, text: string): Promise
 // promise now guarantees one socket per (re)start cycle.
 let startInFlight: Promise<void> | null = null;
 
+/** 9.18qqq : incrémenté à chaque arrêt manuel — une relance programmée par
+ * le catch de démarrage ne doit jamais ressusciter un moteur arrêté. */
+let stopEpoch = 0;
+
 export function startLiveBot(isManualStart = false, pairingPhone?: string): Promise<void> {
   if (startInFlight) return startInFlight;
   startInFlight = runStartLiveBot(isManualStart, pairingPhone).finally(() => {
@@ -875,17 +881,13 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           if (isRestartRequired) {
             delayMs = 1200; // Allow credentials to flush to disk before re-initializing
           } else {
-            // 9.18ggg : PLUS D'ARRÊT DÉFINITIF AU 5e ÉCHEC — le process
-            // vivait (health-check 200) et plus personne ne relançait le
-            // bot (audit 17/10 §3). Le budget se renouvelle après une
-            // pause longue, indéfiniment.
+            // 9.18qqq : fini la pause de 5 MINUTES après 5 échecs — les
+            // rafales 408/515 de Baileys 7.x la déclenchaient en ~30 s
+            // puis coupaient le bot TOTALEMENT. Backoff plafonné à 60 s,
+            // indéfiniment (ggg : jamais d'arrêt définitif — conservé).
             const plan = nextReconnectPlan(botState.reconnectCount);
             botState.reconnectCount = plan.count;
-            if (plan.longPause) {
-              addLog(`⏳ ${RECONNECT_SERIES} échecs consécutifs — pause de ${Math.round(plan.delayMs / 60000)} min puis reprise des tentatives (le moteur reste debout).`);
-            } else {
-              addLog(`🔄 Attempting reconnect (${plan.count}/${RECONNECT_SERIES}) in 5 seconds...`);
-            }
+            addLog(`🔄 Attempting reconnect (tentative ${plan.count}) in ${Math.round(plan.delayMs / 1000)}s...`);
             delayMs = plan.delayMs;
           }
 
@@ -1380,10 +1382,32 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
   } catch (error: any) {
     botState.status = "error";
     addLog(`❌ Failed to start bot connection: ${error.message || error}`);
+    // 9.18qqq : cet échec (réseau au démarrage, fetch de version Baileys,
+    // state d'auth illisible…) laissait le moteur MORT jusqu'à un
+    // redémarrage manuel — le process vivait (health-check 200) et plus
+    // personne ne relançait. Même backoff plafonné que la boucle de
+    // reconnexion ; un arrêt manuel pendant la fenêtre annule la relance.
+    if (botState.reconnectTimeout) {
+      clearTimeout(botState.reconnectTimeout);
+      botState.reconnectTimeout = null;
+    }
+    const epoch = stopEpoch;
+    const plan = nextReconnectPlan(botState.reconnectCount);
+    botState.reconnectCount = plan.count;
+    addLog(`🔄 Relance programmée dans ${Math.round(plan.delayMs / 1000)}s (le moteur ne s'arrête plus jamais seul).`);
+    botState.reconnectTimeout = setTimeout(() => {
+      botState.reconnectTimeout = null;
+      if (epoch !== stopEpoch) {
+        addLog("🛑 Relance annulée — arrêt manuel du moteur.");
+        return;
+      }
+      startLiveBot(false);
+    }, plan.delayMs);
   }
 }
 
 export function stopLiveBot() {
+  stopEpoch++; // 9.18qqq : invalide toute relance programmée par le catch
   if (botState.reconnectTimeout) {
     clearTimeout(botState.reconnectTimeout);
     botState.reconnectTimeout = null;
