@@ -149,3 +149,27 @@ describe("9.18xxx — rapport de batch : attribution honnête (source pins)", ()
     expect(src).toContain("liens étiquetés avec la qualité réelle");
   });
 });
+
+// ── 9.18aaaa — quota du lot : le travail téléchargé est livré, jamais détruit ─
+describe("9.18aaaa — quota du lot : livrer, jamais détruire ni mentir", () => {
+  const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+
+  it("l'ancien bloc « supprime le fichier + failed » a disparu (terrain : E10, 906 Mo, jetés après un téléchargement réussi)", () => {
+    expect(src).not.toContain('error: "Batch byte quota exceeded"');
+    // le guard qui escamotait un épisode déjà réclamé (attribution fantôme) est parti
+    expect(src).not.toContain("if (quotaExceeded) return;");
+    // les workers s'arrêtent toujours de RÉCLAMER, mais jamais au milieu d'un livrable
+    expect(src).toContain("if (quotaExceeded || memoryStop) break;");
+  });
+
+  it("le quota LIVRE l'épisode téléchargé puis stoppe les NOUVEAUX lancements", () => {
+    expect(src).toContain("téléchargé sera LIVRÉ, aucun nouvel épisode ne sera lancé");
+    expect(src).toContain("const quotaDeferredCount = quotaExceeded && !memoryStop");
+  });
+
+  it("rapport : les différés quota ne sont pas « refusés par la source » — ligne dédiée", () => {
+    expect(src).toContain("indices.length - memoryDeferredCount - quotaDeferredCount");
+    expect(src).toContain("Quota du lot atteint :");
+    expect(src).toContain("demande les épisodes restants dans une nouvelle commande");
+  });
+});

@@ -60,6 +60,7 @@ import {
   downloadWithAllMirrorsFallback,
   fetchHlsTracksAndSizes,
   resolveCanonicalQualityTrack,
+  HLS_FFMPEG_PROTOCOL_WHITELIST,
   StreamQualityTrack
 } from "../services/animeStreamExtractor.js";
 import {
@@ -2512,6 +2513,11 @@ async function executeFfmpegDownload(
       const headersStr = `Referer: ${downloadSourceUrl}\r\nOrigin: ${originUrl}\r\n`;
       const args = [
         "-y",
+        // 9.18aaaa : sans whitelist explicite, le demuxer HLS bloque les
+        // segments https d'une playlist locale (défaut file,crypto,data) —
+        // ce fallback était mort pour toute playlist auth_playlist_*.m3u8.
+        "-protocol_whitelist",
+        HLS_FFMPEG_PROTOCOL_WHITELIST,
         "-user_agent",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "-headers",
@@ -2718,7 +2724,6 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     const vaultDeferredEpisodes: Array<{ epNum: number; sizeMB: number }> = [];
 
     const processEpisodeTask = async (i: number) => {
-      if (quotaExceeded) return;
       const epIndex = indices[i];
       const epNum = epIndex + 1;
       const formattedEpisode = `E${String(epNum).padStart(2, "0")}`;
@@ -2826,12 +2831,16 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
         if (success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
           const thisMB = fs.statSync(localPath).size / (1024 * 1024);
+          // 9.18aaaa (terrain 18/10) : un épisode TÉLÉCHARGÉ n'est JAMAIS
+          // détruit ni menti « refusé par la source » — E10 (906 Mo) a été
+          // supprimé après un téléchargement réussi puis annoncé refusé.
+          // Le quota borne le lancement de NOUVEAUX épisodes, pas le travail
+          // déjà fait : celui-ci est livré, les suivants ne seront pas lancés.
           if (totalMBDownloaded + thisMB > MAX_BATCH_TOTAL_MB) {
-            try { fs.unlinkSync(localPath); } catch {}
             quotaExceeded = true;
-            failedEpisodeCount++;
-            updateEpisodeProgress(batchJob.id, epNum, { status: "failed", progressPercent: 0, error: "Batch byte quota exceeded" });
-            return;
+            console.warn(
+              `[NOVABOX] 📏 Quota du lot atteint (${Math.round(totalMBDownloaded + thisMB)}/${MAX_BATCH_TOTAL_MB} Mo) — ép. ${epNum} téléchargé sera LIVRÉ, aucun nouvel épisode ne sera lancé.`
+            );
           }
           totalMBDownloaded += thisMB;
 
@@ -2971,6 +2980,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     // Episodes never claimed by a worker = deferred by the memory guard (an
     // episode claimed and failed is NOT deferred — it is reported as failed).
     const memoryDeferredCount = memoryStop ? indices.length - nextEpisodeIdx : 0;
+    // 9.18aaaa : épisodes jamais lancés parce que le quota d'octets du lot
+    // était atteint — différés honnêtes, jamais « refusés par la source ».
+    const quotaDeferredCount = quotaExceeded && !memoryStop ? indices.length - nextEpisodeIdx : 0;
     // 9.18yyy : filtres du rapport — les différés coffre plein ne sont pas
     // « refusés par la source », et la ligne qualité réelle ne doit parler
     // QUE des liens réellement livrés (terrain run 2 : elle annonçait des
@@ -3026,8 +3038,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       updateJobStatus(
         batchJob.id,
         "completed",
-        memoryDeferredCount > 0 || vaultDeferredEpisodes.length > 0
-          ? `Batch ready (partiel — ${memoryDeferredCount} différé(s) garde mémoire, ${vaultDeferredEpisodes.length} différé(s) coffre plein)`
+        memoryDeferredCount > 0 || vaultDeferredEpisodes.length > 0 || quotaDeferredCount > 0
+          ? `Batch ready (partiel — ${memoryDeferredCount} différé(s) garde mémoire, ${vaultDeferredEpisodes.length} différé(s) coffre plein, ${quotaDeferredCount} différé(s) quota du lot)`
           : "Batch download ready"
       );
     } else {
@@ -3038,12 +3050,16 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           ? "Memory guard deferred all episodes"
           : vaultDeferredEpisodes.length > 0
             ? "Delivery vault full — episodes deferred"
-            : "No streams could be resolved",
+            : quotaDeferredCount > 0
+              ? "Batch byte quota reached — episodes deferred"
+              : "No streams could be resolved",
         memoryDeferredCount > 0
           ? "Pression RAM critique — réessaye dans quelques minutes"
           : vaultDeferredEpisodes.length > 0
             ? "Coffre de livraison plein — réessaie dans quelques minutes"
-            : "Aucun épisode téléchargeable (sources indisponibles)"
+            : quotaDeferredCount > 0
+              ? "Quota du lot atteint — demande le reste dans une nouvelle commande"
+              : "Aucun épisode téléchargeable (sources indisponibles)"
       );
     }
 
@@ -3086,11 +3102,12 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         }
       }
 
-      // 9.18xxx/9.18yyy : « Épisodes échoués » = épisodes TENTÉS et non
-      // livrés — ni les différés mémoire (jamais lancés), ni les différés
-      // coffre plein (téléchargés puis non stockés : la source a livré).
+      // 9.18xxx/9.18yyy/9.18aaaa : « Épisodes échoués » = épisodes TENTÉS et
+      // non livrés — ni les différés mémoire (jamais lancés), ni les différés
+      // coffre plein (téléchargés puis non stockés : la source a livré), ni
+      // les différés quota du lot (jamais lancés non plus).
       const attemptedEpNums = indices
-        .slice(0, indices.length - memoryDeferredCount)
+        .slice(0, indices.length - memoryDeferredCount - quotaDeferredCount)
         .map(i => i + 1)
         .filter(n => !vaultDeferredSet.has(n));
       let responseMsg =
@@ -3108,6 +3125,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           : "") +
         (vaultDeferredEpisodes.length > 0
           ? `🗄️ *Coffre de livraison plein :* ép. ${vaultDeferredEpisodes.map(v => `${v.epNum} (${v.sizeMB} Mo)`).join(", ")} téléchargé(s) mais non stocké(s) — les liens déjà livrés occupent le coffre. Ce n'est pas la source qui refuse : redemande ces épisodes dans quelques minutes.\n`
+          : "") +
+        (quotaDeferredCount > 0
+          ? `📏 *Quota du lot atteint :* ${quotaDeferredCount} épisode(s) non lancé(s) — ce lot a déjà téléchargé ${Math.round(totalMBDownloaded)} Mo (plafond ${MAX_BATCH_TOTAL_MB} Mo). Ce n'est pas la source qui refuse : demande les épisodes restants dans une nouvelle commande.\n`
           : "") +
         (cacheHits > 0
           ? `⚡ *Cache:* ${cacheHits}/${indices.length} épisode(s) déjà présents — servis instantanément, sans re-téléchargement.\n`

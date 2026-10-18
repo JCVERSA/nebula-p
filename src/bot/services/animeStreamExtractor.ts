@@ -1293,6 +1293,18 @@ export async function prepareLocalHlsPlaylist(
 }
 
 /**
+ * 9.18aaaa : whitelist de protocoles du ffmpeg réseau HLS. Le demuxer HLS
+ * applique une whitelist par défaut « file,crypto,data » quand l'entrée est
+ * une playlist LOCALE (auth_playlist_*.m3u8) — TOUS les segments https
+ * distants sont alors refusés (« Protocol 'https' not on whitelist »).
+ * Terrain 18/10 : le fallback ffmpeg d'un épisode a échoué sur 72 segments
+ * consécutifs pour cette seule raison — le fallback était un code mort qui
+ * ne pouvait JAMAIS télécharger. https/http/tcp/tls sont ajoutés pour les
+ * segments, clés et playlists distantes.
+ */
+export const HLS_FFMPEG_PROTOCOL_WHITELIST = "file,crypto,data,https,http,tcp,tls";
+
+/**
  * Executes direct stream download or ffmpeg compilation with custom headers
  */
 export async function executeDirectOrFfmpegDownload(
@@ -1389,6 +1401,9 @@ export async function executeDirectOrFfmpegDownload(
     return new Promise((resolve) => {
       const args = [
         "-y",
+        // 9.18aaaa : sans whitelist explicite, le demuxer HLS bloque les
+        // segments https d'une playlist locale (défaut file,crypto,data).
+        "-protocol_whitelist", HLS_FFMPEG_PROTOCOL_WHITELIST,
         "-user_agent", userAgent,
         "-headers", headerStr,
         "-reconnect", "1",

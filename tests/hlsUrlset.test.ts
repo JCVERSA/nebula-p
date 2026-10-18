@@ -24,6 +24,7 @@ import {
   resolveVidmolyUrlset,
   VIDMOLY_URLSET_ATTEMPT_BUDGET
 } from "../src/bot/services/hlsDownloader.js";
+import { HLS_FFMPEG_PROTOCOL_WHITELIST } from "../src/bot/services/animeStreamExtractor.js";
 
 const mockedGet = axios.get as unknown as ReturnType<typeof vi.fn>;
 
@@ -133,5 +134,26 @@ describe("urlset wiring (8.43)", () => {
     const src = fs.readFileSync("src/bot/services/animeStreamExtractor.ts", "utf-8");
     const funnel = src.slice(src.indexOf("export async function executeDirectOrFfmpegDownload"));
     expect(funnel.slice(0, 2000)).toContain("resolveVidmolyUrlset(stream.url");
+  });
+});
+
+// ── 9.18aaaa : le fallback ffmpeg réseau HLS enfin VIVANT ──────────────────
+describe("9.18aaaa — whitelist de protocoles du ffmpeg réseau HLS", () => {
+  it("la whitelist couvre les segments https distants (le défaut file,crypto,data les bloquait TOUS)", () => {
+    // Terrain 18/10 : « Protocol 'https' not on whitelist 'file,crypto,data'! »
+    // sur 72 segments consécutifs — le fallback était un code mort.
+    expect(HLS_FFMPEG_PROTOCOL_WHITELIST).toContain("file");
+    expect(HLS_FFMPEG_PROTOCOL_WHITELIST).toContain("crypto");
+    expect(HLS_FFMPEG_PROTOCOL_WHITELIST).toContain("https");
+    expect(HLS_FFMPEG_PROTOCOL_WHITELIST).toContain("tls");
+  });
+
+  it("les DEUX spawns ffmpeg réseau passent la whitelist (funnel extracteur + novabox)", () => {
+    const extractor = fs.readFileSync("src/bot/services/animeStreamExtractor.ts", "utf-8");
+    const funnel = extractor.slice(extractor.indexOf("export async function executeDirectOrFfmpegDownload"));
+    expect(funnel.slice(0, 6000)).toContain('"-protocol_whitelist", HLS_FFMPEG_PROTOCOL_WHITELIST');
+    const nova = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+    expect(nova).toContain('"-protocol_whitelist",');
+    expect(nova).toContain("HLS_FFMPEG_PROTOCOL_WHITELIST");
   });
 });
