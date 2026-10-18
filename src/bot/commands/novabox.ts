@@ -7,7 +7,7 @@ import os from "os";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { animeReuseKey, lookupMediaReuse, storeMediaReuse } from "../services/mediaReuseStore.js";
 import { buildDownloadPage } from "../services/downloadPage.js";
-import { formatFailedEpisodes } from "../services/batchRecap.js";
+import { formatFailedEpisodes, fastLaneMismatch } from "../services/batchRecap.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
 import { isNakanimeUrl, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js"; // 8.69: dormant mirror — parse helpers only, never searched
 import { recordAnimeChoice } from "../services/animeChoices.js";
@@ -2675,6 +2675,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     const generatedLinks: Array<{ epNum: number; downloadUrl: string; sizeMB: number; filename: string; expiresAt: number }> = [];
     let cacheHits = 0; // 9.15 : épisodes servis depuis le cache de réutilisation
     let failedEpisodeCount = 0;
+    // 9.18xxx : épisodes dont la source a trompé l'étiquette qualité (flux
+    // 1080P servi sous une variante « 480P ») — corrigés + signalés au owner.
+    const qualityLies: Array<{ epNum: number; real: string; sizeMB: number }> = [];
     // 9.18m (audit Z1) : fichiers éligibles au ZIP de saison, APPARIÉS à leur
     // numéro d'épisode. L'ancien code faisait generatedLinks.map(...,
     // downloadedFilePaths[idx]) : dès qu'un épisode venait du cache (présent
@@ -2706,7 +2709,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       const epNum = epIndex + 1;
       const formattedEpisode = `E${String(epNum).padStart(2, "0")}`;
       const filenameBase = `${animeClean}_${lang}_${resolution}_${formattedSeason}_${formattedEpisode}`;
-      const filename = sanitizeFilename(filenameBase) + ".mp4";
+      let filename = sanitizeFilename(filenameBase) + ".mp4";
       const localPath = path.join(os.tmpdir(), `batch_${Date.now()}_${i}_${filename}`);
 
       // 9.15 : épisode déjà présent dans le cache (quelqu'un l'a téléchargé
@@ -2786,6 +2789,26 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           // Move file into managed temporary store — TTL glissant 8.83 :
           // 30 min par défaut (NEBULA_LINK_TTL_MIN), remises à zéro à chaque
           // téléchargement, vie totale plafonnée à 2 h.
+          // 9.18xxx : honnêteté qualité — la seule vérité est le fichier.
+          // Terrain 18/10 : E05/E08 « 480P » livrés à 710-725 Mo (flux
+          // 1080P servi sous une variante mal étiquetée, sans liste de
+          // pistes lisible). On sonde la hauteur RÉELLE et on corrige
+          // l'étiquette du lien au lieu de livrer un mensonge.
+          try {
+            const stSize = fs.statSync(localPath).size;
+            if (fastLaneMismatch(resolution, stSize, null)) {
+              const probedFast = await probeVideoInfo(localPath);
+              const real = fastLaneMismatch(resolution, stSize, probedFast.height);
+              if (real) {
+                filename = sanitizeFilename(filenameBase.replace(`_${resolution}_`, `_${real}_`)) + ".mp4";
+                qualityLies.push({ epNum, real, sizeMB: Math.round(stSize / 1e6) });
+                console.warn(
+                  `[NOVABOX] Qualité réelle E${String(epNum).padStart(2, "0")} : ${real} (demandé ${resolution}, ${Math.round(stSize / 1e6)} Mo) — étiquette corrigée honnêtement.`
+                );
+              }
+            }
+          } catch {}
+
           // 9.15 : le fichier entre au cache de réutilisation (lien physique,
           // zéro octet supplémentaire) — le prochain demandeur l'aura instantanément.
           try { storeMediaReuse(reuseKeyFor(epNum), localPath, filename); } catch {}
@@ -2970,9 +2993,15 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         `⚙️ *Quality:* ${resolution}\n` +
         `📦 *Ready Episodes:* ${generatedLinks.length}/${indices.length}\n` +
         formatFailedEpisodes(
-          indices.map(i => i + 1),
+          // 9.18xxx : uniquement les épisodes TENTÉS — les différés par la
+          // garde mémoire n'ont jamais été lancés, ce n'est pas la source
+          // qui les refuse (terrain : E9/E10 listés « refusés » à tort).
+          indices.slice(0, indices.length - memoryDeferredCount).map(i => i + 1),
           generatedLinks.map(g => g.epNum)
         ) +
+        (qualityLies.length > 0
+          ? `⚠️ *Qualité réelle :* ép. ${qualityLies.map(q => `${q.epNum} servi en ${q.real} (${q.sizeMB} Mo)`).join(", ")} — la source n'a pas servi le ${resolution} demandé pour ${qualityLies.length > 1 ? "ces épisodes" : "cet épisode"}, liens étiquetés avec la qualité réelle.\n`
+          : "") +
         (cacheHits > 0
           ? `⚡ *Cache:* ${cacheHits}/${indices.length} épisode(s) déjà présents — servis instantanément, sans re-téléchargement.\n`
           : "") +

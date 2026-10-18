@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "fs";
 import { deriveSubVariantUrls, getHeaderCandidates } from "../src/bot/services/hlsDownloader.js";
-import { formatFailedEpisodes } from "../src/bot/services/batchRecap.js";
+import { FASTLANE_HONEST_MAX_BYTES, fastLaneMismatch, formatFailedEpisodes } from "../src/bot/services/batchRecap.js";
 
 /**
  * Audit 8.40 — episodes served as `_,n,l,.urlset/master.m3u8` 403 on the
@@ -97,6 +97,52 @@ describe("batch recap wiring (8.40)", () => {
   it("novabox summary includes the failed-episodes line", () => {
     const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
     expect(src).toContain("formatFailedEpisodes(");
-    expect(src).toContain("indices.map(i => i + 1)");
+    // 9.18xxx : épisodes TENTÉS seulement (les différés mémoire ne sont pas « refusés »).
+    expect(src).toContain("indices.slice(0, indices.length - memoryDeferredCount).map(i => i + 1)");
+  });
+});
+
+describe("9.18xxx — fastLaneMismatch : la seule vérité est le fichier (terrain E05/E08)", () => {
+  const MB = 1024 * 1024;
+  it("un vrai 480P (~90-200 Mo) garde son label ; 720P/1080P ne sont pas des fast lanes", () => {
+    expect(fastLaneMismatch("480P", 90 * MB, 480)).toBeNull();
+    expect(fastLaneMismatch("480P", 200 * MB, 480)).toBeNull();
+    expect(fastLaneMismatch("1080P", 900 * MB, 1080)).toBeNull(); // pas un fast lane
+    expect(fastLaneMismatch("720P", 700 * MB, 720)).toBeNull();
+  });
+
+  it("LE cas terrain : 480P demandé, 725 Mo livrés, hauteur réelle 1080 → étiquette corrigée", () => {
+    expect(fastLaneMismatch("480P", 725 * MB, 1080)).toBe("1080P");
+    expect(fastLaneMismatch("480P", 710 * MB, 720)).toBe("720P");
+    expect(fastLaneMismatch("360P", 300 * MB, 1080)).toBe("1080P");
+  });
+
+  it("gros fichier, hauteur inconnue → SOURCE (neutre honnête) ; gros mais réellement ≤480p → label vrai", () => {
+    expect(fastLaneMismatch("480P", 725 * MB, null)).toBe("SOURCE");
+    expect(fastLaneMismatch("480P", 300 * MB, 480)).toBeNull(); // épisode long honnête
+  });
+
+  it("le plafond honnête est posé à 250 Mo", () => {
+    expect(FASTLANE_HONEST_MAX_BYTES).toBe(250 * 1024 * 1024);
+    expect(fastLaneMismatch("480P", FASTLANE_HONEST_MAX_BYTES, 1080)).toBeNull(); // à la frontière → encore honnête
+    expect(fastLaneMismatch("480P", FASTLANE_HONEST_MAX_BYTES + 1, 1080)).toBe("1080P"); // au-delà → sonde
+    expect(fastLaneMismatch("480P", FASTLANE_HONEST_MAX_BYTES - 1, 1080)).toBeNull(); // en-deçà → ok
+  });
+});
+
+describe("9.18xxx — rapport de batch : attribution honnête (source pins)", () => {
+  it("les différés par la garde mémoire ne sont plus listés « refusés par la source »", () => {
+    const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+    expect(src).toContain("indices.slice(0, indices.length - memoryDeferredCount).map(i => i + 1)");
+    expect(src).not.toContain("formatFailedEpisodes(\n          indices.map(i => i + 1)");
+  });
+
+  it("la vérification qualité réelle est branchée dans le batch (sonde + étiquette corrigée + signalement)", () => {
+    const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+    expect(src).toContain("fastLaneMismatch(resolution, stSize, null)");
+    expect(src).toContain("fastLaneMismatch(resolution, stSize, probedFast.height)");
+    expect(src).toContain("qualityLies.push");
+    expect(src).toContain("Qualité réelle :");
+    expect(src).toContain("liens étiquetés avec la qualité réelle");
   });
 });
