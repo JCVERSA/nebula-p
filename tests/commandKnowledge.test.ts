@@ -141,7 +141,8 @@ describe("commandKnowledge — injection dans le persona", () => {
   it("ne casse pas le persona de base (voix inchangée)", () => {
     const p = getPersonaPrompt("command", "Nebula");
     expect(p).toContain("# Identity");
-    expect(p).toContain("Jcversa — Dark Neon");
+    expect(p).not.toContain("Jcversa");
+    expect(p).not.toContain("Dark Neon");
     expect(p.indexOf("# Identity")).toBeLessThan(p.indexOf("# Tes commandes"));
   });
 });

@@ -14,7 +14,7 @@ let runAsOwner: typeof import("../src/bot/botEngine.js").runAsOwnerCommand;
 let setRemoteState: typeof import("../src/bot/botEngine.js").__setRemoteStateForTests;
 
 const auth = { Authorization: "Bearer test-panel-token" };
-const OWNER = "237640143760";
+const OWNER = "15551234567";
 
 /** Faux sock : capture tout sendMessage (les réponses vont au chat owner). */
 function fakeSock() {

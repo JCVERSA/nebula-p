@@ -3,7 +3,7 @@
  *
  * Extrait à l'identique de la boucle de messages de botEngine.ts (chemin
  * préfixe, éprouvé en prod) pour être réutilisé par l'agent IA :
- *   - chemin préfixe  : `.gce a bio 2023 2` tapé par l'utilisateur ;
+ *   - chemin préfixe  : `.wiki France` tapé par l'utilisateur ;
  *   - chemin agent    : demande naturelle traduite par l'IA (privé, beta).
  *
  * Le dispatch construit le contexte complet (reply/react/média/groupe),

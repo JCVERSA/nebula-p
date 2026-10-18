@@ -42,14 +42,14 @@ un peu élevé (pattern connu de Baileys 7.x, voir §6).
 |-------|-----------------|------------------|
 | ~5:02 | Moteur relancé (sync eee) | `cmd_update` → `cmd_stop` (panel 10 s → SIGKILL, puis moteurs 8 s → SIGKILL) : arrêt propre, pas de double moteur |
 | ~5:0x–5:28 | Flot `Session error: Bad MAC` (sans horodatage — brut libsignal) | Messages reçus autour du redémarrage indéchiffrables (cause connue et documentée dans leur propre commentaire 9.18b : « messages hors-ordre/rejoués après une reconnexion, ~15 fois par incident »). **Ces messages sont perdus silencieusement.** Et le filtre censé les avaler ne marche pas (§4) |
-| 5:28:57 | `[p]` Dark Neon | dispatch sur socket-1 |
+| 5:28:57 | `[p]` l'owner | dispatch sur socket-1 |
 | 5:29:24 | `voir-anime search: 4 result(s) "shiboyugi"` | le flux anime démarre sur socket-1 |
 | ~5:31 | choix du film → téléchargement 1 091,8 Mo | |
 | 5:31:34 | ❌ `408 Connection was lost` → reconnect (1/5) | **15 s de silence reçu** (§2) pendant que le cœur unique gère le téléchargement → Baileys se coupe lui-même. Récupéré en 9 s |
 | 5:31:36 | `Error sending message: Connection Closed` | la réponse d'étape du flux anime part sur socket-1 en train de mourir (§1) |
 | 5:31:43 | ✅ CONNECTED (socket-2) | |
 | 5:41:34 | `[Presence] Failed` + `Error sending message: Connection Closed` | le flux anime (déclenché à 5:29, téléchargement ~10 min) livre via **socket-1 mort depuis 10 min** (§1). L'utilisateur n'a rien reçu — pas de retry, l'erreur est avalée |
-| 6:03:13 | Message Ange reçu et traité (IG) | **preuve que socket-2 vivait et recevait** — les échecs de 5:41 viennent donc bien de la référence périmée, pas d'une panne |
+| 6:03:13 | Message d'un autre utilisateur reçu et traité (IG) | **preuve que socket-2 vivait et recevait** — les échecs de 5:41 viennent donc bien de la référence périmée, pas d'une panne |
 | ~6:06 | Film livré + offre ⚖️ | le flux est repassé par un message neuf → dispatch sur socket-2 vivant |
 | 16:42 / 21:39 / 22:02 | 3× `515 stream refresh` → reconnect en 1,2 s | rafraîchissement normal côté serveurs WhatsApp, récupération quasi instantanée. Chaque fois, l'owner reçoit en plus un « is online and connected! » (§7) |
 

@@ -34,7 +34,7 @@ export interface WatchSubscription {
 
 export const WATCH_MAX_PER_CHAT = 20;
 export const WATCH_MAX_GLOBAL = 200;
-export const WATCH_DEFAULT_TZ = "Africa/Douala";
+export const WATCH_DEFAULT_TZ = "UTC"; // 9.18hhh : plus de pays codé dur
 
 function getDataDir(): string {
   return process.env.NEBULA_DATA_DIR || path.join(process.cwd(), "database");
@@ -227,7 +227,7 @@ export interface WatchCycleSummary {
 export async function runWatchCycle(options: WatchCycleOptions): Promise<WatchCycleSummary> {
   const fetchEpisodes = options.fetchEpisodes || ((url: string) => voiranimeEpisodes(url));
   const now = options.now || new Date();
-  const tz = options.tz || process.env.NEBULA_WATCH_TZ || WATCH_DEFAULT_TZ;
+  const tz = options.tz || process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || "UTC";
   const quietRange = options.quietRange ?? (process.env.NEBULA_WATCH_QUIET ?? "23-7");
   const fromStorage = !options.subscriptions;
   const subs = options.subscriptions || loadSubscriptions();
@@ -308,7 +308,7 @@ export function startWatchScheduler(): void {
         cycleRunning = false;
       }
     });
-    console.log(`[WATCH] episode watcher scheduled (${schedule}, quiet ${process.env.NEBULA_WATCH_QUIET || "23-7"} ${process.env.NEBULA_WATCH_TZ || WATCH_DEFAULT_TZ})`);
+    console.log(`[WATCH] episode watcher scheduled (${schedule}, quiet ${process.env.NEBULA_WATCH_QUIET || "23-7"} ${process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || "UTC"})`);
   } catch (err: any) {
     console.warn(`[WATCH] scheduler unavailable: ${err?.message || err}`);
   }

@@ -14,7 +14,7 @@ import { __resetOwnerLidsForTests, isKnownOwnerLid, ownerDeliveryJid, resolveOwn
  * Ici le « sock » est un faux structural : aucun Baileys, aucun réseau.
  */
 
-const OWNER = "237640143760";
+const OWNER = "15551234567";
 const OWNER_LID = "98765432105378";
 
 const mkSock = (pn: string | null | Error, lidByPn?: string | null | Error) => ({
@@ -43,7 +43,7 @@ afterEach(() => {
 
 describe("8.89 — jid téléphone : comportement inchangé (zéro régression)", () => {
   it("numéro = owner → owner, SANS appeler la table Baileys", async () => {
-    const sock = mkSock("237999999999:0@s.whatsapp.net");
+    const sock = mkSock("1555999999999:0@s.whatsapp.net");
     const r = await resolveOwnerIdentity(sock as any, `${OWNER}@s.whatsapp.net`, OWNER);
     expect(r.isOwner).toBe(true);
     expect(r.senderNumber).toBe(OWNER);
@@ -52,7 +52,7 @@ describe("8.89 — jid téléphone : comportement inchangé (zéro régression)"
   });
 
   it("numéro ≠ owner → non-owner", async () => {
-    const r = await resolveOwnerIdentity(mkSock(null) as any, "237999999999@s.whatsapp.net", OWNER);
+    const r = await resolveOwnerIdentity(mkSock(null) as any, "1555999999999@s.whatsapp.net", OWNER);
     expect(r.isOwner).toBe(false);
   });
 
@@ -62,9 +62,9 @@ describe("8.89 — jid téléphone : comportement inchangé (zéro régression)"
   });
 
   it("config multi-numéros : chacun des candidats est reconnu", async () => {
-    const cfg = `${OWNER}, 237999888777`;
-    expect((await resolveOwnerIdentity(mkSock(null) as any, "237999888777@s.whatsapp.net", cfg)).isOwner).toBe(true);
-    expect((await resolveOwnerIdentity(mkSock(null) as any, "237111222333@s.whatsapp.net", cfg)).isOwner).toBe(false);
+    const cfg = `${OWNER}, 1555999888777`;
+    expect((await resolveOwnerIdentity(mkSock(null) as any, "1555999888777@s.whatsapp.net", cfg)).isOwner).toBe(true);
+    expect((await resolveOwnerIdentity(mkSock(null) as any, "1555111222333@s.whatsapp.net", cfg)).isOwner).toBe(false);
   });
 
   it("config owner vide → jamais owner (même numéro quelconque)", async () => {
@@ -75,8 +75,8 @@ describe("8.89 — jid téléphone : comportement inchangé (zéro régression)"
 
 describe("8.89 — jid @lid : résolution via la table Baileys", () => {
   it("LID résolu vers le numéro owner (suffixe de device éliminé) → owner", async () => {
-    // Piège du suffixe : Baileys renvoie "237640143760:0@s.whatsapp.net" —
-    // une extraction naïve des digits donnerait "2376401437600" (device
+    // Piège du suffixe : Baileys renvoie "15551234567:0@s.whatsapp.net" —
+    // une extraction naïve des digits donnerait "155512345670" (device
     // collé) et le gate refuserait à tort l'owner.
     const r = await resolveOwnerIdentity(mkSock(`${OWNER}:0@s.whatsapp.net`) as any, `${OWNER_LID}@lid`, OWNER);
     expect(r.isOwner).toBe(true);
@@ -85,9 +85,9 @@ describe("8.89 — jid @lid : résolution via la table Baileys", () => {
   });
 
   it("LID résolu vers un AUTRE numéro → non-owner", async () => {
-    const r = await resolveOwnerIdentity(mkSock("237999999999:0@s.whatsapp.net") as any, `${OWNER_LID}@lid`, OWNER);
+    const r = await resolveOwnerIdentity(mkSock("1555999999999:0@s.whatsapp.net") as any, `${OWNER_LID}@lid`, OWNER);
     expect(r.isOwner).toBe(false);
-    expect(r.resolvedNumber).toBe("237999999999");
+    expect(r.resolvedNumber).toBe("1555999999999");
   });
 
   it("table inconnue (null) + NEBULA_OWNER_LID configuré → fallback exact du LID", async () => {
@@ -147,7 +147,7 @@ describe("8.89b — résolution inverse : OWNER_NUMBER → LID (USync)", () => {
 
   it("multi-candidats : le second numéro owner résout le LID", async () => {
     const sock = mkSock(null, `${OWNER_LID}:0@lid`);
-    const r = await resolveOwnerIdentity(sock as any, `${OWNER_LID}@lid`, `237111111111, ${OWNER}`);
+    const r = await resolveOwnerIdentity(sock as any, `${OWNER_LID}@lid`, `1555111111111, ${OWNER}`);
     expect(r.isOwner).toBe(true);
   });
 });
@@ -186,7 +186,7 @@ describe("9.16b — mémoire des LID owner (routes du gestionnaire d'utilisateur
 
   it("LID d'un AUTRE utilisateur → reconnu non-owner, PAS mémorisé", async () => {
     const lidJid = "111122223333444@lid";
-    const sock = mkSock("237999999999:0@s.whatsapp.net");
+    const sock = mkSock("1555999999999:0@s.whatsapp.net");
     const r = await resolveOwnerIdentity(sock as any, lidJid, OWNER);
     expect(r.isOwner).toBe(false);
     expect(isKnownOwnerLid(lidJid)).toBe(false);
@@ -253,7 +253,7 @@ describe("9.18yy — ownerDeliveryJid (F6 : livraison des envois proactifs)", ()
   it("LID mémorisé pour UN AUTRE owner → ne détourne pas la livraison", async () => {
     // Multi-owners : un LID mappé au PN d'un autre owner ne doit pas
     // intercepter la livraison de celui-ci.
-    const otherPn = "237999999998";
+    const otherPn = "1555999999998";
     const sock = mkSock(`${otherPn}:0@s.whatsapp.net`);
     const r = await resolveOwnerIdentity(sock as any, "111122223333444@lid", `${otherPn}`);
     expect(r.isOwner).toBe(true);

@@ -88,8 +88,8 @@ describe("parseSearchArgs — flags de fraîcheur (9.0)", () => {
   });
 
   it("sans flag → pas de fraîcheur (toutes années)", () => {
-    expect(parseSearchArgs(["histoire", "du", "cameroun"])).toEqual({
-      query: "histoire du cameroun",
+    expect(parseSearchArgs(["histoire", "de", "l", "astronomie"])).toEqual({
+      query: "histoire de l astronomie",
       freshness: undefined,
     });
   });
@@ -103,9 +103,9 @@ describe("parseDDGResults — parseur DuckDuckGo (pur, fixture)", () => {
   const FIXTURE = `
   <div class="result results_links web-result">
     <h2 class="result__title">
-      <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.journal.example%2Farticle-1&amp;rut=abc">Cameroun : les <b>actualit&eacute;s</b> du jour</a>
+      <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.journal.example%2Farticle-1&amp;rut=abc">Astronomie : les <b>actualit&eacute;s</b> du jour</a>
     </h2>
-    <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.journal.example%2Farticle-1">Toute l&#x27;actualit&eacute; *camerounaise* en continu.</a>
+    <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.journal.example%2Farticle-1">Toute l&#x27;actualit&eacute; *spatiale* en continu.</a>
   </div>
   <div class="result result--ad">
     <h2 class="result__title">
@@ -126,10 +126,10 @@ describe("parseDDGResults — parseur DuckDuckGo (pur, fixture)", () => {
   it("parse titres/snippets, décode les redirections uddg, ignore les pubs et doublons", () => {
     const hits = parseDDGResults(FIXTURE);
     expect(hits.length).toBe(2);
-    expect(hits[0].title).toBe("Cameroun : les actualités du jour");
+    expect(hits[0].title).toBe("Astronomie : les actualités du jour");
     expect(hits[0].url).toBe("https://www.journal.example/article-1");
     expect(hits[0].domain).toBe("journal.example");
-    expect(hits[0].snippet).toContain("actualité camerounaise"); // entités + * nettoyés
+    expect(hits[0].snippet).toContain("actualité spatiale"); // entités + * nettoyés
     expect(hits[0].snippet).not.toContain("*");
     expect(hits[1].title).toBe("Lien direct sans snippet");
     expect(hits[1].snippet).toBe("");
@@ -148,7 +148,7 @@ describe("parseDDGResults — parseur DuckDuckGo (pur, fixture)", () => {
 
 describe("buildDDGUrl / extractRealUrl / buildTavilyRequest (purs)", () => {
   it("buildDDGUrl encode la requête et mappe la fraîcheur vers df=", () => {
-    expect(buildDDGUrl("loto cameroun")).toBe("https://html.duckduckgo.com/html/?q=loto+cameroun");
+    expect(buildDDGUrl("lottery results")).toBe("https://html.duckduckgo.com/html/?q=lottery+results");
     expect(buildDDGUrl("x", "week")).toContain("df=w");
     expect(buildDDGUrl("x", "day")).toContain("df=d");
     expect(buildDDGUrl("x", "month")).toContain("df=m");
@@ -187,7 +187,7 @@ describe("webQuota — budget partagé (dataDir temporaire)", () => {
   });
 
   it("limite par utilisateur, épuisement, persistance", async () => {
-    const sender = "237640143760@s.whatsapp.net";
+    const sender = "15551234567@s.whatsapp.net";
     expect(checkWebQuota(sender)).toEqual({ allowed: true, remaining: 3, limit: 3 });
     consumeWebQuota(sender);
     consumeWebQuota(sender);
@@ -274,12 +274,12 @@ describe("9.18ff — isDegenerateSearchQuery (retour terrain : « 2 » → Tavil
 
   it("vraies requêtes acceptées", () => {
     expect(isDegenerateSearchQuery("to your eternity opening 3")).toBe(false);
-    expect(isDegenerateSearchQuery("loto cameroun")).toBe(false);
+    expect(isDegenerateSearchQuery("lottery results")).toBe(false);
   });
 });
 
 describe("9.18pp — webQuota : owner illimité (décision owner 16/10, esprit 9.18gg)", () => {
-  const OWNER_PN = "237640143760";
+  const OWNER_PN = "15551234567";
 
   afterEach(() => {
     __resetOwnerLidsForTests();
@@ -308,7 +308,7 @@ describe("9.18pp — webQuota : owner illimité (décision owner 16/10, esprit 9
 
   it("non-owner : plafond inchangé (régression impossible)", () => {
     process.env.NEBULA_WEB_DAILY_LIMIT = "2";
-    const u = "237600000041@s.whatsapp.net";
+    const u = "1555600000041@s.whatsapp.net";
     expect(checkWebQuota(u).limit).toBe(2);
     consumeWebQuota(u);
     consumeWebQuota(u);

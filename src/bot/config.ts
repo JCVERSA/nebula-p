@@ -8,7 +8,7 @@ export interface BotConfig {
   ownerNumber: string;
   newsletterUrl: string;
   newsletterName: string;
-  /** IANA timezone used for the menu header clock (owner: Africa/Douala). */
+  /** IANA timezone of the bot (menu clock, reminders). Global env NEBULA_TZ wins; default UTC — no baked-in country (9.18hhh). */
   timezone?: string;
   browserPlatform?: string;
   browserName?: string;
@@ -23,7 +23,7 @@ export const defaultConfig: BotConfig = {
   ownerNumber: "",
   newsletterUrl: "https://whatsapp.com/channel/0029VaNebulaChannel",
   newsletterName: "Nebula Bot Official News",
-  timezone: "Africa/Douala",
+  timezone: "UTC",
   browserPlatform: "Ubuntu",
   browserName: "Chrome",
   browserVersion: "22.04.4",
@@ -71,4 +71,17 @@ export function updateConfig(newConfig: Partial<BotConfig>): BotConfig {
     console.error("[Config] Failed to persist config:", e?.message || e);
   }
   return currentConfig;
+}
+
+
+/**
+ * 9.18hhh — fuseau global du bot : UNE source de vérité, aucun pays codé dur.
+ * Priorité : NEBULA_TZ (env) > timezone de la config panneau > UTC.
+ * Le menu s'y raccorde ; rappels/veilles/digest lisent l'env directement.
+ */
+export function effectiveTimezone(): string {
+  const fromEnv = (process.env.NEBULA_TZ || "").trim();
+  if (fromEnv) return fromEnv;
+  const fromConfig = (getConfig().timezone || "").trim();
+  return fromConfig || "UTC";
 }

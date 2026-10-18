@@ -47,7 +47,7 @@ ${p}search -w <requête> — limité à la dernière semaine
 ${p}search -d <requête> — dernières 24 h · ${p}search -m mois · ${p}search -y année
 
 Exemples :
-• ${p}search résultats loto cameroun
+• ${p}search derniers résultats loto
 • ${p}search -w canon de la victoire
 
 _La requête est transmise au moteur de recherche (DuckDuckGo)._`;

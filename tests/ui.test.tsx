@@ -25,7 +25,7 @@ const NORMAL_RESPONSES: Record<string, unknown> = {
   "/api/bot/analytics": { stats: { menu: 5, ping: 3 } },
   "/api/bot/users": {
     users: [
-      { jid: "237600000001@s.whatsapp.net", name: "Test User", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 12, commandCount: 3, lastCommand: "menu", banned: false, quota: { ai: { used: 12, limit: 40 }, web: { used: 3, limit: 20 }, asr: { used: 2, limit: 10 } } },
+      { jid: "1555600000001@s.whatsapp.net", name: "Test User", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 12, commandCount: 3, lastCommand: "menu", banned: false, quota: { ai: { used: 12, limit: 40 }, web: { used: 3, limit: 20 }, asr: { used: 2, limit: 10 } } },
       { jid: "120363161513685998@lid", name: "Owner LID", firstSeen: Date.now() - 86400000, lastSeen: Date.now(), messageCount: 40, commandCount: 9, lastCommand: "menu", banned: false, isOwner: true },
     ],
     groups: [
@@ -129,7 +129,7 @@ describe("Nebula dashboard UI", () => {
     await waitFor(() => expect(screen.getByText("Test User")).toBeTruthy());
     expect(screen.getByText("👑 OWNER")).toBeTruthy(); // 9.16b — badge owner, ban impossible
     expect(screen.getByText("IA 12/40")).toBeTruthy(); // 9.18 (B) — quotas visibles
-    expect(screen.getAllByText(/237600000001/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/1555600000001/).length).toBeGreaterThan(0);
 
     await clickNav("Annonces");
     await waitFor(() => expect(screen.getByText("Rédiger l'annonce")).toBeTruthy());

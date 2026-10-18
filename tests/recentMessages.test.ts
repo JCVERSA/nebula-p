@@ -10,7 +10,7 @@ import {
   recordRecentMessage,
 } from "../src/bot/services/recentMessages.js";
 
-const JID = "237999000111@s.whatsapp.net";
+const JID = "1555999000111@s.whatsapp.net";
 
 beforeEach(() => __resetRecentMessagesForTests());
 afterEach(() => __resetRecentMessagesForTests());

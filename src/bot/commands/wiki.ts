@@ -27,7 +27,7 @@ const wikiCommand: BotCommand = {
   execute: async (sock, msg, context) => {
     const subject = context.args.join(" ").trim();
     if (!subject) {
-      await context.reply("📚 *Wikipédia FR*\n\nExemple : `.wiki Cameroun`");
+      await context.reply("📚 *Wikipédia FR*\n\nExemple : `.wiki Astronomie`");
       return;
     }
 

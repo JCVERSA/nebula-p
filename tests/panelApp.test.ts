@@ -196,10 +196,10 @@ describe("Panel multi-bots : routage du proxy", () => {
     const res = await request(app)
       .post("/api/bot/pair-code?bot=bot2")
       .set(auth)
-      .send({ phoneNumber: "237690000000" });
+      .send({ phoneNumber: "1555690000000" });
     expect(res.status).toBe(200);
     expect(res.body.botId).toBe("bot2");
-    expect(res.body.body).toEqual({ phoneNumber: "237690000000" });
+    expect(res.body.body).toEqual({ phoneNumber: "1555690000000" });
   });
 
   it("les routes batchs et gemini passent par le proxy", async () => {

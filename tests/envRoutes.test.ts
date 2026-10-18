@@ -32,7 +32,7 @@ function buildApp() {
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "env-editor-"));
   envFile = join(dir, ".env");
-  writeFileSync(envFile, `OWNER_NUMBER=237640143760\nNEBULA_AI_DAILY_LIMIT="40"\n`, "utf-8");
+  writeFileSync(envFile, `OWNER_NUMBER=15551234567\nNEBULA_AI_DAILY_LIMIT="40"\n`, "utf-8");
   chmodSync(envFile, 0o600);
 });
 
@@ -78,7 +78,7 @@ describe("validateEnvValue (par type)", () => {
   });
 
   it("aucune injection possible : retours ligne, quotes, longueur", () => {
-    expect(validateEnvValue(spec("NEBULA_WATCH_TZ"), 'Africa/Douala\nKEY="evil"')).toContain("retours ligne");
+    expect(validateEnvValue(spec("NEBULA_WATCH_TZ"), 'Europe/Paris\nKEY="evil"')).toContain("retours ligne");
     expect(validateEnvValue(spec("TAVILY_API_KEY"), 'tvly-"x"')).toContain("guillemets");
     expect(validateEnvValue(spec("NEBULA_WATCH_TZ"), "x".repeat(501))).toContain("longue");
   });
@@ -106,7 +106,7 @@ describe("POST /api/system/env", () => {
       .expect(200, { ok: true, restartRequired: true });
     const content = readFileSync(envFile, "utf-8");
     expect(content).toContain('NEBULA_DIGEST_HOUR="7"');
-    expect(content).toContain("OWNER_NUMBER=237640143760"); // intact
+    expect(content).toContain("OWNER_NUMBER=15551234567"); // intact
   });
 
   it("clé hors liste blanche → 400 (aucune variable arbitraire)", async () => {

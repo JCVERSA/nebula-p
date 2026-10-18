@@ -45,15 +45,15 @@ afterEach(() => {
 describe("9.16 — userDirectory (répertoire)", () => {
   it("touchUser : crée au premier message, rafraîchit ensuite (nom frais, compteurs, lastSeen)", () => {
     const t0 = Date.now() - 60_000;
-    touchUser("237600000001@s.whatsapp.net", { name: "Ancien Nom", now: t0 });
+    touchUser("1555600000001@s.whatsapp.net", { name: "Ancien Nom", now: t0 });
     const [first] = listUsers();
-    expect(first.jid).toBe("237600000001@s.whatsapp.net");
+    expect(first.jid).toBe("1555600000001@s.whatsapp.net");
     expect(first.name).toBe("Ancien Nom");
     expect(first.firstSeen).toBe(t0);
     expect(first.messageCount).toBe(1);
     expect(first.banned).toBe(false);
 
-    touchUser("237600000001@s.whatsapp.net", { name: "Nouveau Nom", now: t0 + 5000 });
+    touchUser("1555600000001@s.whatsapp.net", { name: "Nouveau Nom", now: t0 + 5000 });
     const [updated] = listUsers();
     expect(updated.messageCount).toBe(2);
     expect(updated.name).toBe("Nouveau Nom"); // pushName le plus frais
@@ -64,7 +64,7 @@ describe("9.16 — userDirectory (répertoire)", () => {
 
   it("touchGroup : n'enregistre que les jids @g.us, avec subject frais", () => {
     touchGroup("120363000000000000@g.us", { name: "Le Group" });
-    touchGroup("237600000001@s.whatsapp.net", { name: "pas un groupe" }); // ignoré
+    touchGroup("1555600000001@s.whatsapp.net", { name: "pas un groupe" }); // ignoré
     const groups = listGroups();
     expect(groups).toHaveLength(1);
     expect(groups[0].name).toBe("Le Group");
@@ -72,9 +72,9 @@ describe("9.16 — userDirectory (répertoire)", () => {
   });
 
   it("recordCommandUse : compte les commandes d'un utilisateur existant, ignore les inconnus", () => {
-    touchUser("237600000002@s.whatsapp.net", { name: "U2" });
-    recordCommandUse("237600000002@s.whatsapp.net", "a");
-    recordCommandUse("237600000002@s.whatsapp.net", "menu");
+    touchUser("1555600000002@s.whatsapp.net", { name: "U2" });
+    recordCommandUse("1555600000002@s.whatsapp.net", "a");
+    recordCommandUse("1555600000002@s.whatsapp.net", "menu");
     recordCommandUse("inconnu@s.whatsapp.net", "menu"); // no-op silencieux
     const [u] = listUsers();
     expect(u.commandCount).toBe(2);
@@ -82,56 +82,56 @@ describe("9.16 — userDirectory (répertoire)", () => {
   });
 
   it("bannissement : bascule persistante, inconnu refusé honnêtement", () => {
-    touchUser("237600000003@s.whatsapp.net", { name: "U3" });
-    expect(isBannedUser("237600000003@s.whatsapp.net")).toBe(false);
-    expect(setUserBanned("237600000003@s.whatsapp.net", true)).toBe(true);
-    expect(isBannedUser("237600000003@s.whatsapp.net")).toBe(true);
-    expect(setUserBanned("237600000003@s.whatsapp.net", false)).toBe(true);
-    expect(isBannedUser("237600000003@s.whatsapp.net")).toBe(false);
+    touchUser("1555600000003@s.whatsapp.net", { name: "U3" });
+    expect(isBannedUser("1555600000003@s.whatsapp.net")).toBe(false);
+    expect(setUserBanned("1555600000003@s.whatsapp.net", true)).toBe(true);
+    expect(isBannedUser("1555600000003@s.whatsapp.net")).toBe(true);
+    expect(setUserBanned("1555600000003@s.whatsapp.net", false)).toBe(true);
+    expect(isBannedUser("1555600000003@s.whatsapp.net")).toBe(false);
     expect(setUserBanned("jamais-vu@s.whatsapp.net", true)).toBe(false); // 404 honnête
   });
 
   it("persistance : le répertoire survit à un rechargement (atomicité du data dir)", async () => {
-    touchUser("237600000004@s.whatsapp.net", { name: "Persistant" });
-    setUserBanned("237600000004@s.whatsapp.net", true);
+    touchUser("1555600000004@s.whatsapp.net", { name: "Persistant" });
+    setUserBanned("1555600000004@s.whatsapp.net", true);
     // L'écriture est débouncée (1 s) — on attend, puis on SIMULE un redémarrage
     // en important un module frais via le cache réinitialisé.
     await new Promise((r) => setTimeout(r, 1400));
     const file = path.join(DATA_DIR, "user_directory.json");
     expect(fs.existsSync(file)).toBe(true);
     const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
-    expect(raw.users["237600000004@s.whatsapp.net"].name).toBe("Persistant");
-    expect(raw.users["237600000004@s.whatsapp.net"].banned).toBe(true);
+    expect(raw.users["1555600000004@s.whatsapp.net"].name).toBe("Persistant");
+    expect(raw.users["1555600000004@s.whatsapp.net"].banned).toBe(true);
 
     // Rechargement réel : module frais => relecture du disque
     vi.resetModules();
     const mod = await import("../src/bot/userDirectory.js");
     const reloaded = mod.listUsers();
-    expect(reloaded.find((u: { jid: string }) => u.jid === "237600000004@s.whatsapp.net")?.banned).toBe(true);
-    expect(mod.isBannedUser("237600000004@s.whatsapp.net")).toBe(true);
+    expect(reloaded.find((u: { jid: string }) => u.jid === "1555600000004@s.whatsapp.net")?.banned).toBe(true);
+    expect(mod.isBannedUser("1555600000004@s.whatsapp.net")).toBe(true);
   });
 
   it("9.18 (C) — ban avec motif + durée : état lisible, expiration paresseuse honnête", () => {
-    touchUser("237600000010@s.whatsapp.net", { name: "Temp" });
-    setUserBanned("237600000010@s.whatsapp.net", true, { reason: "spam", hours: 2 });
-    const st = getBanState("237600000010@s.whatsapp.net");
+    touchUser("1555600000010@s.whatsapp.net", { name: "Temp" });
+    setUserBanned("1555600000010@s.whatsapp.net", true, { reason: "spam", hours: 2 });
+    const st = getBanState("1555600000010@s.whatsapp.net");
     expect(st.banned).toBe(true);
     expect(st.reason).toBe("spam");
     expect(st.until).toBeGreaterThan(Date.now() + 1.9 * 3600_000);
-    expect(isBannedUser("237600000010@s.whatsapp.net")).toBe(true);
+    expect(isBannedUser("1555600000010@s.whatsapp.net")).toBe(true);
     // Après expiration : levé tout seul, état persisté nettoyé
     const later = Date.now() + 3 * 3600_000;
-    expect(isBannedUser("237600000010@s.whatsapp.net", later)).toBe(false);
-    const stAfter = getBanState("237600000010@s.whatsapp.net");
+    expect(isBannedUser("1555600000010@s.whatsapp.net", later)).toBe(false);
+    const stAfter = getBanState("1555600000010@s.whatsapp.net");
     expect(stAfter.banned).toBe(false);
     expect(stAfter.reason).toBeUndefined();
     // Ban permanent : pas d'until
-    setUserBanned("237600000010@s.whatsapp.net", true, { reason: "grave" });
-    expect(getBanState("237600000010@s.whatsapp.net").until).toBeUndefined();
+    setUserBanned("1555600000010@s.whatsapp.net", true, { reason: "grave" });
+    expect(getBanState("1555600000010@s.whatsapp.net").until).toBeUndefined();
   });
 
   it("9.18 (D/F/L/M) — note, sourdine, opt-out, limite IA : setters et bornes", () => {
-    const j = "237600000011@s.whatsapp.net";
+    const j = "1555600000011@s.whatsapp.net";
     touchUser(j, { name: "Reglable" });
     setUserNote(j, "mon\tfrère\n — éviter le spam");
     expect(listUsers().find((u) => u.jid === j)?.note).toBe("mon frère  — éviter le spam"); // contrôles aplatis (tab/retour ligne → espace)
@@ -152,11 +152,11 @@ describe("9.16 — userDirectory (répertoire)", () => {
   });
 
   it("9.18 (A) — numéro résolu d'un LID : posé à la création, jamais écrasé ni perdu", () => {
-    touchUser("120363000000000001@lid", { name: "LidUser", resolvedNumber: "237600000012" });
+    touchUser("120363000000000001@lid", { name: "LidUser", resolvedNumber: "1555600000012" });
     touchUser("120363000000000001@lid", { name: "LidUser" }); // résolution absente ensuite
     touchUser("120363000000000002@lid", { name: "Autre" }); // jamais résolu
     const users = listUsers();
-    expect(users.find((u) => u.jid === "120363000000000001@lid")?.resolvedNumber).toBe("237600000012");
+    expect(users.find((u) => u.jid === "120363000000000001@lid")?.resolvedNumber).toBe("1555600000012");
     expect(users.find((u) => u.jid === "120363000000000002@lid")?.resolvedNumber).toBeUndefined();
   });
 
@@ -168,8 +168,8 @@ describe("9.16 — userDirectory (répertoire)", () => {
   });
 
   it("9.18 — LRU : les muets et opt-out sont épargnés comme les bannis", () => {
-    const jM = "237600000020@s.whatsapp.net";
-    const jO = "237600000021@s.whatsapp.net";
+    const jM = "1555600000020@s.whatsapp.net";
+    const jO = "1555600000021@s.whatsapp.net";
     touchUser(jM, { name: "muet", now: Date.now() - 86_400_000 });
     setUserMuted(jM, true);
     touchUser(jO, { name: "optout", now: Date.now() - 86_400_000 });

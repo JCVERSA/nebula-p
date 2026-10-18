@@ -1,6 +1,6 @@
 import os from "os";
 import { BotCommand } from "../types.js";
-import { getConfig } from "../config.js";
+import { effectiveTimezone, getConfig } from "../config.js";
 
 /**
  * `.menu` — portage du style du bot Na (commands/general/menu.js, owner
@@ -76,7 +76,6 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["getpp", "Photo de profil"],
       ["whois", "Profil d'un membre du groupe"],
       ["purge", "Purge de l'espace disque (owner)"],
-      ["gce", "Annales GCE Cameroun en PDF"],
       ["remind", "Rappel programmé (ex: .remind 18h texte)"],
     ],
   },
@@ -130,7 +129,7 @@ const menuCommand: BotCommand = {
       const config = getConfig();
       const p = config.prefix || ".";
       const bn = config.botName || "Nebula Bot";
-      const tz = config.timezone || "Africa/Douala";
+      const tz = effectiveTimezone(); // 9.18hhh : NEBULA_TZ > config > UTC — aucun pays codé dur
       await context.react("🌌");
 
       // Le registre est la seule source de vérité (curation 8.59).
@@ -178,14 +177,21 @@ const menuCommand: BotCommand = {
         if (lines.length) rendered.push(section(s.emoji, s.title, lines));
       }
 
-      // Footer (contacts owner — confirmés par le owner, 8.60)
-      const footer =
-        `\n╭══════════════════════════════╮\n` +
-        `│ 👑 *OWNER* — Dark Neon\n` +
-        `│ 📞 wa.me/237640143760\n` +
-        `│ ✈️  t.me/Neonjca2\n` +
-        `╰══════════════════════════════╯\n` +
-        `> 🌌 *${bn}* │ _Prefix: ${p}_`;
+      // Footer (contacts owner — configurables via .env, 9.18hhh : le repo
+      // public reste neutre, chaque déploiement affiche SES contacts).
+      const ownerName = (process.env.OWNER_NAME || "").trim();
+      const ownerPhone = String(process.env.OWNER_NUMBER || config.ownerNumber || "").replace(/\D/g, "");
+      const ownerTelegram = (process.env.OWNER_TELEGRAM || "").trim().replace(/^@/, "");
+      const ownerLines: string[] = [];
+      if (ownerPhone || ownerTelegram) {
+        ownerLines.push(ownerName ? `│ 👑 *OWNER* — ${ownerName}\n` : `│ 👑 *OWNER*\n`);
+        if (ownerPhone) ownerLines.push(`│ 📞 wa.me/${ownerPhone}\n`);
+        if (ownerTelegram) ownerLines.push(`│ ✈️  t.me/${ownerTelegram}\n`);
+      }
+      const contactBlock = ownerLines.length
+        ? `╭══════════════════════════════╮\n` + ownerLines.join("") + `╰══════════════════════════════╯\n`
+        : "";
+      const footer = `\n${contactBlock}> 🌌 *${bn}* │ _Prefix: ${p}_`;
 
       // Découpe en messages successifs (comme Na, ~2 sections par message).
       const messages: string[] = [];

@@ -61,7 +61,7 @@ async function* fakeStream(chunks: Buffer[]) {
   for (const c of chunks) yield c;
 }
 
-const SENDER = "237999000111@s.whatsapp.net";
+const SENDER = "1555999000111@s.whatsapp.net";
 let dir: string;
 
 function mkContext(over: Record<string, unknown> = {}) {
@@ -135,7 +135,7 @@ describe("findMediaNode (pur)", () => {
     // constat prod 9.6c : reply dont contextInfo n'a PAS de quotedMessage
     // (chat éphémère) — clés : extendedTextMessage + messageContextInfo.
     // L'original (vidéo du bot) est dans le registre des messages récents.
-    const CHAT = "237999000111@s.whatsapp.net";
+    const CHAT = "1555999000111@s.whatsapp.net";
     recordRecentMessage(CHAT, "ORIG1", DOC_MSG.message);
     const strippedReply = mkMsg({ extendedTextMessage: { text: ".up", contextInfo: { stanzaId: "ORIG1" } } });
     strippedReply.key.remoteJid = CHAT;

@@ -142,7 +142,7 @@ export async function resolveOwnerIdentity(
   try {
     const pnJid = await sock?.signalRepository?.lidMapping?.getPNForLID?.(senderJid);
     if (typeof pnJid === "string" && pnJid) {
-      // Le PN revient sous forme "237640143760:0@s.whatsapp.net" — jidDigits
+      // Le PN revient sous forme "<numéro>:0@s.whatsapp.net" — jidDigits
       // retire le suffixe de device AVANT l'extraction des digits.
       resolvedNumber = jidDigits(pnJid) || null;
     }

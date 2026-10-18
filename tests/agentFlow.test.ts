@@ -105,7 +105,7 @@ const COMMANDS: Record<string, any> = {
   ytvideo: { name: "ytvideo", acceptsUrlArgs: true }, // 9.3b — URLs autorisées
 };
 
-const JID = "237999111222@s.whatsapp.net";
+const JID = "1555999111222@s.whatsapp.net";
 
 function mk(text: string) {
   const sent: any[] = [];
@@ -120,7 +120,7 @@ function mk(text: string) {
   const info = {
     senderJid: JID,
     actorJid: JID,
-    actorNumber: "237999111222",
+    actorNumber: "1555999111222",
     senderName: "Tester",
     isOwner: false,
     text,
@@ -171,15 +171,15 @@ describe("9.11 — audit agent : texte cité, adressage groupes, typo", () => {
   });
 
   it("M1 : messageAddressesBot — mention @ ou reply au bot, jamais le reste", () => {
-    const BOT = "237700000001:12@s.whatsapp.net";
+    const BOT = "1555700000001:12@s.whatsapp.net";
     const mkMsg = (message: any) => ({ key: { remoteJid: "g@g.us" }, message });
     // mention
-    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "@bot download ça", contextInfo: { mentionedJid: ["237700000001:3@s.whatsapp.net"] } } }), BOT)).toBe(true);
+    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "@bot download ça", contextInfo: { mentionedJid: ["1555700000001:3@s.whatsapp.net"] } } }), BOT)).toBe(true);
     // reply à un message du bot (participant = bot)
-    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "et en 720p ?", contextInfo: { participant: "237700000001@s.whatsapp.net" } } }), BOT)).toBe(true);
+    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "et en 720p ?", contextInfo: { participant: "1555700000001@s.whatsapp.net" } } }), BOT)).toBe(true);
     // conversation générale : ni mention ni reply au bot
     expect(messageAddressesBot(mkMsg({ conversation: "salut les gars" }), BOT)).toBe(false);
-    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "réponse à quelqu'un d'autre", contextInfo: { participant: "237999999999@s.whatsapp.net" } } }), BOT)).toBe(false);
+    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "réponse à quelqu'un d'autre", contextInfo: { participant: "1555999999999@s.whatsapp.net" } } }), BOT)).toBe(false);
     expect(messageAddressesBot(mkMsg({ conversation: "peu importe" }), null)).toBe(false);
   });
 

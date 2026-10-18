@@ -19,7 +19,7 @@ describe("persona — base prompt", () => {
     for (const expected of [
       "# Identity",
       "# Origin",
-      "Jcversa — Dark Neon",
+      "no personal names, no nationality",
       "You are NOVA, the AI assistant",
       "Never invent facts",
       "default to French",
@@ -42,7 +42,7 @@ describe("persona — base prompt", () => {
   it("9.18g — asked for its name, the agent answers NOVA (never the bot's name)", () => {
     const p = getPersonaPrompt("dm", "Nebula Bot");
     expect(p).toContain("Your name is NOVA");
-    expect(p).toContain("you are NOVA, created by"); // le crédit d'origine aussi
+    expect(p).toContain("you are NOVA, the AI assistant of"); // le crédit d'origine aussi (neutre 9.18hhh)
   });
 
   it("9.18g — user-facing surfaces say NOVA (reply header, memory, dashboard)", () => {
@@ -70,14 +70,14 @@ describe("persona — base prompt", () => {
       // Moteur NVIDIA NIM (déploiement owner) → NVIDIA, jamais Google/Gemini.
       process.env.NEBULA_AI_PRIMARY = "nim";
       const nim = getPersonaPrompt("dm");
-      expect(nim).toContain("*NVIDIA*");
+      expect(nim).toContain("from NVIDIA");
       expect(nim).toContain("NIM (Nemotron)");
       expect(nim).not.toContain("Google");
       expect(nim).not.toContain("Gemini");
       // Moteur Gemini (défaut) → wording d'origine.
       delete process.env.NEBULA_AI_PRIMARY;
       const gem = getPersonaPrompt("dm");
-      expect(gem).toContain("*Google*");
+      expect(gem).toContain("from Google");
       expect(gem).toContain("Gemini");
       expect(gem).not.toContain("NVIDIA");
     } finally {

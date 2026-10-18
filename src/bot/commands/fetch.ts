@@ -42,7 +42,7 @@ const fetchCommand: BotCommand = {
   execute: async (sock, msg, context) => {
     if (context.args.length === 0) {
       await context.reply(
-        "❌ *Il manque l'adresse.*\n\nExemple : `.fetch https://fr.wikipedia.org/wiki/Cameroun`",
+        "❌ *Il manque l'adresse.*\n\nExemple : `.fetch https://fr.wikipedia.org/wiki/Astronomie`",
       );
       return;
     }

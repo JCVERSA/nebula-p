@@ -11,7 +11,7 @@ import {
 // 9.18ddd — offres d'allègement : la conversion n'est jamais imposée,
 // elle se propose à la livraison et se consomme par .slim (TTL 10 min).
 
-const CHAT = "237640143760@s.whatsapp.net";
+const CHAT = "15551234567@s.whatsapp.net";
 const NOW = 1_800_000_000_000;
 
 const mkOffer = () => ({

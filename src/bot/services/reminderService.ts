@@ -10,7 +10,7 @@ import crypto from "crypto";
  * « demain 9h ». Liste (.remind list) et annulation (.remind cancel N).
  *
  * Décisions de design :
- *  - les HEURES sont interprétées en heure du Cameroun (Africa/Douala,
+ *  - les HEURES sont interprétées dans le fuseau configuré (NEBULA_TZ,
  *    UTC+1 sans heure d'été) — les utilisateurs du bot sont là-bas, le VPS
  *    est en UTC : « 18h » doit vouloir dire 18h pour EUX. Offset calculé
  *    via Intl (robuste), repli +60 min ;
@@ -39,7 +39,10 @@ export type ReminderSpec =
   | { kind: "cancel"; index: number }
   | { kind: "set"; dueAt: number; text: string; humanWhen: string };
 
-const TZ = "Africa/Douala";
+/** 9.18hhh — fuseau des rappels : env global, aucun pays codé dur (défaut UTC). */
+export function reminderTimezone(): string {
+  return (process.env.NEBULA_TZ || process.env.NEBULA_WATCH_TZ || "").trim() || "UTC";
+}
 const MAX_ACTIVE_PER_CHAT = 10;
 export const MAX_TEXT_CHARS = 300;
 const MAX_FUTURE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -91,13 +94,13 @@ function saveAll(list: Reminder[]): void {
   }
 }
 
-// ── Heure du Cameroun ───────────────────────────────────────────────────────
+// ── Fuseau configurable ───────────────────────────────────────────────────────
 
-/** Offset de TZ en minutes (local - UTC), calculé via Intl, repli +60. */
+/** Offset du fuseau en minutes (local - UTC), via Intl, repli 0 (UTC). */
 export function tzOffsetMinutes(now = new Date()): number {
   try {
     const dtf = new Intl.DateTimeFormat("en-US", {
-      timeZone: TZ, hour12: false,
+      timeZone: reminderTimezone(), hour12: false,
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", second: "2-digit"
     });
@@ -106,7 +109,7 @@ export function tzOffsetMinutes(now = new Date()): number {
     const asUTC = Date.UTC(g("year"), g("month") - 1, g("day"), g("hour") % 24, g("minute"), g("second"));
     return Math.round((asUTC - now.getTime()) / 60000);
   } catch {
-    return 60;
+    return 0;
   }
 }
 

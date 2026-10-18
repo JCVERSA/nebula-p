@@ -85,7 +85,7 @@ cp bots.example.json bots.json          # si pas déjà fait
 nano bots.json                          # passe "bot2" à enabled: true
 ./manage.sh restart
 ./manage.sh bots                        # bot2 doit être « lancé »
-./manage.sh pair bot2 237690000000      # connecte le numéro de bot2
+./manage.sh pair bot2 15551234567       # connecte le numéro de bot2
 ```
 
 Le premier bot existant n'a rien à faire : il garde sa session actuelle.

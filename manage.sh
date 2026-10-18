@@ -297,8 +297,8 @@ cmd_pair() {
   phone="$(printf '%s' "${phone_arg}" | tr -cd '0-9')"
   if [ -z "$phone" ] || [ "${#phone}" -lt 8 ] || [ "${#phone}" -gt 16 ]; then
     ko "Usage: $(basename "$0") pair [bot] <numero international>"
-    echo " Exemple : $(basename "$0") pair 237690000000"
-    echo " Exemple : $(basename "$0") pair bot2 237690000000  (bot précis, voir '$(basename "$0") bots')"
+    echo " Exemple : $(basename "$0") pair 15551234567"
+    echo " Exemple : $(basename "$0") pair bot2 15551234567  (bot précis, voir '$(basename "$0") bots')"
     echo " (numéro WhatsApp complet avec indicatif pays, sans + ni espaces)"
     return 1
   fi
@@ -855,6 +855,8 @@ ENV_KEYS=(
   "NEBULA_AI_MEMORY_MAX_TURNS|Tours bruts gardés avant compaction en résumé (défaut 20)"
   "TAVILY_API_KEY|Clé Tavily (tvly-…) pour améliorer la recherche web .search — gratuite sur app.tavily.com (1000 recherches/mois) ; vide = DuckDuckGo sans clé"
   "OWNER_NUMBER|Numéro WhatsApp propriétaire (indicatif pays + numéro, sans + ni espaces)"
+  "OWNER_NAME|Nom affiché du propriétaire dans le menu (vide = bloc sans nom)"
+  "OWNER_TELEGRAM|Pseudo Telegram du propriétaire dans le menu (sans @, vide = masqué)"
   "PORT|Port du panneau (défaut 3000)"
   "NEBULA_VF_DEFAULT|Mettre 0 pour désactiver la VF par défaut (défaut: VF d'abord)"
   "NEBULA_VOIRANIME_DISABLED|Mettre 1 pour couper la source voir-anime.to"
@@ -877,7 +879,8 @@ ENV_KEYS=(
   "NEBULA_YTDLP_COOKIES|Chemin du fichier cookies YouTube (format Netscape, exporté depuis ton navigateur) — débloque .ytv/.ytm quand YouTube exige une session (IP datacenter)"
   "NEBULA_WATCH_CRON|Planification cron de la veille épisodes (défaut toutes les 6 h)"
   "NEBULA_WATCH_QUIET|Heures silencieuses de la veille, format H-H (défaut 23-7, off = désactivé)"
-  "NEBULA_WATCH_TZ|Fuseau horaire de la veille (défaut Africa/Douala)"
+  "NEBULA_TZ|Fuseau horaire global du bot, ex Europe/Paris (défaut UTC)"
+  "NEBULA_WATCH_TZ|Fuseau horaire de la veille (repli NEBULA_TZ, défaut UTC)"
   "NEBULA_DIGEST|Mettre 0 pour couper le digest quotidien du propriétaire en DM (défaut activé)"
   "NEBULA_DIGEST_HOUR|Heure d'envoi du digest quotidien propriétaire, 0-23 (défaut 8, fuseau NEBULA_WATCH_TZ)"
   "DEBUG_MEDIA|Mettre true pour logs média verbeux"
@@ -1182,7 +1185,7 @@ ${C_BOLD}Cycle de vie${C_RESET}
    ${C_BOLD}start${C_RESET}      Démarre le bot (nohup) et vérifie que le panneau répond
    ${C_BOLD}stop${C_RESET}       Arrêt propre (SIGTERM puis SIGKILL si besoin)
    ${C_BOLD}restart${C_RESET}    stop + start
-   ${C_BOLD}pair${C_RESET}      Connecte un numéro par code d'appariement (sans QR) : nebula pair [bot] 237690000000
+   ${C_BOLD}pair${C_RESET}      Connecte un numéro par code d'appariement (sans QR) : nebula pair [bot] 15551234567
    ${C_BOLD}bots${C_RESET}      Liste les bots du déploiement (multi-bots) : état process + WhatsApp
    ${C_BOLD}bot${C_RESET}       Contrôle un bot précis : nebula bot <id> <start|stop|restart|status>
    ${C_BOLD}status${C_RESET}     État complet: process, RAM vs cgroup, panneau, tunnel, disque

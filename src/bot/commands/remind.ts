@@ -9,7 +9,7 @@ import {
 /**
  * `.remind` — rappels programmés (9.18bb, P7 du plan owner).
  *
- *   .remind 18h télécharger mushoku        → ⏰ livré à 18h00 (heure Cameroun)
+ *   .remind 18h télécharger mushoku        → ⏰ livré à 18h00 (fuseau NEBULA_TZ)
  *   .remind 18h30 appeler maman
  *   .remind dans 30 min faire une pause
  *   .remind dans 1h30 couper le feu
@@ -19,7 +19,7 @@ import {
  *
  * L'agent route « rappelle-moi de X à 18h » vers .remind 18h X (le moment
  * en premier, puis le texte). Parsing déterministe (reminderService), les
- * heures sont en heure du Cameroun (Africa/Douala). Léger : pas de quota IA.
+ * heures sont dans le fuseau configuré (NEBULA_TZ, défaut UTC). Léger : pas de quota IA.
  */
 
 function fmtRemaining(dueAt: number, now: number): string {
@@ -49,10 +49,10 @@ const remindCommand: BotCommand = {
         "• `.remind 18h télécharger mushoku`\n" +
         "• `.remind 18h30 appeler maman`\n" +
         "• `.remind dans 30 min faire une pause`\n" +
-        "• `.remind demain 9h réviser les annales`\n\n" +
+        "• `.remind demain 9h réviser l'examen`\n\n" +
         "• `.remind list` — tes rappels actifs\n" +
         "• `.remind cancel 2` — annule le n°2\n\n" +
-        "_Heure du Cameroun · 10 rappels actifs max · 7 jours max d'avance._"
+        `_Fuseau ${(process.env.NEBULA_TZ || process.env.NEBULA_WATCH_TZ || "").trim() || "UTC"} · 10 rappels actifs max · 7 jours max d'avance._`
       ));
     }
 

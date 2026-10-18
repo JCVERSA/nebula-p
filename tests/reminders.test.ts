@@ -1,6 +1,6 @@
 /**
- * 9.18bb (P7) — rappels programmés : parsing déterministe du moment (heure
- * Cameroun), store atomique par chat, échéances et tentatives.
+ * 9.18bb (P7) — rappels programmés : parsing déterministe du moment (fuseau
+ * configurable NEBULA_TZ, défaut UTC — 9.18hhh), store atomique par chat.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "fs";
@@ -23,17 +23,31 @@ let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "reminders-"));
   process.env.NEBULA_DATA_DIR = dir;
+  process.env.NEBULA_TZ = "UTC"; // 9.18hhh : arithmétique déterministe, aucun pays
 });
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   delete process.env.NEBULA_DATA_DIR;
+  delete process.env.NEBULA_TZ;
 });
 
-describe("9.18bb (P7) — tzOffsetMinutes (heure Cameroun)", () => {
-  it("Africa/Douala = UTC+1 toute l'année (pas de DST)", () => {
-    expect(tzOffsetMinutes(new Date("2026-01-15T12:00:00Z"))).toBe(60);
-    expect(tzOffsetMinutes(new Date("2026-07-15T12:00:00Z"))).toBe(60);
+describe("9.18hhh — tzOffsetMinutes (fuseau configurable, défaut UTC)", () => {
+  it("aucune variable posée : UTC (aucun pays codé dur)", () => {
+    delete process.env.NEBULA_TZ;
+    delete process.env.NEBULA_WATCH_TZ;
+    expect(tzOffsetMinutes(new Date("2026-01-15T12:00:00Z"))).toBe(0);
+    expect(tzOffsetMinutes(new Date("2026-07-15T12:00:00Z"))).toBe(0);
+  });
+
+  it("NEBULA_TZ global : ex. Africa/Douala = UTC+1 toute l'année (pas de DST)", () => {
+    process.env.NEBULA_TZ = "Africa/Douala";
+    try {
+      expect(tzOffsetMinutes(new Date("2026-01-15T12:00:00Z"))).toBe(60);
+      expect(tzOffsetMinutes(new Date("2026-07-15T12:00:00Z"))).toBe(60);
+    } finally {
+      delete process.env.NEBULA_TZ;
+    }
   });
 });
 
@@ -56,7 +70,7 @@ describe("9.18bb (P7) — parseReminderSpec (pur)", () => {
     expect(parseReminderSpec("dans 2 heures 15 minutes pause", now)).toMatchObject({ kind: "set", dueAt: now + 135 * 60_000 });
   });
 
-  it("« 18h texte » → aujourd'hui (ou demain si déjà passé), heure Douala", () => {
+  it("« 18h texte » → aujourd'hui (ou demain si déjà passé), heure configurée", () => {
     const now = Date.now();
     const r = parseReminderSpec("18h télécharger mushoku", now);
     expect(r && r.kind === "set").toBe(true);
@@ -71,10 +85,10 @@ describe("9.18bb (P7) — parseReminderSpec (pur)", () => {
 
   it("« demain 9h texte » → demain, bornes respectées", () => {
     const now = Date.now();
-    const r = parseReminderSpec("demain 9h réviser les annales", now);
+    const r = parseReminderSpec("demain 9h réviser l'examen", now);
     expect(r && r.kind === "set").toBe(true);
     if (r && r.kind === "set") {
-      expect(r.text).toBe("réviser les annales");
+      expect(r.text).toBe("réviser l'examen");
       expect(r.dueAt).toBeGreaterThan(now);
       expect(r.dueAt).toBeLessThanOrEqual(now + 48 * 3_600_000); // demain = 0 à ~24 h plus tard
     }
@@ -88,18 +102,18 @@ describe("9.18bb (P7) — parseReminderSpec (pur)", () => {
   });
 
   it("audit 9.18 : « 18h » tapé juste avant/après 18h (±2 min) → borné à +30 s, pas rejeté", () => {
-    // 17:59:50 Douala (16:59:50 UTC) : 18h00 est à +10 s → clamp +30 s
-    const avant = Date.UTC(2026, 9, 15, 16, 59, 50);
+    // 17:59:50 UTC : 18h00 est à +10 s → clamp +30 s
+    const avant = Date.UTC(2026, 9, 15, 17, 59, 50);
     const r1 = parseReminderSpec("18h télécharger mushoku", avant);
     expect(r1 && r1.kind === "set").toBe(true);
     if (r1 && r1.kind === "set") expect(r1.dueAt).toBe(avant + 30_000);
-    // 18:01:30 Douala (17:01:30 UTC) : 18h00 est passé d'1 min 30 → clamp +30 s
-    const apres = Date.UTC(2026, 9, 15, 17, 1, 30);
+    // 18:01:30 UTC : 18h00 est passé d'1 min 30 → clamp +30 s
+    const apres = Date.UTC(2026, 9, 15, 18, 1, 30);
     const r2 = parseReminderSpec("18h télécharger mushoku", apres);
     expect(r2 && r2.kind === "set").toBe(true);
     if (r2 && r2.kind === "set") expect(r2.dueAt).toBe(apres + 30_000);
     // 17h55 tapé à 18:01 (passé de 6 min > 2 min) → demain 17h55, pas de clamp
-    const loin = Date.UTC(2026, 9, 15, 17, 1, 0); // 18:01 Douala
+    const loin = Date.UTC(2026, 9, 15, 18, 1, 0); // 18:01 UTC
     const r3 = parseReminderSpec("17h55 x", loin);
     expect(r3 && r3.kind === "set").toBe(true);
     if (r3 && r3.kind === "set") expect(r3.dueAt).toBeGreaterThan(loin + 20 * 3_600_000);

@@ -138,9 +138,14 @@ export const ENV_EDITABLE_SPECS: EnvKeySpec[] = [
     type: "number", group: "digest", default: "8", min: 0, max: 23,
   },
   {
+    key: "NEBULA_TZ", label: "Fuseau horaire global",
+    description: "Fuseau IANA global du bot (menu, rappels ; repli veilles/digest). Ex. Europe/Paris, UTC.",
+    type: "string", group: "digest", default: "UTC",
+  },
+  {
     key: "NEBULA_WATCH_TZ", label: "Fuseau horaire (veille + digest)",
-    description: "Fuseau IANA, ex. Africa/Douala (défaut).",
-    type: "string", group: "digest", default: "Africa/Douala",
+    description: "Fuseau IANA dédié veille/digest (repli : NEBULA_TZ).",
+    type: "string", group: "digest", default: "UTC",
   },
   {
     key: "GEMINI_API_KEY", label: "Clé Gemini",

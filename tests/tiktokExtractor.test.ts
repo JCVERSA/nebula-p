@@ -32,7 +32,7 @@ const UNIVERSAL_FIXTURE = `<!DOCTYPE html><html><head><title>tiktok</title></hea
             cover: "https://p16-sign-va.tiktokcdn.com/cover.jpeg",
             duration: 27
           },
-          author: { nickname: "Dark Neon" }
+          author: { nickname: "Test Author" }
         }
       }
     }
@@ -62,7 +62,7 @@ describe("9.18q — parseTikTokPageHtml (pur, fixtures)", () => {
     expect(item).not.toBeNull();
     expect(item!.videoUrl).toBe("https://v16-webapp-prime.tiktok.com/video/tos/-useast2a/play.mp4");
     expect(item!.coverUrl).toContain("cover.jpeg");
-    expect(item!.author).toBe("Dark Neon");
+    expect(item!.author).toBe("Test Author");
     expect(item!.durationSec).toBe(27);
     expect(item!.title).toBe("Retour terrain du bot");
   });

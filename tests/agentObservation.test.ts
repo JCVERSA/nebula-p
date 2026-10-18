@@ -12,7 +12,7 @@ import {
   compactObservationTexts
 } from "../src/bot/services/agentObservation.js";
 
-const JID = "237999111222@s.whatsapp.net";
+const JID = "1555999111222@s.whatsapp.net";
 
 beforeEach(() => {
   __resetObservationsForTests();

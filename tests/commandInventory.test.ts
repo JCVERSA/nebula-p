@@ -38,8 +38,6 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "whois", aliases: ["profile", "profil", "wi", "userinfo", "ui"] },
   // 8.88 : ajouté sur décision owner explicite (.purge / .p, owner-only)
   { name: "purge", aliases: ["p"] },
-  // 8.91 : annales GCE Cameroun (décision owner : .gce/.g/.ge/.papier, tous users)
-  { name: "gce", aliases: ["g", "ge", "papier"] },
   // 8.93 : agent IA (beta, privé) — .agent/.ag
   { name: "agent", aliases: ["ag"] },
   { name: "search", aliases: ["recherche", "websearch"] },
@@ -51,7 +49,7 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "trad", aliases: ["traduis", "tl"] },
   // 9.18z : résumé de page web par l'IA (P5 du plan owner — reply à un lien)
   { name: "resume", aliases: ["résume", "sum"] },
-  // 9.18bb : rappels programmés (P7 du plan owner — heure Cameroun)
+  // 9.18bb : rappels programmés (P7 du plan owner — fuseau NEBULA_TZ)
   { name: "remind", aliases: ["rappel", "rappelle"] },
   // 9.18dd : lecture à voix haute (P6 — voix Edge sans clé, reply ou texte)
   { name: "tts", aliases: ["voix", "dis"] },

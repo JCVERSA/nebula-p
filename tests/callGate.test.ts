@@ -19,7 +19,7 @@ function mkSock() {
   };
 }
 
-const OFFER = { id: "call-1", from: "237999111222@s.whatsapp.net", status: "offer" };
+const OFFER = { id: "call-1", from: "1555999111222@s.whatsapp.net", status: "offer" };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -31,7 +31,7 @@ describe("9.18jj (A) — handleIncomingCalls", () => {
   it("offre 1:1 → rejet + guidage note vocale avec la commande .on", async () => {
     const sock = mkSock();
     await handleIncomingCalls(sock, [OFFER], { prefix: "." }, 1000);
-    expect(sock.rejectCall).toHaveBeenCalledWith("call-1", "237999111222@s.whatsapp.net");
+    expect(sock.rejectCall).toHaveBeenCalledWith("call-1", "1555999111222@s.whatsapp.net");
     expect(sock.sendMessage).toHaveBeenCalledTimes(1);
     const text = sock.sendMessage.mock.calls[0]![1].text;
     expect(text).toContain("Je ne peux pas décrocher");

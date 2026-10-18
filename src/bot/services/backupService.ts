@@ -163,7 +163,7 @@ export function startBackupScheduler(logger?: (message: string) => void): void {
 
   const hourRaw = Number(process.env.NEBULA_BACKUP_HOUR);
   const hour = Number.isFinite(hourRaw) && hourRaw >= 0 && hourRaw <= 23 ? Math.floor(hourRaw) : 4;
-  const tz = process.env.NEBULA_WATCH_TZ || "Africa/Douala";
+  const tz = process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || "UTC";
   const schedule = `0 ${hour} * * *`;
   try {
     const cron = require("node-cron") as typeof import("node-cron");

@@ -134,16 +134,37 @@ describe("Simulation playground", () => {
     expect(res.body.text).toContain("Nebula Engine");
   });
 
-  it("runs .menu with the command directory", async () => {
+  it("runs .menu — footer owner via .env, neutre par défaut (9.18hhh)", async () => {
+    delete process.env.OWNER_NAME;
+    delete process.env.OWNER_TELEGRAM;
+    delete process.env.OWNER_NUMBER;
     const res = await request(app)
       .post("/api/bot/simulate")
       .set(auth)
       .send({ senderName: "Tester", text: ".menu" });
     expect(res.status).toBe(200);
-    // Menu style Na (8.60) : sections encadrées + footer owner.
+    // Menu style Na (8.60) : sections encadrées ; aucun contact codé dur.
     expect(res.body.text).toContain("TOOLS & UTILITY");
-    expect(res.body.text).toContain("Dark Neon");
-    expect(res.body.text).toContain("wa.me/237640143760");
+    expect(res.body.text).not.toContain("wa.me/");
+    expect(res.body.text).not.toContain("Dark Neon");
+    // Contacts configurés via .env → bloc OWNER affiché.
+    process.env.OWNER_NAME = "Test Owner";
+    process.env.OWNER_NUMBER = "15551234567";
+    process.env.OWNER_TELEGRAM = "testuser";
+    try {
+      const res2 = await request(app)
+        .post("/api/bot/simulate")
+        .set(auth)
+        .send({ senderName: "Tester", text: ".menu" });
+      expect(res2.status).toBe(200);
+      expect(res2.body.text).toContain("wa.me/15551234567");
+      expect(res2.body.text).toContain("Test Owner");
+      expect(res2.body.text).toContain("t.me/testuser");
+    } finally {
+      delete process.env.OWNER_NAME;
+      delete process.env.OWNER_TELEGRAM;
+      delete process.env.OWNER_NUMBER;
+    }
   });
 
   it("reports unknown commands gracefully", async () => {
@@ -367,12 +388,12 @@ describe("9.18 — User manager routes", () => {
   });
 
   it("bulk ban : l'owner est ignoré, jamais banni (garde multi-jids)", async () => {
-    process.env.OWNER_NUMBER = "237640143760";
+    process.env.OWNER_NUMBER = "15551234567";
     try {
       const res = await request(app)
         .post("/api/bot/users/action-bulk")
         .set(auth)
-        .send({ jids: ["237640143760@s.whatsapp.net", "237600000099@s.whatsapp.net"], action: "ban" });
+        .send({ jids: ["15551234567@s.whatsapp.net", "1555600000099@s.whatsapp.net"], action: "ban" });
       expect(res.status).toBe(200);
       expect(res.body.skippedOwner).toBe(1);
       expect(res.body.applied).toBe(0); // l'autre jid est inconnu du répertoire → notFound

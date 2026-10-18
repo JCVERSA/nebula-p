@@ -25,8 +25,8 @@ import { resolveOwnerIdentity, __resetOwnerLidsForTests } from "../src/bot/owner
  */
 
 const DATA_DIR = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "nebula-aiq-test-")), "database");
-const USER = "237600000030@s.whatsapp.net";
-const OTHER = "237600000031@s.whatsapp.net";
+const USER = "1555600000030@s.whatsapp.net";
+const OTHER = "1555600000031@s.whatsapp.net";
 
 beforeEach(() => {
   process.env.NEBULA_DATA_DIR = DATA_DIR;
@@ -107,8 +107,8 @@ describe("9.18 — aiQuota : limite personnalisée et usage", () => {
 
 describe("9.18gg — owner illimité (décision owner 15/10 : mon bot, mes clés)", () => {
   it("le numéro owner échappe au quota quotidien, même après 45 appels", () => {
-    process.env.OWNER_NUMBER = "237600000099";
-    const owner = "237600000099@s.whatsapp.net";
+    process.env.OWNER_NUMBER = "1555600000099";
+    const owner = "1555600000099@s.whatsapp.net";
     for (let i = 0; i < 45; i++) consumeAIQuota(owner);
     const q = checkAIQuota(owner);
     expect(q.allowed).toBe(true);
@@ -117,7 +117,7 @@ describe("9.18gg — owner illimité (décision owner 15/10 : mon bot, mes clés
   });
 
   it("les autres numéros restent limités (limite globale intacte)", () => {
-    process.env.OWNER_NUMBER = "237600000099";
+    process.env.OWNER_NUMBER = "1555600000099";
     for (let i = 0; i < 40; i++) consumeAIQuota(USER);
     expect(checkAIQuota(USER).allowed).toBe(false);
     resetAIQuota(USER);
@@ -135,8 +135,8 @@ describe("9.18ll — plafond TTS dédié (répartition de la voix Gemini entre u
   });
 
   it("owner : échappe au plafond TTS (même règle que le quota IA 9.18gg)", () => {
-    process.env.OWNER_NUMBER = "237600000099";
-    const owner = "237600000099@s.whatsapp.net";
+    process.env.OWNER_NUMBER = "1555600000099";
+    const owner = "1555600000099@s.whatsapp.net";
     for (let i = 0; i < 30; i++) consumeTTSQuota(owner);
     const q = checkTTSQuota(owner);
     expect(q.allowed).toBe(true);
@@ -177,7 +177,7 @@ describe("9.18nn — owner via LID (numéro masqué) : les quotas le reconnaisse
   // (8.89 : .purge OK, budget agent illimité) mais aiQuota comparait le LID
   // au numéro → JAMAIS owner → quotalé comme un invité depuis 9.18gg.
   const LID = "9876543210@lid";
-  const OWNER_PN = "237640143760";
+  const OWNER_PN = "15551234567";
   const fakeSock: any = {
     signalRepository: {
       lidMapping: { getPNForLID: async () => `${OWNER_PN}:0@s.whatsapp.net` },

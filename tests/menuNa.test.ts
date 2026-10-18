@@ -52,11 +52,13 @@ describe("menu style Na (8.60)", () => {
     expect(APP_VERSION).toBe(pkg.version);
   });
 
-  it("footer owner Dark Neon présent (contacts confirmés par le owner)", async () => {
+  it("footer owner configurable via .env — aucun contact codé dur (9.18hhh)", async () => {
     await initRegistry();
     const src = fs.readFileSync("src/bot/commands/menu.ts", "utf-8");
-    expect(src).toContain("wa.me/237640143760");
-    expect(src).toContain("t.me/Neonjca2");
-    expect(src).toContain("Dark Neon");
+    expect(src).toContain("OWNER_NAME");
+    expect(src).toContain("OWNER_TELEGRAM");
+    expect(src).not.toContain("wa.me/237"); // plus de numéro codé dur
+    expect(src).not.toContain("Dark Neon");
+    expect(src).not.toContain("Neonjca");
   });
 });

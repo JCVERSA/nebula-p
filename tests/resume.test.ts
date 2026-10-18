@@ -21,7 +21,7 @@ describe("9.18z — extractFirstUrl", () => {
   });
 
   it("parenthèses et guillemets ne sont pas avalés", () => {
-    expect(extractFirstUrl("(voir https://fr.wikipedia.org/wiki/Cameroun)")).toBe("https://fr.wikipedia.org/wiki/Cameroun");
+    expect(extractFirstUrl("(voir https://fr.wikipedia.org/wiki/Astronomie)")).toBe("https://fr.wikipedia.org/wiki/Astronomie");
   });
 });
 
