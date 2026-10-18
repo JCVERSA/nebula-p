@@ -64,7 +64,9 @@ export function parseVoiranimeSearch(html: string): VoiranimeSearchResult[] {
   const candidates = $("a[href*='/anime/']").toArray();
   for (const el of candidates) {
     const href = $(el).attr("href") || "";
-    const m = href.match(new RegExp(`^${VOIRANIME_ORIGIN}/anime/([a-z0-9-]+)/?$`, "i"));
+    // 9.18nnn : hrefs absolus OU relatifs (/anime/<slug>/) — selon le
+    // thème, certaines grilles rendent des liens relatifs.
+    const m = href.match(new RegExp(`^(?:${VOIRANIME_ORIGIN})?/anime/([a-z0-9-]+)/?$`, "i"));
     if (!m) continue;
     const slug = m[1];
     if (slug === "anime" || seen.has(slug)) continue;
@@ -104,9 +106,13 @@ export interface OrganizedVfEntry {
 
 const FILM_SLUG_RE = /(^|[-_])(film|movie|oav)([-_]|$)/i;
 
-/** Retire le marqueur de saison final (« Kimetsu no Yaiba 2 », « … R2 »). */
+/**
+ * Retire le marqueur de saison final (« Kimetsu no Yaiba 2 », « … R2 »,
+ * « … S2 » — 9.18nnn : le « S2 » n'était PAS dépouillé, d'où les écrans
+ * « … Isekai Seikatsu S2 — Saison 2 » et les saisons jamais groupées).
+ */
 function stripSeasonMarker(title: string): string {
-  const m = title.match(/^(.*?)[\s]+[Rr]?(\d+)\s*$/);
+  const m = title.match(/^(.*?)[\s]+[RrSs]?(\d+)\s*$/);
   if (m && m[1].trim().length >= 2) return m[1].trim();
   return title.trim();
 }
@@ -122,11 +128,18 @@ export function organizeVfSelection(entries: VoiranimeSearchResult[]): Organized
   const analyzed: OrganizedVfEntry[] = entries.map((e) => {
     const bare = e.slug.replace(/-vf$/i, "");
     const isFilm = FILM_SLUG_RE.test(bare) || /\b(film|movie|oav)\b/i.test(e.title);
-    const colon = e.title.match(/^([^:]{2,}):\s*(.+)$/);
+    // 9.18nnn : préfixe de colon >= 4 caractères — « Re:Zero … » (préfixe
+    // « Re ») se groupait sous la base « re » avec TOUT les « Re:… » du
+    // catalogue ; le groupement par titre complet est le bon.
+    const colon = e.title.match(/^([^:]{4,}):\s*(.+)$/);
     const slugM =
       bare.match(/-(\d+)$/) || bare.match(/-r(\d+)$/) ||
       bare.match(/-s(\d+)$/) || bare.match(/-saison-(\d+)$/);
-    const titleM = e.title.match(/\sR(\d)\s*$/i) || e.title.match(/\s(\d+)\s*$/);
+    const titleM =
+      e.title.match(/\sR(\d)\s*$/i) ||
+      e.title.match(/\sS(\d+)\s*$/i) || // 9.18nnn : « … S2 » (titre officiel Re:Zero)
+      e.title.match(/\s(?:season|saison)\s+(\d+)\s*$/i) ||
+      e.title.match(/\s(\d+)\s*$/);
     const explicit = !!(slugM || titleM); // marqueur de saison RÉEL (pas le défaut)
     const season = isFilm || !explicit ? (explicit ? parseInt((slugM || titleM)![1], 10) : 1) : parseInt((slugM || titleM)![1], 10);
 
@@ -171,8 +184,44 @@ export function organizeVfSelection(entries: VoiranimeSearchResult[]): Organized
 }
 
 export async function voiranimeSearch(query: string): Promise<VoiranimeSearchResult[]> {
-  const html = await fetchHtml(`${VOIRANIME_ORIGIN}/?s=${encodeURIComponent(query)}`);
-  return parseVoiranimeSearch(html);
+  // 9.18nnn (retour terrain 18/10) : l'ancienne recherche unique `/?s=…`
+  // (WordPress générique, tous types de posts, correspondance sur
+  // titre+contenu) rate des titres que le SITE trouve : « rezero » ne
+  // contient pas « Re:Zero » (les deux-points !) — 2 entrées remontées sur
+  // les ~6 du catalogue, et des « aucun résultat » pour des animes pourtant
+  // présents. Le formulaire Madara du site poste `?s=…&post_type=wp-manga`
+  // (recherche restreinte aux fiches anime) : on interroge les DEUX en
+  // parallèle et on fusionne (dédup par slug) — l'union ne peut qu'élargir.
+  const urls = [
+    `${VOIRANIME_ORIGIN}/?s=${encodeURIComponent(query)}&post_type=wp-manga`,
+    `${VOIRANIME_ORIGIN}/?s=${encodeURIComponent(query)}`,
+  ];
+  const settled = await Promise.allSettled(urls.map((u) => fetchHtml(u)));
+  const merged: VoiranimeSearchResult[] = [];
+  const seen = new Set<string>();
+  let contributing = 0;
+  for (const r of settled) {
+    if (r.status !== "fulfilled") continue;
+    const parsed = parseVoiranimeSearch(r.value);
+    if (parsed.length) contributing++;
+    for (const e of parsed) {
+      if (seen.has(e.slug)) continue;
+      seen.add(e.slug);
+      merged.push(e);
+    }
+  }
+  if (contributing > 1) {
+    console.log(`[NOVABOX] recherche va « ${query} » : ${merged.length} entrée(s) après fusion des deux modes de recherche du site`);
+  }
+  if (merged.length === 0) {
+    const failed = settled.find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+    if (failed) {
+      // Au moins une requête a échoué réseau : erreur honnête plutôt qu'un
+      // faux « aucun résultat ».
+      throw failed.reason instanceof Error ? failed.reason : new Error(String(failed.reason));
+    }
+  }
+  return merged;
 }
 
 export interface VoiranimeEpisode {

@@ -1000,7 +1000,7 @@ function searchFailureMessage(err: any): string {
  * nommés. Retourne la liste réordonnée (le mapping `.a N` suit cet ordre),
  * les étiquettes, et une note honnête quand aucune VF n'existe.
  */
-function organizeVfScreen(
+export function organizeVfScreen(
   results: SourceSearchResult[]
 ): { results: SourceSearchResult[]; labels: Map<SourceSearchResult, string> | null; note: string | null } {
   const vfEntries = results.filter((r) => r.language === "VF" && r.slug);
@@ -1011,6 +1011,10 @@ function organizeVfScreen(
       note: results.length > 0 ? "🔍 _Aucune entrée VF pour cette recherche — voici tout ce que le catalogue propose (précise \`vostfr\` pour l'assumer) :_" : null,
     };
   }
+  // 9.18nnn : l'écran VF (défaut 9.9) masque les entrées VOSTFR — le dire
+  // honnêtement avec le compte, au lieu de laisser croire que le catalogue
+  // n'a rien d'autre (retour terrain 18/10 « ça ne recherche pas tout »).
+  const hiddenVostfr = results.length - vfEntries.length;
   const organized = organizeVfSelection(
     vfEntries.map((r) => ({ title: r.title, url: r.url, slug: String(r.slug), isVf: true }))
   );
@@ -1021,7 +1025,14 @@ function organizeVfScreen(
     const r = byKey.get(`${o.result.slug}|${o.result.url}`);
     if (r) labels.set(r, o.label);
   }
-  return { results: reordered, labels, note: null };
+  return {
+    results: reordered,
+    labels,
+    note:
+      hiddenVostfr > 0
+        ? `🔎 _${hiddenVostfr} entrée(s) VOSTFR trouvée(s) aussi sur ce catalogue, masquée(s) par défaut (écran VF) — ajoute \`vostfr\` à ta recherche pour la version sous-titrée._`
+        : null,
+  };
 }
 
 const animeCommand: BotCommand = {
@@ -1901,6 +1912,7 @@ const animeCommand: BotCommand = {
       await context.react("🎬");
       return context.reply(
         `🎬 *Novabox - Sélectionner l'Anime* 🎬\n\n` +
+        (vfScreen?.note ? `${vfScreen.note}\n\n` : ``) + // 9.18nnn : la note vivait dans le flux rapide, jamais ici
         `Résultats trouvés pour *"${query}"*. Choisissez l'anime souhaité:\n\n` +
         `${listText}\n\n` +
         `👉 Répondez avec: \`.a [numéro]\` (ex: \`.a 1\`)`

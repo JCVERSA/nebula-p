@@ -81,7 +81,9 @@ export function findPrivateSourceMentions(roots: string[]): Hit[] {
         if (!PRIVATE_NAME_RE.test(lit)) continue;
 
         // whole-line URL/origin templates and regex builders are internal
-        if (lit.includes("https://") || lit.startsWith("${") || lit.startsWith("^${")) continue;
+        // (9.18nnn : « ^(?:${ORIGIN})?/… » — groupe optionnel autour de
+        // l'origine, même classe de bâtisseur de regex interne)
+        if (lit.includes("https://") || lit.startsWith("${") || lit.startsWith("^${") || lit.startsWith("^(?:${")) continue;
         if (INTERNAL_EXACT_ALLOWLIST.has(lit)) continue;
         // ES module specifiers are internal wiring, not output
         if (/\.js$/.test(lit)) continue;
