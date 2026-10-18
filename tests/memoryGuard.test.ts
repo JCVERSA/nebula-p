@@ -159,6 +159,37 @@ describe("9.18www — surveiller le CONTENEUR ENTIER (limite terrain : 999 997 4
     expect(readCgroupPageCacheBytes(reader({}))).toBe(0);
   });
 
+  it("9.18zzz : le cache CHAUD (active_file) compte aussi — résidu de build post-update", () => {
+    expect(
+      readCgroupPageCacheBytes(
+        reader({ "/sys/fs/cgroup/memory.stat": "anon 500\ninactive_file 100000000\nactive_file 175000000\n" })
+      )
+    ).toBe(275000000);
+    expect(
+      readCgroupPageCacheBytes(
+        reader({ "/sys/fs/cgroup/memory/memory.stat": "total_inactive_file 100000000\ntotal_active_file 175000000\n" })
+      )
+    ).toBe(275000000);
+  });
+
+  it("9.18zzz — LE cas terrain : premier batch 39 s après un update, faux « critical »", () => {
+    // Run 3 (18/10 07:06, build frais) : brut 870 Mo dont 315 de cache de
+    // pages laissé par le build → l'ancienne garde (inactive seul = 140)
+    // voyait 730-763 « high/critical » et déférait 7 épisodes sur 8.
+    const usageBytes = 870 * MB;
+    const cacheBytes = readCgroupPageCacheBytes(
+      reader({ "/sys/fs/cgroup/memory.stat": `inactive_file ${140 * MB}\nactive_file ${175 * MB}\n` })
+    );
+    expect(cacheBytes).toBe(315 * MB);
+    const wsMb = Math.max(0, Math.round((usageBytes - cacheBytes) / MB));
+    expect(wsMb).toBe(555); // ≈ le 556 du run précédent (engine frais sans build)
+    expect(containerPressure(wsMb, 953)).toBe("ok"); // le batch CONTINUE au lieu de se déférer
+    // À l'ancienne métrique (inactive seul) le même instant affichait 730 → high.
+    const oldWs = Math.round((usageBytes - 140 * MB) / MB);
+    expect(oldWs).toBe(730); // exactement le chiffre du log terrain
+    expect(containerPressure(oldWs, 953)).toBe("high");
+  });
+
   it("containerPressure : 70 % pause / 80 % critique de la limite — réagit AVANT le kernel (953 Mo)", () => {
     expect(containerPressure(600, 953)).toBe("ok");
     expect(containerPressure(667, 953)).toBe("high"); // 0,7 × 953 — moteur 400 + panneau 200 + ffmpeg…
@@ -185,6 +216,9 @@ describe("9.18www — surveiller le CONTENEUR ENTIER (limite terrain : 999 997 4
     expect(enforce).toContain("readCgroupMemUsageBytes()");
     expect(enforce).toContain("usage conteneur=");
     expect(enforce).toContain("containerPressure(wsMb, limitMb)");
+    // 9.18zzz : décomposition brut/cache visible dans le log de production.
+    expect(enforce).toContain("dont cache fichier");
+    expect(enforce).toContain("readCgroupPageCacheBytes()");
     // Le paramètre explicite reste le chemin RSS déterministe (tests uuu).
     expect(enforce).toContain("totalMemBytes?: number");
   });

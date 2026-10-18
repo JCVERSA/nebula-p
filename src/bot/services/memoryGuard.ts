@@ -92,19 +92,35 @@ export function readCgroupMemUsageBytes(
   return null;
 }
 
-/** Cache de pages du cgroup (récupérable — pas de la vraie pression). */
+/**
+ * Cache de pages du cgroup (récupérable — pas de la vraie pression).
+ * 9.18zzz : TOUT le cache de pages, inactive_file + active_file. Terrain
+ * 18/10 : le premier batch lancé 39 s après un `nebula update` voyait
+ * « usage conteneur=730 MB — critical » alors que le même engine fraîchement
+ * démarré mesurait 556 MB à l'instant T du run précédent — le build (git +
+ * tsc + écriture de dist) laisse ~175 Mo de page cache CHAUDE (active_file)
+ * que l'ancienne soustraction (inactive_file seul) ne captait pas. Ces pages
+ * sont sur la LRU fichier : le kernel les évince aussi facilement que les
+ * inactives — ce n'est jamais de la pression réelle.
+ */
 export function readCgroupPageCacheBytes(
   readFile: (p: string) => string = (p) => fs.readFileSync(p, "utf-8")
 ): number {
   try {
     const stat = readFile("/sys/fs/cgroup/memory.stat");
     const m = stat.match(/^inactive_file (\d+)$/m);
-    if (m) return Number(m[1]);
+    if (m) {
+      const a = stat.match(/^active_file (\d+)$/m);
+      return Number(m[1]) + (a ? Number(a[1]) : 0);
+    }
   } catch {}
   try {
     const stat = readFile("/sys/fs/cgroup/memory/memory.stat");
     const m = stat.match(/^total_inactive_file (\d+)$/m);
-    if (m) return Number(m[1]);
+    if (m) {
+      const a = stat.match(/^total_active_file (\d+)$/m);
+      return Number(m[1]) + (a ? Number(a[1]) : 0);
+    }
   } catch {}
   return 0;
 }
@@ -171,10 +187,15 @@ export async function enforceMemoryHeadroom(
         const cache = readCgroupPageCacheBytes();
         const wsMb = Math.max(0, Math.round((usage - cache) / 1048576));
         const limitMb = Math.floor(limitBytes / 1048576);
+        // 9.18zzz : décomposition visible — le prochain terrain SAURA si la
+        // pression vient du working set réel (brut − cache) ou du résidu de
+        // build (cache), au lieu de deviner.
+        const rawMb = Math.round(usage / 1048576);
+        const cacheMb = Math.round(cache / 1048576);
         return {
           mb: wsMb,
           level: containerPressure(wsMb, limitMb),
-          describe: `usage conteneur=${wsMb} MB / limite ${limitMb} MB`
+          describe: `usage conteneur=${wsMb} MB (brut ${rawMb} MB, dont cache fichier ${cacheMb} MB) / limite ${limitMb} MB`
         };
       }
     }
