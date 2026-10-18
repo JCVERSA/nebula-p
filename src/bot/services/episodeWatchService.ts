@@ -3,6 +3,7 @@ import path from "path";
 import crypto from "crypto";
 import moment from "moment-timezone";
 import { voiranimeEpisodes } from "./voiranimeClient.js";
+import { effectiveTimezone } from "../config.js";
 
 /**
  * Episode watch service — `.a watch` (audit S4, 2026-09-01).
@@ -227,7 +228,7 @@ export interface WatchCycleSummary {
 export async function runWatchCycle(options: WatchCycleOptions): Promise<WatchCycleSummary> {
   const fetchEpisodes = options.fetchEpisodes || ((url: string) => voiranimeEpisodes(url));
   const now = options.now || new Date();
-  const tz = options.tz || process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || "UTC";
+  const tz = options.tz || process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || effectiveTimezone(); // 9.18jjj
   const quietRange = options.quietRange ?? (process.env.NEBULA_WATCH_QUIET ?? "23-7");
   const fromStorage = !options.subscriptions;
   const subs = options.subscriptions || loadSubscriptions();
@@ -308,7 +309,7 @@ export function startWatchScheduler(): void {
         cycleRunning = false;
       }
     });
-    console.log(`[WATCH] episode watcher scheduled (${schedule}, quiet ${process.env.NEBULA_WATCH_QUIET || "23-7"} ${process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || "UTC"})`);
+    console.log(`[WATCH] episode watcher scheduled (${schedule}, quiet ${process.env.NEBULA_WATCH_QUIET || "23-7"} ${process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || effectiveTimezone()})`);
   } catch (err: any) {
     console.warn(`[WATCH] scheduler unavailable: ${err?.message || err}`);
   }

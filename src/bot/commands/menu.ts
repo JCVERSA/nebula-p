@@ -179,9 +179,10 @@ const menuCommand: BotCommand = {
 
       // Footer (contacts owner — configurables via .env, 9.18hhh : le repo
       // public reste neutre, chaque déploiement affiche SES contacts).
-      const ownerName = (process.env.OWNER_NAME || "").trim();
+      // 9.18jjj : .env prioritaire, sinon config dashboard (page Config).
+      const ownerName = (process.env.OWNER_NAME || config.ownerName || "").trim();
       const ownerPhone = String(process.env.OWNER_NUMBER || config.ownerNumber || "").replace(/\D/g, "");
-      const ownerTelegram = (process.env.OWNER_TELEGRAM || "").trim().replace(/^@/, "");
+      const ownerTelegram = (process.env.OWNER_TELEGRAM || config.ownerTelegram || "").trim().replace(/^@/, "");
       const ownerLines: string[] = [];
       if (ownerPhone || ownerTelegram) {
         ownerLines.push(ownerName ? `│ 👑 *OWNER* — ${ownerName}\n` : `│ 👑 *OWNER*\n`);

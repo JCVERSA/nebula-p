@@ -6,6 +6,9 @@ export interface BotConfig {
   prefix: string;
   botImage: string;
   ownerNumber: string;
+  /** 9.18jjj : identité owner affichée dans le menu (env OWNER_NAME prioritaire). */
+  ownerName?: string;
+  ownerTelegram?: string;
   newsletterUrl: string;
   newsletterName: string;
   /** IANA timezone of the bot (menu clock, reminders). Global env NEBULA_TZ wins; default UTC — no baked-in country (9.18hhh). */
@@ -21,6 +24,8 @@ export const defaultConfig: BotConfig = {
   botImage: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=600&q=80",
   // Empty by default: the engine only notifies the owner when a valid number is configured.
   ownerNumber: "",
+  ownerName: "",
+  ownerTelegram: "",
   newsletterUrl: "https://whatsapp.com/channel/0029VaNebulaChannel",
   newsletterName: "Nebula Bot Official News",
   timezone: "UTC",

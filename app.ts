@@ -163,6 +163,23 @@ export function createApp(): express.Express {
     if (typeof input?.ownerNumber === "string") {
       out.ownerNumber = input.ownerNumber.replace(/[^0-9+]/g, "").slice(0, 16);
     }
+    // 9.18jjj : identité owner du menu, réglable depuis le dashboard. Vide = efface.
+    if (typeof input?.ownerName === "string") {
+      out.ownerName = input.ownerName.trim().slice(0, 40);
+    }
+    if (typeof input?.ownerTelegram === "string") {
+      out.ownerTelegram = input.ownerTelegram.trim().replace(/^@/, "").slice(0, 30);
+    }
+    if (typeof input?.timezone === "string") {
+      const tz = input.timezone.trim();
+      if (!tz) {
+        out.timezone = "UTC";
+      } else if (tz === "UTC" || /^[A-Za-z]+\/[A-Za-z0-9_+-]+$/.test(tz)) {
+        out.timezone = tz.slice(0, 50);
+      } else {
+        throw new Error("Invalid timezone (IANA format expected, e.g. Europe/Paris).");
+      }
+    }
     if (typeof input?.botImage === "string" && /^https?:\/\//.test(input.botImage)) {
       out.botImage = input.botImage.slice(0, 500);
     }

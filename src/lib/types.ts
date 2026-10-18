@@ -3,6 +3,9 @@ export interface BotConfig {
   prefix: string;
   botImage: string;
   ownerNumber: string;
+  ownerName?: string;
+  ownerTelegram?: string;
+  timezone?: string;
   newsletterUrl: string;
   newsletterName: string;
   sessionString?: string;

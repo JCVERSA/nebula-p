@@ -3,6 +3,7 @@ import path from "path";
 import { loadSubscriptions } from "./episodeWatchService.js";
 import { getAIUsageSummary } from "../aiQuota.js";
 import { getAgentHealth, type AgentHealthSummary } from "./agentMetrics.js";
+import { effectiveTimezone } from "../config.js";
 
 /**
  * 8.99 — digest quotidien du propriétaire (owner : 8 h, contenu complet,
@@ -125,7 +126,7 @@ export function startDigestScheduler(): void {
   if (String(process.env.NEBULA_DIGEST || "").trim() === "0") return;
   const hourRaw = Number(process.env.NEBULA_DIGEST_HOUR);
   const hour = Number.isFinite(hourRaw) && hourRaw >= 0 && hourRaw <= 23 ? Math.floor(hourRaw) : 8;
-  const tz = process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || "UTC";
+  const tz = process.env.NEBULA_WATCH_TZ || (process.env.NEBULA_TZ || "").trim() || effectiveTimezone(); // 9.18jjj
   const schedule = `0 ${hour} * * *`;
   try {
     const cron = require("node-cron") as typeof import("node-cron");

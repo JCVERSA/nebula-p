@@ -63,3 +63,19 @@ describe("9.18hhh — .gce supprimé (aucune commande dédiée à un pays)", () 
     expect(names.has("papier")).toBe(false);
   });
 });
+
+describe("9.18jjj — les planificateurs suivent la config dashboard (repli final)", () => {
+  it("rappels : config dashboard timezone utilisée sans aucune variable d'env", async () => {
+    const { updateConfig } = await import("../src/bot/config.js");
+    updateConfig({ timezone: "Europe/Paris" });
+    try {
+      expect(reminderTimezone()).toBe("Europe/Paris");
+      // l'env reste prioritaire
+      process.env.NEBULA_TZ = "Asia/Tokyo";
+      expect(reminderTimezone()).toBe("Asia/Tokyo");
+    } finally {
+      delete process.env.NEBULA_TZ;
+      updateConfig({ timezone: "UTC" });
+    }
+  });
+});

@@ -190,6 +190,9 @@ export default function App() {
     prefix: ".",
     botImage: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=600&q=80",
     ownerNumber: "",
+    ownerName: "",
+    ownerTelegram: "",
+    timezone: "UTC",
     newsletterUrl: "https://whatsapp.com/channel/0029VaNebulaChannel",
     newsletterName: "Nebula Bot Official News",
     browserPlatform: "Ubuntu",
@@ -3401,6 +3404,36 @@ export default function App() {
                           value={formConfig.ownerNumber || ""}
                           placeholder="country code + number, e.g. 2250700000000"
                           onChange={(e) => setFormConfig({ ...formConfig, ownerNumber: e.target.value })}
+                          className="w-full px-3.5 py-2.5 border border-white/10 rounded-xl text-xs bg-black text-white focus:outline-none focus:border-amber-400 placeholder-zinc-600 transition shadow-sm font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-zinc-300">Owner Name (menu footer)</label>
+                        <input
+                          type="text"
+                          value={formConfig.ownerName || ""}
+                          placeholder="shown in the .menu footer — empty hides it"
+                          onChange={(e) => setFormConfig({ ...formConfig, ownerName: e.target.value })}
+                          className="w-full px-3.5 py-2.5 border border-white/10 rounded-xl text-xs bg-black text-white focus:outline-none focus:border-amber-400 placeholder-zinc-600 transition shadow-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-zinc-300">Owner Telegram (menu footer)</label>
+                        <input
+                          type="text"
+                          value={formConfig.ownerTelegram || ""}
+                          placeholder="handle without @ — empty hides it"
+                          onChange={(e) => setFormConfig({ ...formConfig, ownerTelegram: e.target.value })}
+                          className="w-full px-3.5 py-2.5 border border-white/10 rounded-xl text-xs bg-black text-white focus:outline-none focus:border-amber-400 placeholder-zinc-600 transition shadow-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-zinc-300">Timezone (IANA)</label>
+                        <input
+                          type="text"
+                          value={formConfig.timezone || ""}
+                          placeholder="e.g. Europe/Paris — default UTC"
+                          onChange={(e) => setFormConfig({ ...formConfig, timezone: e.target.value })}
                           className="w-full px-3.5 py-2.5 border border-white/10 rounded-xl text-xs bg-black text-white focus:outline-none focus:border-amber-400 placeholder-zinc-600 transition shadow-sm font-mono"
                         />
                       </div>

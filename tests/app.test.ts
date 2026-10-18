@@ -712,3 +712,73 @@ describe("Health, audit trail and backup (M13/§8)", () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe("9.18jjj — dashboard Config : identité owner + fuseau (page Config, effet immédiat)", () => {
+  it("POST /api/bot/config accepte ownerName/ownerTelegram/timezone et persiste", async () => {
+    const res = await request(app)
+      .post("/api/bot/config")
+      .set(auth)
+      .send({ ownerName: "Dash Owner", ownerTelegram: "@dashuser", timezone: "Europe/Paris" });
+    expect(res.status).toBe(200);
+    expect(res.body.ownerName).toBe("Dash Owner");
+    expect(res.body.ownerTelegram).toBe("dashuser"); // @ retiré
+    expect(res.body.timezone).toBe("Europe/Paris");
+    const get = await request(app).get("/api/bot/config").set(auth);
+    expect(get.body.ownerName).toBe("Dash Owner");
+    expect(get.body.timezone).toBe("Europe/Paris");
+  });
+
+  it("fuseau invalide refusé (400) ; vide = retour à UTC", async () => {
+    const bad = await request(app).post("/api/bot/config").set(auth).send({ timezone: "not a tz!" });
+    expect(bad.status).toBe(400);
+    const empty = await request(app).post("/api/bot/config").set(auth).send({ timezone: "   " });
+    expect(empty.status).toBe(200);
+    expect(empty.body.timezone).toBe("UTC");
+  });
+
+  it("le bloc OWNER du menu suit la CONFIG dashboard (sans .env) — .env reste prioritaire", async () => {
+    delete process.env.OWNER_NAME;
+    delete process.env.OWNER_TELEGRAM;
+    delete process.env.OWNER_NUMBER;
+    await request(app).post("/api/bot/config").set(auth).send({
+      ownerName: "Cfg Owner",
+      ownerNumber: "15551234567",
+      ownerTelegram: "cfguser",
+    });
+    // simulateMessage en direct : même chemin que la route, sans le
+    // rate-limiter HTTP (le quota simulate est déjà consommé par ce fichier).
+    const { simulateMessage } = await import("../src/bot/botEngine.js");
+    const { getConfig } = await import("../src/bot/config.js");
+    const menuCmd = `${getConfig().prefix}menu`; // des tests plus haut ont changé le préfixe
+    const res = await simulateMessage("Tester", menuCmd);
+    expect(res.text).toContain("wa.me/15551234567");
+    expect(res.text).toContain("Cfg Owner");
+    expect(res.text).toContain("t.me/cfguser");
+    // .env prioritaire sur la config
+    process.env.OWNER_NAME = "Env Owner";
+    try {
+      const res2 = await simulateMessage("Tester", menuCmd);
+      expect(res2.text).toContain("Env Owner");
+      expect(res2.text).not.toContain("Cfg Owner");
+    } finally {
+      delete process.env.OWNER_NAME;
+    }
+  });
+
+  it("vider les champs via le dashboard efface le bloc owner du menu", async () => {
+    delete process.env.OWNER_NAME;
+    delete process.env.OWNER_TELEGRAM;
+    delete process.env.OWNER_NUMBER;
+    const res = await request(app).post("/api/bot/config").set(auth).send({
+      ownerName: "",
+      ownerNumber: "",
+      ownerTelegram: "",
+    });
+    expect(res.status).toBe(200);
+    const { simulateMessage } = await import("../src/bot/botEngine.js");
+    const { getConfig } = await import("../src/bot/config.js");
+    const menu = await simulateMessage("Tester", `${getConfig().prefix}menu`);
+    expect(menu.text).not.toContain("wa.me/");
+    expect(menu.text).not.toContain("t.me/");
+  });
+});

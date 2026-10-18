@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { effectiveTimezone } from "../config.js";
 
 /**
  * 9.18bb (P7, décision owner 15/10) — rappels programmés par chat.
@@ -39,9 +40,15 @@ export type ReminderSpec =
   | { kind: "cancel"; index: number }
   | { kind: "set"; dueAt: number; text: string; humanWhen: string };
 
-/** 9.18hhh — fuseau des rappels : env global, aucun pays codé dur (défaut UTC). */
+/**
+ * 9.18jjj — fuseau des rappels : NEBULA_WATCH_TZ (legacy veille) > NEBULA_TZ
+ * (env global) > config dashboard (effectiveTimezone) > UTC. Aucun pays codé dur.
+ */
 export function reminderTimezone(): string {
-  return (process.env.NEBULA_TZ || process.env.NEBULA_WATCH_TZ || "").trim() || "UTC";
+  return (
+    (process.env.NEBULA_WATCH_TZ || process.env.NEBULA_TZ || "").trim() ||
+    effectiveTimezone()
+  );
 }
 const MAX_ACTIVE_PER_CHAT = 10;
 export const MAX_TEXT_CHARS = 300;
