@@ -53,8 +53,9 @@ export interface SourceSearchResult {
   title: string;
   subtitle: string;
   url: string;
-  /** Structural language of the entry (va slugs) — null when the catalog
-   * does not encode language at the entry level (as results). */
+  /** Structural language of the entry (va slugs — toujours renseignée :
+   * slug nu = page VOSTFR, 9.18ooo) — null when the catalog does not
+   * encode language at the entry level (as results). */
   language?: SeasonLanguage;
   /** va entries keep their slug (season resolution + tests). */
   slug?: string;
@@ -336,10 +337,14 @@ export async function searchAnimeBySource(
     }
     const results = rawResults;
     const withLang: SourceSearchResult[] = results.map((r) => {
-      const language = voiranimeSlugLanguage(r.slug);
+      // 9.18ooo (terrain 18/10 « ça n'a pas changé ») : sur ce catalogue, un
+      // slug NU — sans suffixe -vf — est la page VOSTFR de l'anime
+      // (convention structurelle du site). Lui donner la langue « VOSTFR »
+      // au lieu de « inconnue » : ces entrées étaient invisibles à l'écran.
+      const language = voiranimeSlugLanguage(r.slug) ?? "VOSTFR";
       return {
         title: r.title,
-        subtitle: language === "VF" ? "VF" : language === "VOSTFR" ? "VOSTFR" : "",
+        subtitle: language,
         url: r.url,
         slug: r.slug,
         language,

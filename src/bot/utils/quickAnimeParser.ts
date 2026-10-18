@@ -473,3 +473,27 @@ export function pickQuickAutoChoice<T extends { title: string; subtitle?: string
   }
   return null;
 }
+
+/**
+ * 9.18ooo — sélection auto sur l'écran MIXTE voir-anime (VF puis VOSTFR,
+ * plus rien de trouvé n'est masqué). La demande ne dit pas la langue → la
+ * préférence par défaut (VF, 9.9) tranche :
+ *  1. le sous-ensemble VF d'abord (comportement 9.18lll inchangé) ;
+ *  2. à défaut, la liste mixte — la saison n'existe qu'en VOSTFR, c'est elle.
+ * Langue explicite → la liste mixte telle quelle (le filtre langue de
+ * pickQuickAutoChoice s'applique). Pur ; ne remplace JAMAIS un choix ambigu.
+ */
+export function pickVaQuickAutoChoice<T extends { title: string; subtitle?: string; language?: string | null }>(
+  results: T[],
+  quickParams: QuickDownloadParams,
+  labelOf?: (r: T) => string
+): T | null {
+  if (!quickParams.language) {
+    const vfPool = results.filter((r) => r.language === "VF");
+    if (vfPool.length > 0 && vfPool.length < results.length) {
+      const vfPick = pickQuickAutoChoice(vfPool, quickParams, labelOf);
+      if (vfPick) return vfPick;
+    }
+  }
+  return pickQuickAutoChoice(results, quickParams, labelOf);
+}

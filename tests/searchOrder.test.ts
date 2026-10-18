@@ -86,6 +86,33 @@ describe("searchAnime source routing (8.69)", () => {
     expect(axiosPostMock).not.toHaveBeenCalled();
   });
 
+  it("9.18ooo : slug nu = page VOSTFR du site (plus d'entrée « sans langue » invisible)", async () => {
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    voiranimeSearch.mockResolvedValue([
+      {
+        title: "Re:Zero kara Hajimeru Isekai Seikatsu",
+        url: "https://voir-anime.to/anime/rezero-kara-hajimeru-isekai-seikatsu/",
+        slug: "rezero-kara-hajimeru-isekai-seikatsu",
+        isVf: false,
+      },
+      {
+        title: "Re:Zero kara Hajimeru Isekai Seikatsu S2",
+        url: "https://voir-anime.to/anime/rezero-kara-hajimeru-isekai-seikatsu-s2-vf/",
+        slug: "rezero-kara-hajimeru-isekai-seikatsu-s2-vf",
+        isVf: true,
+      },
+    ]);
+    const { searchAnime } = await loadNovabox();
+
+    const results = await searchAnime("rezero", "va");
+
+    expect(results).toHaveLength(2);
+    expect(results[0].language).toBe("VF"); // VF-first inchangé
+    expect(results[0].subtitle).toBe("VF");
+    expect(results[1].language).toBe("VOSTFR"); // slug nu → VOSTFR (9.18ooo)
+    expect(results[1].subtitle).toBe("VOSTFR");
+  });
+
   it("no fallback: an EMPTY result is the answer (no second catalog tried)", async () => {
     axiosPostMock.mockResolvedValue({ data: "<html>no results</html>" });
     const nakanimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/nakanimeClient.js", "nakanimeSearch");

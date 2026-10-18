@@ -59,7 +59,7 @@ import {
 import {
   parseQuickDownloadParams,
   isExactAnimeMatch,
-  pickQuickAutoChoice,
+  pickVaQuickAutoChoice,
   resolveRequestedSeason,
   resolveRequestedEpisodes,
   canonicalResolutionForChoice,
@@ -995,42 +995,58 @@ function searchFailureMessage(err: any): string {
 }
 
 /**
- * 9.9 (owner) : écran de sélection VF organisé — entrées non-VF retirées,
- * saisons regroupées et étiquetées (« Kimetsu no Yaiba — Saison 2 »), films
- * nommés. Retourne la liste réordonnée (le mapping `.a N` suit cet ordre),
- * les étiquettes, et une note honnête quand aucune VF n'existe.
+ * 9.9 → 9.18ooo (owner, terrain 18/10 « ça n'a pas changé ») : l'écran par
+ * défaut montre TOUT ce que le catalogue a trouvé — entrées VF d'abord
+ * (saisons regroupées/étiquetées, films nommés), entrées VOSTFR ensuite.
+ * Plus rien de trouvé n'est masqué ; chaque étiquette porte sa langue
+ * quand les deux coexistent. Retourne la liste réordonnée (le mapping
+ * `.a N` suit cet ordre), les étiquettes, et une note d'orientation.
  */
 export function organizeVfScreen(
   results: SourceSearchResult[]
 ): { results: SourceSearchResult[]; labels: Map<SourceSearchResult, string> | null; note: string | null } {
   const vfEntries = results.filter((r) => r.language === "VF" && r.slug);
+  const vostfrEntries = results.filter((r) => r.language === "VOSTFR" && r.slug);
+  const marked = vfEntries.length > 0 && vostfrEntries.length > 0; // étiquettes bilingues
+  const labels = new Map<SourceSearchResult, string>();
+  const organize = (entries: SourceSearchResult[], language: "VF" | "VOSTFR"): SourceSearchResult[] => {
+    const organized = organizeVfSelection(
+      entries.map((r) => ({ title: r.title, url: r.url, slug: String(r.slug), isVf: r.language === "VF" }))
+    );
+    const byKey = new Map(entries.map((r) => [`${r.slug}|${r.url}`, r]));
+    const reordered: SourceSearchResult[] = [];
+    for (const o of organized) {
+      const r = byKey.get(`${o.result.slug}|${o.result.url}`);
+      if (!r) continue;
+      reordered.push(r);
+      labels.set(r, marked ? `${o.label} (${language})` : o.label);
+    }
+    return reordered;
+  };
   if (vfEntries.length === 0) {
+    // Aucune VF : tout ce que le catalogue propose, organisé pareil.
     return {
-      results,
-      labels: null,
-      note: results.length > 0 ? "🔍 _Aucune entrée VF pour cette recherche — voici tout ce que le catalogue propose (précise \`vostfr\` pour l'assumer) :_" : null,
+      results: vostfrEntries.length > 0 ? organize(vostfrEntries, "VOSTFR") : results,
+      labels: vostfrEntries.length > 0 ? labels : null,
+      note:
+        results.length > 0
+          ? "🔍 _Aucune entrée VF pour cette recherche — voici tout ce que le catalogue propose :_"
+          : null,
     };
   }
-  // 9.18nnn : l'écran VF (défaut 9.9) masque les entrées VOSTFR — le dire
-  // honnêtement avec le compte, au lieu de laisser croire que le catalogue
-  // n'a rien d'autre (retour terrain 18/10 « ça ne recherche pas tout »).
-  const hiddenVostfr = results.length - vfEntries.length;
-  const organized = organizeVfSelection(
-    vfEntries.map((r) => ({ title: r.title, url: r.url, slug: String(r.slug), isVf: true }))
-  );
-  const byKey = new Map(vfEntries.map((r) => [`${r.slug}|${r.url}`, r]));
-  const reordered = organized.map((o) => byKey.get(`${o.result.slug}|${o.result.url}`)!).filter(Boolean);
-  const labels = new Map<SourceSearchResult, string>();
-  for (const o of organized) {
-    const r = byKey.get(`${o.result.slug}|${o.result.url}`);
-    if (r) labels.set(r, o.label);
-  }
+  // Entrées sans langue connue (impossibles sur va depuis 9.18ooo) : jamais perdues.
+  const known = new Set([...vfEntries, ...vostfrEntries]);
+  const leftovers = results.filter((r) => !known.has(r));
   return {
-    results: reordered,
+    results: [
+      ...organize(vfEntries, "VF"),
+      ...(vostfrEntries.length > 0 ? organize(vostfrEntries, "VOSTFR") : []),
+      ...leftovers,
+    ],
     labels,
     note:
-      hiddenVostfr > 0
-        ? `🔎 _${hiddenVostfr} entrée(s) VOSTFR trouvée(s) aussi sur ce catalogue, masquée(s) par défaut (écran VF) — ajoute \`vostfr\` à ta recherche pour la version sous-titrée._`
+      vostfrEntries.length > 0
+        ? `🔎 _VF d'abord — le catalogue propose aussi ${vostfrEntries.length} entrée(s) VOSTFR, listées à la suite._`
         : null,
   };
 }
@@ -1727,7 +1743,10 @@ const animeCommand: BotCommand = {
         // auto UNIQUEMENT si saison/langue désignent une seule entrée.
         const quickLabelOf = (r: (typeof searchResults)[number]) =>
           vfScreen?.labels?.get(r as never) ?? `${r.title}${r.subtitle ? ` ${r.subtitle}` : ""}`;
-        const autoChoice = pickQuickAutoChoice(searchResults, quickParams, quickLabelOf);
+        // 9.18ooo : écran mixte — sans langue demandée, la préférence VF
+        // (défaut 9.9) tranche d'abord, la liste mixte ensuite (saison
+        // uniquement VOSTFR). Le cas terrain lll reste inchangé.
+        const autoChoice = pickVaQuickAutoChoice(searchResults, quickParams, quickLabelOf);
         if (autoChoice) {
           const newSession: AnimeSession = {
             step: "select_anime",

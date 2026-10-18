@@ -8,6 +8,11 @@
  *    ne matche pas « Re:Zero » avec la requête « rezero » (les deux-points) ;
  *  - l'écran VF masquait les entrées VOSTFR sans le dire ;
  *  - tout titre « Re:… » se groupait sous la base « re » (colon trop permissif).
+ *
+ * 9.18ooo (terrain 18/10 04:22 « ça n'a pas changé ») : la recherche trouvait
+ * bien 5 entrées mais 3 (VOSTFR) restaient invisibles à l'écran VF par défaut
+ * → écran MIXTE : VF d'abord, VOSTFR ensuite, tout numéroté ; slug nu du site
+ * = page VOSTFR ; la sélection auto garde la préférence VF (pickVaQuickAutoChoice).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
@@ -114,8 +119,8 @@ describe("9.18nnn — organizeVfSelection : « Re:… » ne se coupe plus sur le
   });
 });
 
-describe("9.18nnn — organizeVfScreen : les VOSTFR masquées sont annoncées", () => {
-  it("2 VF + 2 VOSTFR → écran VF seul + note avec le compte exact", async () => {
+describe("9.18ooo — organizeVfScreen : écran mixte, rien de trouvé n'est masqué", () => {
+  it("2 VF + 2 VOSTFR → les 4 entrées, VF d'abord, étiquettes bilingues, note d'orientation", async () => {
     const { organizeVfScreen } = await import("../src/bot/commands/novabox.js");
     const mixed = [
       { title: "X S1", url: "https://voir-anime.to/anime/x-vf/", slug: "x-vf", isVf: true, language: "VF" },
@@ -124,24 +129,39 @@ describe("9.18nnn — organizeVfScreen : les VOSTFR masquées sont annoncées", 
       { title: "X S2", url: "https://voir-anime.to/anime/x-s2/", slug: "x-s2", isVf: false, language: "VOSTFR" },
     ] as never[];
     const screen = organizeVfScreen(mixed);
-    expect(screen.results).toHaveLength(2); // écran VF (défaut 9.9) inchangé
-    expect(screen.results.every((r: { language?: string | null }) => r.language === "VF")).toBe(true);
+    expect(screen.results).toHaveLength(4); // TOUT est montré (terrain 18/10 : « ça n'a pas changé »)
+    expect(screen.results.slice(0, 2).every((r: { language?: string | null }) => r.language === "VF")).toBe(true);
+    expect(screen.results.slice(2).every((r: { language?: string | null }) => r.language === "VOSTFR")).toBe(true);
+    const allLabels = Array.from(screen.labels!.values());
+    expect(allLabels).toHaveLength(4);
+    expect(allLabels.slice(0, 2).every((l: string) => l.includes("(VF)"))).toBe(true);
+    expect(allLabels.slice(2).every((l: string) => l.includes("(VOSTFR)"))).toBe(true);
     expect(screen.note).toContain("2");
     expect(screen.note).toContain("VOSTFR");
-    expect(screen.note).toContain("vostfr"); // la porte de sortie
   });
 
-  it("aucune VOSTFR cachée → pas de note ; aucune VF → tout est montré (comportement 9.9)", async () => {
+  it("tout VF → étiquettes sans marque de langue, pas de note (rendu 9.9 inchangé)", async () => {
     const { organizeVfScreen } = await import("../src/bot/commands/novabox.js");
     const allVf = [
-      { title: "X S1", url: "u1", slug: "x-vf", isVf: true, language: "VF" },
+      { title: "X Saison 1", url: "u1", slug: "x-vf", isVf: true, language: "VF" },
+      { title: "X Saison 2", url: "u2", slug: "x-s2-vf", isVf: true, language: "VF" },
     ] as never[];
-    expect(organizeVfScreen(allVf).note).toBeNull();
+    const screen = organizeVfScreen(allVf);
+    expect(screen.results).toHaveLength(2);
+    expect(screen.note).toBeNull();
+    expect(Array.from(screen.labels!.values()).every((l: string) => !l.includes("("))).toBe(true);
+  });
+
+  it("aucune VF → tout ce que le catalogue propose, organisé (saisons regroupées)", async () => {
+    const { organizeVfScreen } = await import("../src/bot/commands/novabox.js");
     const noVf = [
-      { title: "X S1", url: "u1", slug: "x", isVf: false, language: "VOSTFR" },
+      { title: "X Saison 2", url: "u2", slug: "x-2", isVf: false, language: "VOSTFR" },
+      { title: "X Saison 1", url: "u1", slug: "x", isVf: false, language: "VOSTFR" },
     ] as never[];
     const screen = organizeVfScreen(noVf);
-    expect(screen.results).toHaveLength(1); // rien n'est masqué
+    expect(screen.results).toHaveLength(2); // rien n'est masqué
+    expect(screen.results[0]).toMatchObject({ slug: "x" }); // Saison 1 avant Saison 2
+    expect(screen.labels!.get(screen.results[0] as never)).toContain("Saison 1");
     expect(screen.note).toContain("Aucune entrée VF");
   });
 });

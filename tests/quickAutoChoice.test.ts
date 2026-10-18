@@ -10,7 +10,11 @@
 import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
-import { pickQuickAutoChoice, type QuickDownloadParams } from "../src/bot/utils/quickAnimeParser.js";
+import {
+  pickQuickAutoChoice,
+  pickVaQuickAutoChoice,
+  type QuickDownloadParams,
+} from "../src/bot/utils/quickAnimeParser.js";
 
 interface FakeResult {
   title: string;
@@ -81,11 +85,61 @@ describe("9.18lll — pickQuickAutoChoice (pur)", () => {
 describe("9.18lll — câblage novabox (source)", () => {
   it("le flux rapide tente la sélection auto AVANT l'écran de sélection", () => {
     const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/novabox.ts"), "utf-8");
-    expect(src).toContain("pickQuickAutoChoice(searchResults, quickParams");
-    const auto = src.indexOf("pickQuickAutoChoice(searchResults, quickParams");
+    expect(src).toContain("pickVaQuickAutoChoice(searchResults, quickParams");
+    const auto = src.indexOf("pickVaQuickAutoChoice(searchResults, quickParams");
     const exact = src.indexOf("const matchResult = isExactAnimeMatch(quickParams.animeQuery");
     expect(auto).toBeGreaterThan(-1);
     expect(exact).toBeGreaterThan(auto); // auto d'abord, écran en dernier recours
     expect(src).toContain("sélection auto"); // log terrain [NOVABOX]
+  });
+});
+
+interface FakeVaResult {
+  title: string;
+  subtitle?: string;
+  url: string;
+  language?: string | null;
+}
+
+const mkVa = (title: string, language: "VF" | "VOSTFR"): FakeVaResult => ({
+  title,
+  subtitle: language,
+  url: `https://x/${encodeURIComponent(title)}`,
+  language,
+});
+const vaLabel = (r: FakeVaResult) => `${r.title} (${r.language})`;
+
+describe("9.18ooo — pickVaQuickAutoChoice (écran mixte : la préférence VF tranche)", () => {
+  it("« s1 » avec S1 en VF ET en VOSTFR → la VF (défaut 9.9), sans repose de question", () => {
+    const pool = [
+      mkVa("Re:Zero — Saison 1", "VF"),
+      mkVa("Re:Zero — Saison 2", "VF"),
+      mkVa("Re:Zero — Saison 1", "VOSTFR"),
+      mkVa("Re:Zero — Saison 2", "VOSTFR"),
+    ];
+    const pick = pickVaQuickAutoChoice(pool, qp({ seasonNumber: 1 }), vaLabel);
+    expect(pick?.language).toBe("VF");
+    expect(vaLabel(pick!)).toContain("Saison 1");
+  });
+
+  it("la saison n'existe qu'en VOSTFR → l'entrée VOSTFR (l'écran mixte l'aurait montrée)", () => {
+    const pool = [
+      mkVa("Re:Zero — Saison 2", "VF"),
+      mkVa("Re:Zero — Saison 1", "VOSTFR"),
+      mkVa("Re:Zero — Saison 2", "VOSTFR"),
+    ];
+    const pick = pickVaQuickAutoChoice(pool, qp({ seasonNumber: 1 }), vaLabel);
+    expect(pick?.language).toBe("VOSTFR");
+  });
+
+  it("langue explicite → le filtre langue s'applique sur la liste mixte", () => {
+    const pool = [mkVa("Re:Zero — Saison 1", "VF"), mkVa("Re:Zero — Saison 1", "VOSTFR")];
+    const pick = pickVaQuickAutoChoice(pool, qp({ language: "VOSTFR", seasonNumber: 1 }), vaLabel);
+    expect(pick?.language).toBe("VOSTFR");
+  });
+
+  it("ambiguïté réelle (deux « Saison 1 » en VF) → null, l'écran reste la réponse honnête", () => {
+    const pool = [mkVa("Re:Zero — Saison 1", "VF"), mkVa("Re:Edit — Saison 1", "VF")];
+    expect(pickVaQuickAutoChoice(pool, qp({ seasonNumber: 1 }), vaLabel)).toBeNull();
   });
 });
