@@ -59,6 +59,7 @@ import {
 import {
   parseQuickDownloadParams,
   isExactAnimeMatch,
+  pickQuickAutoChoice,
   resolveRequestedSeason,
   resolveRequestedEpisodes,
   canonicalResolutionForChoice,
@@ -1708,6 +1709,31 @@ const animeCommand: BotCommand = {
 
         // Clear previous session
         clearUserSession(sender);
+
+        // 9.18lll (terrain 18/10) : la demande connaissait déjà la saison
+        // (« s1 ») mais le catalogue liste chaque saison comme une entrée —
+        // l'écran de sélection reposait une question déjà répondue. Choix
+        // auto UNIQUEMENT si saison/langue désignent une seule entrée.
+        const quickLabelOf = (r: (typeof searchResults)[number]) =>
+          vfScreen?.labels?.get(r as never) ?? `${r.title}${r.subtitle ? ` ${r.subtitle}` : ""}`;
+        const autoChoice = pickQuickAutoChoice(searchResults, quickParams, quickLabelOf);
+        if (autoChoice) {
+          const newSession: AnimeSession = {
+            step: "select_anime",
+            source,
+            searchResults,
+            animeTitle: autoChoice.title,
+            animeUrl: autoChoice.url,
+            languages: [],
+            seasons: [],
+            pendingQuickParams: quickParams,
+            timer: null
+          };
+          setUserSession(sender, newSession);
+          refreshSessionTimer(newSession);
+          console.log(`[NOVABOX] sélection auto : ${autoChoice.title}`);
+          return await executeQuickDownloadPipeline(sock, msg, context, newSession, autoChoice, quickParams);
+        }
 
         const matchResult = isExactAnimeMatch(quickParams.animeQuery, searchResults);
 

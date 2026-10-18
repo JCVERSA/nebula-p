@@ -436,3 +436,40 @@ export function resolveRequestedEpisodes(
   // Default: Episode 1 (index 0)
   return [0];
 }
+
+/**
+ * 9.18lll — sélection AUTOMATIQUE dans le flux de téléchargement rapide
+ * (retour terrain 18/10 : « the rampart of ice s1 ep 9-10 en 480 » →
+ * voir-anime liste « Saison 1 » et « Saison 2 » comme deux entrées ; le
+ * match exact échouait et le bot reposait la question « 1 ou 2 ? » alors
+ * que la demande avait DÉJÀ dit s1).
+ *
+ * Règles (déterministes, pur) — ne remplace JAMAIS un vrai choix ambigu :
+ *  - si une langue a été demandée, on ne garde que les entrées qui la
+ *    mentionnent (au moins une) ;
+ *  - si une saison a été demandée et qu'EXACTEMENT UNE entrée la mentionne
+ *    (« Saison 2 », « Season 2 », « S2 »…), c'est elle ;
+ *  - sinon → null (l'écran de sélection reste la réponse honnête).
+ */
+export function pickQuickAutoChoice<T extends { title: string; subtitle?: string }>(
+  results: T[],
+  quickParams: QuickDownloadParams,
+  labelOf?: (r: T) => string
+): T | null {
+  if (!results || results.length <= 1) return null; // 0 = rien ; 1 = déjà auto-sélectionné en amont
+  const label = labelOf || ((r: T) => `${r.title} ${r.subtitle || ""}`);
+  let pool = results;
+  if (quickParams.language) {
+    const lang = quickParams.language.toLowerCase(); // "vf" | "vostfr"
+    const langMatches = pool.filter((r) => label(r).toLowerCase().includes(lang));
+    if (langMatches.length >= 1) pool = langMatches;
+  }
+  if (pool.length === 1) return pool[0];
+  if (quickParams.seasonNumber !== undefined) {
+    const n = quickParams.seasonNumber;
+    const seasonRe = new RegExp(`\\b(?:saison|season|s)\\s*0?${n}(?!\\d)`, "i");
+    const seasonMatches = pool.filter((r) => seasonRe.test(label(r)));
+    if (seasonMatches.length === 1) return seasonMatches[0];
+  }
+  return null;
+}
