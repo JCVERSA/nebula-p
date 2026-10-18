@@ -162,3 +162,11 @@ describe("9.18ff — contrat agent : chaîne générique + continuité (retour t
     expect(k).toContain("UNIQUEMENT sur un écran de sélection Novabox");
   });
 });
+
+describe("9.18kkk — titre exact trouvé par recherche web (retour terrain 18/10)", () => {
+  it("l'agent relance .a avec le titre exact et ne traite jamais .search comme un catalogue", () => {
+    const k = buildAgentKnowledge(".");
+    expect(k).toContain("CE titre exact");
+    expect(k).toContain("JAMIS un catalogue");
+  });
+});

@@ -97,18 +97,38 @@ export function outputLooksInteractive(texts: string[]): boolean {
   return /👉\s*Répond(?:s|ez)\s+avec/i.test(joined) || /Sélectionnez l['’]/i.test(joined);
 }
 
-/** Bloc de contexte à injecter dans le prompt agent (null si rien de frais). */
+/**
+ * Bloc de contexte à injecter dans le prompt agent (null si rien de frais).
+ *
+ * 9.18kkk (retour terrain 18/10) : DEUX niveaux. L'ancien bloc unique
+ * disait « le bot attend une réponse » pour TOUTE dernière sortie — y
+ * compris les résultats de recherche web (.search) : l'agent traitait les
+ * liens Wikipedia/Netflix numérotés comme un catalogue téléchargeable et
+ * demandait « Quel numéro souhaitez-vous télécharger ? ». Désormais :
+ *  - écran interactif réel (sélection Novabox) → bloc fort inchangé ;
+ *  - sortie informationnelle → bloc faible qui interdit explicitement
+ *    la demande de numéro et le traitement des entrées comme téléchargeables.
+ */
 export function observationContext(chatJid: string): string | null {
   const obs = getLastObservation(chatJid);
   if (!obs) return null;
   const ageMin = Math.max(1, Math.round((Date.now() - obs.ts) / 60_000));
   const body = obs.texts.join("\n—\n").slice(0, MAX_CHARS);
+  if (outputLooksInteractive(obs.texts)) {
+    return (
+      `## Écran en attente dans ce chat (commande .${obs.command}, il y a ${ageMin} min)\n` +
+      `Le bot a affiché ceci à l'utilisateur et attend une réponse :\n\n${body}\n\n` +
+      `Si le message de l'utilisateur répond à cet écran (un numéro, « le 2e », « en VF », ` +
+      `un titre de la liste…), exécute la commande qui choisit (ex. \`.a 2\`) au lieu de ` +
+      `recommencer la recherche.`
+    );
+  }
   return (
-    `## Écran en attente dans ce chat (commande .${obs.command}, il y a ${ageMin} min)\n` +
-    `Le bot a affiché ceci à l'utilisateur et attend une réponse :\n\n${body}\n\n` +
-    `Si le message de l'utilisateur répond à cet écran (un numéro, « le 2e », « en VF », ` +
-    `un titre de la liste…), exécute la commande qui choisit (ex. \`.a 2\`) au lieu de ` +
-    `recommencer la recherche.`
+    `## Dernière sortie du bot dans ce chat (commande .${obs.command}, il y a ${ageMin} min)\n` +
+    `Contexte informationnel — ce n'est PAS un écran de choix :\n\n${body}\n\n` +
+    `Ne demande JAMAIS un numéro à son sujet et ne considère pas ses entrées comme ` +
+    `téléchargeables. Utilise son contenu comme contexte (titre exact d'une œuvre, lien, ` +
+    `erreur…) si le message de l'utilisateur s'y rapporte.`
   );
 }
 

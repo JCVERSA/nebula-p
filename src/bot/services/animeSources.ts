@@ -280,6 +280,40 @@ async function searchAnimeSama(query: string): Promise<SourceSearchResult[]> {
  * shows the other-flag hint). va results are ordered VF-first because VF is
  * the default language, and carry their structural language for the policy.
  */
+/** 9.18kkk — articles initiaux retirés dans les variantes de requête. */
+const QUERY_LEADING_ARTICLE_RE = /^(?:the|le|la|les|l'|l’|un|une|des|a|an)\s+/i;
+/** 9.18kkk — mots vides jamais fléchés (singulier/pluriel). */
+const QUERY_NO_INFLECT = new Set([
+  "the", "le", "la", "les", "l", "un", "une", "des", "a", "an", "of", "de", "du",
+  "et", "and", "no", "not", "in", "en", "to", "au", "aux", "dans", "sur", "for",
+]);
+
+/**
+ * 9.18kkk — variantes de requête pour une recherche anime (retour terrain
+ * 18/10 : « the rampart of ice » → 0 résultat alors que le titre réel est
+ * « The Ramparts of Ice » — un « s » de différence). Pure, dédupliquée,
+ * bornée à 4 : la requête originale TOUJOURS en premier, puis sans
+ * l'article initial, puis fléchis singulier/pluriel des mots significatifs
+ * (≥ 4 lettres, hors mots vides ; les mots courts comme « ice » ne bougent
+ * pas — sinon « zzz » génèrerait des variantes inutiles).
+ */
+export function searchQueryVariants(query: string): string[] {
+  const q = String(query || "").trim().replace(/\s+/g, " ");
+  if (!q) return [];
+  const variants: string[] = [q];
+  const push = (v: string) => {
+    const t = v.trim().replace(/\s+/g, " ");
+    if (t && !variants.includes(t)) variants.push(t);
+  };
+  const bare = q.replace(QUERY_LEADING_ARTICLE_RE, "").trim();
+  if (bare) push(bare);
+  const words = (bare || q).split(" ");
+  const inflectable = (w: string) => w.length >= 4 && !QUERY_NO_INFLECT.has(w.toLowerCase());
+  push(words.map((w) => (inflectable(w) && /s$/i.test(w) && !/(?:ss|us|is)$/i.test(w) ? w.slice(0, -1) : w)).join(" "));
+  push(words.map((w) => (inflectable(w) && !/s$/i.test(w) ? `${w}s` : w)).join(" "));
+  return variants.slice(0, 4);
+}
+
 export async function searchAnimeBySource(
   query: string,
   source: AnimeSourceId
@@ -288,7 +322,19 @@ export async function searchAnimeBySource(
     if (process.env.NEBULA_VOIRANIME_DISABLED === "1") {
       throw new Error(VA_DISABLED_CODE);
     }
-    const results = await voiranimeSearch(foldTitleDiacritics(query));
+    // 9.18kkk — retry à variantes sur le MÊME catalogue (la décision 8.69
+    // « pas de fallback catalogue » reste intacte) : une faute de frappe
+    // proche (article, singulier/pluriel) ne doit plus donner 0 résultat.
+    const vaVariants = searchQueryVariants(foldTitleDiacritics(query));
+    let rawResults: Awaited<ReturnType<typeof voiranimeSearch>> = [];
+    for (let i = 0; i < vaVariants.length; i++) {
+      rawResults = await voiranimeSearch(vaVariants[i]);
+      if (rawResults.length) {
+        if (i > 0) console.log(`[NOVABOX] recherche élargie « ${vaVariants[i]} » : ${rawResults.length} résultat(s)`);
+        break;
+      }
+    }
+    const results = rawResults;
     const withLang: SourceSearchResult[] = results.map((r) => {
       const language = voiranimeSlugLanguage(r.slug);
       return {
@@ -306,5 +352,14 @@ export async function searchAnimeBySource(
       ...withLang.filter((r) => r.language !== "VF")
     ];
   }
-  return searchAnimeSama(query);
+  // 9.18kkk — même retry à variantes pour le catalogue as.
+  const samaVariants = searchQueryVariants(query);
+  for (let i = 0; i < samaVariants.length; i++) {
+    const results = await searchAnimeSama(samaVariants[i]);
+    if (results.length) {
+      if (i > 0) console.log(`[NOVABOX] recherche élargie « ${samaVariants[i]} » : ${results.length} résultat(s)`);
+      return results;
+    }
+  }
+  return [];
 }

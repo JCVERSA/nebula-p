@@ -101,3 +101,24 @@ describe("9.13 — compactObservationTexts (éco tokens)", () => {
     expect(obs!.texts[0]).toContain("compactées");
   });
 });
+
+describe("9.18kkk — observationContext à deux niveaux (retour terrain 18/10)", () => {
+  it("sortie INFORMATIONNELLE (résultats .search) → PAS un écran de choix, jamais de numéro demandé", () => {
+    setLastObservation(JID, "search", [
+      "🔍 *Recherche — the rampart of ice*\n\n1. *The Ramparts of Ice - Wikipedia*\n2. *Netflix*\n3. *MyAnimeList*",
+    ]);
+    const block = observationContext(JID)!;
+    expect(block).toContain("Contexte informationnel");
+    expect(block).toContain("PAS un écran de choix");
+    expect(block).toContain("Ne demande JAMAIS un numéro");
+    expect(block).not.toContain("exécute la commande qui choisit");
+    expect(block).not.toContain("attend une réponse");
+  });
+
+  it("écran Novabox réel → bloc fort inchangé (pilotage par numéro)", () => {
+    setLastObservation(JID, "anime", ["1. Mushoku Tensei\n👉 Répondez avec: `.a 1`"]);
+    const block = observationContext(JID)!;
+    expect(block).toContain("Écran en attente dans ce chat");
+    expect(block).toContain("exécute la commande qui choisit");
+  });
+});
