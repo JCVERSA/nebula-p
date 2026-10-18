@@ -69,6 +69,61 @@ export function effectiveTotalMemBytes(): number {
   return pickEffectiveMemBytes(os.totalmem(), readCgroupMemLimitBytes());
 }
 
+// ── 9.18www : surveiller le CONTENEUR ENTIER, pas seulement le moteur ──────
+// Terrain 18/10 : limite cgroup = 999 997 440 octets (953,7 Mo) pour TOUT le
+// conteneur — panneau + superviseur + moteurs + ffmpeg. L'ancien garde ne
+// regardait que le RSS du moteur (396 Mo « ok ») pendant que panneau ~200 Mo
+// + ffmpeg ~150 Mo saturait le conteneur → SIGKILL. On lit désormais
+// l'usage du cgroup ENTIER (moins le cache de pages, récupérable) : c'est LE
+// chiffre que le kernel compare à la limite.
+
+/** Usage mémoire du cgroup entier (v2 memory.current / v1 usage_in_bytes). */
+export function readCgroupMemUsageBytes(
+  readFile: (p: string) => string = (p) => fs.readFileSync(p, "utf-8")
+): number | null {
+  try {
+    const t = (readFile("/sys/fs/cgroup/memory.current") || "").trim();
+    if (/^\d+$/.test(t)) return Number(t);
+  } catch {}
+  try {
+    const t = (readFile("/sys/fs/cgroup/memory/memory.usage_in_bytes") || "").trim();
+    if (/^\d+$/.test(t)) return Number(t);
+  } catch {}
+  return null;
+}
+
+/** Cache de pages du cgroup (récupérable — pas de la vraie pression). */
+export function readCgroupPageCacheBytes(
+  readFile: (p: string) => string = (p) => fs.readFileSync(p, "utf-8")
+): number {
+  try {
+    const stat = readFile("/sys/fs/cgroup/memory.stat");
+    const m = stat.match(/^inactive_file (\d+)$/m);
+    if (m) return Number(m[1]);
+  } catch {}
+  try {
+    const stat = readFile("/sys/fs/cgroup/memory/memory.stat");
+    const m = stat.match(/^total_inactive_file (\d+)$/m);
+    if (m) return Number(m[1]);
+  } catch {}
+  return 0;
+}
+
+/** Seuils du chemin « conteneur » : fractions de la limite (70 % / 80 %). */
+export const CONTAINER_PAUSE_FRACTION = 0.7;
+export const CONTAINER_CRITICAL_FRACTION = 0.8;
+
+/** Pur : pression de l'usage CONTENEUR (Mo) contre la limite (Mo). */
+export function containerPressure(usageMb: number, limitMb: number): MemoryPressure {
+  const envPause = Number(process.env.NEBULA_RSS_PAUSE_MB);
+  const envCritical = Number(process.env.NEBULA_RSS_CRITICAL_MB);
+  const pause = Number.isFinite(envPause) && envPause > 0 ? envPause : Math.round(limitMb * CONTAINER_PAUSE_FRACTION);
+  const critical = Number.isFinite(envCritical) && envCritical > 0 ? envCritical : Math.round(limitMb * CONTAINER_CRITICAL_FRACTION);
+  if (usageMb >= critical) return "critical";
+  if (usageMb >= pause) return "high";
+  return "ok";
+}
+
 export function rssPauseThresholdMb(totalMemBytes: number = effectiveTotalMemBytes()): number {
   const env = Number(process.env.NEBULA_RSS_PAUSE_MB);
   if (Number.isFinite(env) && env > 0) return Math.floor(env);
@@ -101,23 +156,45 @@ export function memoryPressure(currentRssMb: number, totalMemBytes: number = eff
  */
 export async function enforceMemoryHeadroom(
   label: string,
-  totalMemBytes: number = effectiveTotalMemBytes()
+  totalMemBytes?: number
 ): Promise<MemoryPressure> {
-  let mb = rssMb();
-  let level = memoryPressure(mb, totalMemBytes);
+  // 9.18www : en production (pas de paramètre explicite), on surveille
+  // l'usage du CONTENEUR ENTIER si le cgroup est lisible — c'est ce que le
+  // kernel compare à la limite. Un paramètre explicite (tests/override)
+  // garde le chemin RSS historique, déterministe.
+  const limitBytes = totalMemBytes ?? effectiveTotalMemBytes();
+  const useContainer = totalMemBytes === undefined;
+  const measure = (): { mb: number; level: MemoryPressure; describe: string } => {
+    if (useContainer) {
+      const usage = readCgroupMemUsageBytes();
+      if (usage !== null) {
+        const cache = readCgroupPageCacheBytes();
+        const wsMb = Math.max(0, Math.round((usage - cache) / 1048576));
+        const limitMb = Math.floor(limitBytes / 1048576);
+        return {
+          mb: wsMb,
+          level: containerPressure(wsMb, limitMb),
+          describe: `usage conteneur=${wsMb} MB / limite ${limitMb} MB`
+        };
+      }
+    }
+    const mb = rssMb();
+    return { mb, level: memoryPressure(mb, limitBytes), describe: `rss=${mb} MB` };
+  };
+
+  let { level, describe } = measure();
   if (level === "ok") {
-    console.log(`[MEM] ${label}: rss=${mb} MB — ok`);
+    console.log(`[MEM] ${label}: ${describe} — ok`);
     return level;
   }
-  console.warn(`[MEM] ${label}: rss=${mb} MB — ${level}, forcing GC and pausing…`);
+  console.warn(`[MEM] ${label}: ${describe} — ${level}, forcing GC and pausing…`);
   for (let attempt = 0; attempt < 2 && level !== "ok"; attempt++) {
     try {
       (globalThis as any).gc?.();
     } catch {}
     await new Promise(r => setTimeout(r, 5000));
-    mb = rssMb();
-    level = memoryPressure(mb, totalMemBytes);
+    ({ level, describe } = measure());
   }
-  console.warn(`[MEM] ${label}: rss=${mb} MB after headroom wait — ${level}`);
+  console.warn(`[MEM] ${label}: ${describe} after headroom wait — ${level}`);
   return level;
 }

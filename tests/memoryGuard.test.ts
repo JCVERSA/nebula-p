@@ -3,10 +3,13 @@ import fs from "fs";
 import {
   RSS_CRITICAL_MB,
   RSS_PAUSE_THRESHOLD_MB,
+  containerPressure,
   enforceMemoryHeadroom,
   memoryPressure,
-  readCgroupMemLimitBytes,
   pickEffectiveMemBytes,
+  readCgroupMemLimitBytes,
+  readCgroupMemUsageBytes,
+  readCgroupPageCacheBytes,
   rssCriticalThresholdMb,
   rssMb,
   rssPauseThresholdMb
@@ -131,6 +134,59 @@ describe("9.18vvv — cgroup : la limite du conteneur, pas la RAM de l'hôte", (
     expect(rssCriticalThresholdMb(effective)).toBe(512);
     expect(memoryPressure(430, effective)).toBe("high");
     expect(memoryPressure(512, effective)).toBe("critical");
+  });
+});
+
+describe("9.18www — surveiller le CONTENEUR ENTIER (limite terrain : 999 997 440 o = 953,7 Mo)", () => {
+  const reader = (content: Record<string, string>) => (p: string) => {
+    if (!(p in content)) throw new Error("ENOENT");
+    return content[p];
+  };
+
+  it("readCgroupMemUsageBytes : v2 memory.current, v1 usage_in_bytes, absent → null", () => {
+    expect(readCgroupMemUsageBytes(reader({ "/sys/fs/cgroup/memory.current": "700000000\n" }))).toBe(700000000);
+    expect(readCgroupMemUsageBytes(reader({ "/sys/fs/cgroup/memory/memory.usage_in_bytes": "650000000\n" }))).toBe(650000000);
+    expect(readCgroupMemUsageBytes(reader({}))).toBeNull();
+  });
+
+  it("readCgroupPageCacheBytes : v2 inactive_file, v1 total_inactive_file, absent → 0", () => {
+    expect(
+      readCgroupPageCacheBytes(reader({ "/sys/fs/cgroup/memory.stat": "anon 100\ninactive_file 250000000\n" }))
+    ).toBe(250000000);
+    expect(
+      readCgroupPageCacheBytes(reader({ "/sys/fs/cgroup/memory/memory.stat": "total_inactive_file 150000000\n" }))
+    ).toBe(150000000);
+    expect(readCgroupPageCacheBytes(reader({}))).toBe(0);
+  });
+
+  it("containerPressure : 70 % pause / 80 % critique de la limite — réagit AVANT le kernel (953 Mo)", () => {
+    expect(containerPressure(600, 953)).toBe("ok");
+    expect(containerPressure(667, 953)).toBe("high"); // 0,7 × 953 — moteur 400 + panneau 200 + ffmpeg…
+    expect(containerPressure(762, 953)).toBe("critical"); // 0,8 × 953 — déferlement, il reste ~190 Mo de marge
+    expect(containerPressure(900, 953)).toBe("critical");
+  });
+
+  it("surcharge opérateur : les seuils absolus NEBULA_RSS_* s'appliquent aussi au chemin conteneur", () => {
+    process.env.NEBULA_RSS_PAUSE_MB = "500";
+    process.env.NEBULA_RSS_CRITICAL_MB = "600";
+    try {
+      expect(containerPressure(499, 953)).toBe("ok");
+      expect(containerPressure(500, 953)).toBe("high");
+      expect(containerPressure(600, 953)).toBe("critical");
+    } finally {
+      delete process.env.NEBULA_RSS_PAUSE_MB;
+      delete process.env.NEBULA_RSS_CRITICAL_MB;
+    }
+  });
+
+  it("câblage : enforceMemoryHeadroom mesure le conteneur en production (paramètre explicite = chemin RSS des tests)", () => {
+    const src = fs.readFileSync("src/bot/services/memoryGuard.ts", "utf-8");
+    const enforce = src.slice(src.indexOf("export async function enforceMemoryHeadroom"));
+    expect(enforce).toContain("readCgroupMemUsageBytes()");
+    expect(enforce).toContain("usage conteneur=");
+    expect(enforce).toContain("containerPressure(wsMb, limitMb)");
+    // Le paramètre explicite reste le chemin RSS déterministe (tests uuu).
+    expect(enforce).toContain("totalMemBytes?: number");
   });
 });
 
