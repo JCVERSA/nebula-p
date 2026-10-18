@@ -5,7 +5,9 @@ import {
   RSS_PAUSE_THRESHOLD_MB,
   enforceMemoryHeadroom,
   memoryPressure,
-  rssMb
+  rssCriticalThresholdMb,
+  rssMb,
+  rssPauseThresholdMb
 } from "../src/bot/services/memoryGuard.js";
 
 /**
@@ -18,6 +20,11 @@ import {
  */
 
 const MB = 1048576;
+/** Hôte GROS (≥ 1,4 Go) : seuils historiques 8.50. Total explicite partout :
+ * les tests restent hermétiques quel que soit l'hôte qui les exécute. */
+const BIG_HOST = 8 * 1024 * MB;
+/** Hôte PETIT (VPS 1 Go du terrain 18/10) : seuils adaptés 9.18uuu. */
+const SMALL_HOST = 1024 * MB;
 
 const fakeRss = (mb: number) => ({ rss: mb * MB }) as NodeJS.MemoryUsage;
 
@@ -33,18 +40,18 @@ afterEach(() => {
 
 describe("memoryPressure (pure classification)", () => {
   it("classifies ok below the pause threshold", () => {
-    expect(memoryPressure(0)).toBe("ok");
-    expect(memoryPressure(RSS_PAUSE_THRESHOLD_MB - 1)).toBe("ok");
+    expect(memoryPressure(0, BIG_HOST)).toBe("ok");
+    expect(memoryPressure(RSS_PAUSE_THRESHOLD_MB - 1, BIG_HOST)).toBe("ok");
   });
 
   it("classifies high from the pause threshold up to critical", () => {
-    expect(memoryPressure(RSS_PAUSE_THRESHOLD_MB)).toBe("high");
-    expect(memoryPressure(RSS_CRITICAL_MB - 1)).toBe("high");
+    expect(memoryPressure(RSS_PAUSE_THRESHOLD_MB, BIG_HOST)).toBe("high");
+    expect(memoryPressure(RSS_CRITICAL_MB - 1, BIG_HOST)).toBe("high");
   });
 
   it("classifies critical at and beyond the critical threshold", () => {
-    expect(memoryPressure(RSS_CRITICAL_MB)).toBe("critical");
-    expect(memoryPressure(5000)).toBe("critical");
+    expect(memoryPressure(RSS_CRITICAL_MB, BIG_HOST)).toBe("critical");
+    expect(memoryPressure(5000, BIG_HOST)).toBe("critical");
   });
 
   it("keeps thresholds below the ~954 MB cgroup ceiling with headroom", () => {
@@ -53,6 +60,33 @@ describe("memoryPressure (pure classification)", () => {
     expect(RSS_PAUSE_THRESHOLD_MB).toBeLessThan(750);
     expect(RSS_CRITICAL_MB).toBeGreaterThan(RSS_PAUSE_THRESHOLD_MB);
     expect(RSS_CRITICAL_MB).toBeLessThan(900);
+  });
+});
+
+describe("9.18uuu — seuils adaptés à l'hôte (terrain : crash à chaque batch sur un VPS 1 Go)", () => {
+  it("hôte 1 Go : pause ≈ 430 Mo, critique ≈ 512 Mo — le garde réagit AVANT le kernel", () => {
+    expect(rssPauseThresholdMb(SMALL_HOST)).toBe(430);
+    expect(rssCriticalThresholdMb(SMALL_HOST)).toBe(512);
+    expect(memoryPressure(396, SMALL_HOST)).toBe("ok"); // le RSS vu sur le terrain
+    expect(memoryPressure(430, SMALL_HOST)).toBe("high"); // pause + GC désormais
+    expect(memoryPressure(512, SMALL_HOST)).toBe("critical"); // déferlement des épisodes
+  });
+
+  it("gros hôte (≥ 1,4 Go) : seuils historiques 8.50 inchangés", () => {
+    expect(rssPauseThresholdMb(BIG_HOST)).toBe(RSS_PAUSE_THRESHOLD_MB);
+    expect(rssCriticalThresholdMb(BIG_HOST)).toBe(RSS_CRITICAL_MB);
+  });
+
+  it("surcharge opérateur : NEBULA_RSS_PAUSE_MB / NEBULA_RSS_CRITICAL_MB gagnent", () => {
+    process.env.NEBULA_RSS_PAUSE_MB = "300";
+    process.env.NEBULA_RSS_CRITICAL_MB = "350";
+    try {
+      expect(rssPauseThresholdMb(SMALL_HOST)).toBe(300);
+      expect(rssCriticalThresholdMb(BIG_HOST)).toBe(350);
+    } finally {
+      delete process.env.NEBULA_RSS_PAUSE_MB;
+      delete process.env.NEBULA_RSS_CRITICAL_MB;
+    }
   });
 });
 
@@ -71,7 +105,7 @@ describe("enforceMemoryHeadroom", () => {
     const gc = vi.fn();
     (globalThis as { gc?: unknown }).gc = gc;
 
-    const result = await enforceMemoryHeadroom("unit-ok");
+    const result = await enforceMemoryHeadroom("unit-ok", BIG_HOST);
 
     expect(result).toBe("ok");
     expect(gc).not.toHaveBeenCalled();
@@ -89,7 +123,7 @@ describe("enforceMemoryHeadroom", () => {
       .mockReturnValueOnce(fakeRss(750))
       .mockReturnValueOnce(fakeRss(400));
 
-    const pending = enforceMemoryHeadroom("unit-recover");
+    const pending = enforceMemoryHeadroom("unit-recover", BIG_HOST);
     await vi.advanceTimersByTimeAsync(5100);
     const result = await pending;
 
@@ -106,7 +140,7 @@ describe("enforceMemoryHeadroom", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(process, "memoryUsage").mockReturnValue(fakeRss(900));
 
-    const pending = enforceMemoryHeadroom("unit-stuck");
+    const pending = enforceMemoryHeadroom("unit-stuck", BIG_HOST);
     await vi.advanceTimersByTimeAsync(30_000); // far beyond the guard's budget
     const result = await pending;
 

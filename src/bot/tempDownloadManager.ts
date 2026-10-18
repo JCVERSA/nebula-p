@@ -59,6 +59,77 @@ try {
 // In-memory registry of active download tokens
 const activeDownloads = new Map<string, TempDownloadRecord>();
 
+// ── 9.18uuu : registre PERSISTANT (sidecars JSON) ───────────────────────────
+// Terrain 18/10 : le moteur était OOM-tué JUSTE APRÈS la livraison des liens
+// ; au redémarrage, la purge boot supprimait les fichiers « orphelins » (leur
+// record vivait en mémoire) — l'owner perdait TOUT à chaque crash, sans
+// avoir purgé. Chaque record vit désormais aussi dans
+// <tmp>/nebula_temp_downloads/<token>.json (écriture atomique) : au boot on
+// RESTAURE les records vivants, et la purge ne supprime plus que les vrais
+// orphelins. Sidecars réservés aux fichiers DU coffre (noCopy exclu).
+function sidecarPath(token: string): string {
+  return path.join(TEMP_DOWNLOAD_DIR, `${token}.json`);
+}
+
+function writeSidecar(record: TempDownloadRecord): void {
+  if (!record.filePath.startsWith(TEMP_DOWNLOAD_DIR)) return; // noCopy : cycle de vie du cache
+  try {
+    const tmp = `${sidecarPath(record.token)}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(record));
+    fs.renameSync(tmp, sidecarPath(record.token));
+  } catch {} // best-effort : une panne d'écriture ne doit pas casser la livraison
+}
+
+function removeSidecar(token: string): void {
+  try {
+    fs.rmSync(sidecarPath(token), { force: true });
+  } catch {}
+}
+
+/**
+ * 9.18uuu — restaure les records persistés (appelé au boot AVANT la purge
+ * des orphelins). Les liens livrés juste avant un crash redeviennent
+ * valides ; les sidecars périmés (TTL dépassé, fichier disparu) sont
+ * nettoyés ici. Multi-bots : les sidecars sont partagés comme le coffre —
+ * chaque moteur peut servir chaque token (même fichier, même TTL).
+ */
+export function loadPersistedTempRegistry(): number {
+  let restored = 0;
+  try {
+    if (!fs.existsSync(TEMP_DOWNLOAD_DIR)) return 0;
+    for (const file of fs.readdirSync(TEMP_DOWNLOAD_DIR)) {
+      if (!file.endsWith(".json")) continue;
+      const full = path.join(TEMP_DOWNLOAD_DIR, file);
+      try {
+        const rec = JSON.parse(fs.readFileSync(full, "utf-8")) as TempDownloadRecord;
+        const tokenOk = !!rec?.token && rec.token === file.replace(/\.json$/, "");
+        const now = Date.now();
+        const expired = now > Number(rec?.expiresAt) || now > Number(rec?.createdAt) + MAX_LIFETIME_MS;
+        const fileThere = !!rec?.filePath && fs.existsSync(rec.filePath);
+        if (!tokenOk || expired || !fileThere) {
+          if (tokenOk && expired && fileThere && rec.filePath.startsWith(TEMP_DOWNLOAD_DIR)) {
+            try { fs.unlinkSync(rec.filePath); } catch {}
+          }
+          fs.rmSync(full, { force: true });
+          continue;
+        }
+        if (!activeDownloads.has(rec.token)) {
+          activeDownloads.set(rec.token, rec);
+          restored++;
+        }
+      } catch {
+        try { fs.rmSync(full, { force: true }); } catch {}
+      }
+    }
+  } catch {}
+  if (restored > 0) {
+    console.log(
+      `[TempDownload] ♻️ ${restored} lien(s) restauré(s) après redémarrage — les téléchargements livrés survivent au crash.`
+    );
+  }
+  return restored;
+}
+
 let detectedServerBaseUrl = process.env.APP_URL || process.env.PUBLIC_URL || "";
 
 /**
@@ -134,6 +205,7 @@ export function purgeTempRecords(tokens: string[]): { deletedCount: number; dele
         fs.rmSync(record.filePath, { force: true });
       } catch {} // fichier déjà absent : le record doit quand même disparaître
       activeDownloads.delete(token);
+      removeSidecar(token); // 9.18uuu
       deletedCount++;
       deletedBytes += size;
     } catch {
@@ -246,6 +318,7 @@ export function registerTempDownload(
   };
 
   activeDownloads.set(token, record);
+  writeSidecar(record); // 9.18uuu : le lien doit survivre à un crash/redémarrage
 
   const baseUrl = getServerBaseUrl();
   const downloadUrl = baseUrl ? `${baseUrl}/api/media/download/${token}` : `/api/media/download/${token}`;
@@ -283,6 +356,7 @@ export function touchTempDownload(token: string): boolean {
     return false;
   }
   record.expiresAt = Math.min(now + getLinkTtlMinutes() * 60 * 1000, record.createdAt + MAX_LIFETIME_MS);
+  writeSidecar(record); // 9.18uuu : TTL glissant persisté
   return true;
 }
 
@@ -299,11 +373,13 @@ export function getTempDownload(token: string): TempDownloadRecord | null {
       }
     } catch {}
     activeDownloads.delete(token);
+    removeSidecar(token); // 9.18uuu
     return null;
   }
 
   if (!fs.existsSync(record.filePath)) {
     activeDownloads.delete(token);
+    removeSidecar(token); // 9.18uuu
     return null;
   }
 
@@ -338,6 +414,7 @@ export function cleanupExpiredZipFiles(): { cleanedFiles: number; freedBytes: nu
         console.warn(`[TempDownload] Error removing expired file ${record.filePath}:`, err.message);
       }
       activeDownloads.delete(token);
+      removeSidecar(token); // 9.18uuu
     }
   }
 
@@ -479,10 +556,18 @@ export function purgeStartupOrphans(): { cleanedItems: number; freedBytes: numbe
   const liveClaims = listDiskClaims().map((c) => ({ jobId: c.jobId, createdAt: c.createdAt }));
   const oldestClaimStart = liveClaims.length ? Math.min(...liveClaims.map((c) => c.createdAt)) : null;
 
+  // 9.18uuu : les records restaurés (loadPersistedTempRegistry, appelé
+  // AVANT cette purge au boot) désignent des fichiers LIVRÉS — jamais
+  // orphelins, même si le moteur a crashé juste après la livraison. Les
+  // sidecars .json font partie du registre, pas du coffre.
+  const livePaths = new Set<string>();
+  for (const record of activeDownloads.values()) livePaths.add(record.filePath);
   try {
     if (fs.existsSync(TEMP_DOWNLOAD_DIR)) {
       for (const file of fs.readdirSync(TEMP_DOWNLOAD_DIR)) {
+        if (file.endsWith(".json")) continue; // sidecar de registre (9.18uuu)
         const fullPath = path.join(TEMP_DOWNLOAD_DIR, file);
+        if (livePaths.has(fullPath)) continue; // lien restauré → le fichier vit
         try {
           const st = fs.statSync(fullPath);
           if (oldestClaimStart !== null && st.mtimeMs >= oldestClaimStart) {
@@ -534,6 +619,7 @@ cleanupTimer.unref();
 // test — le comportement reste couvert par l'appel explicite de
 // tests/tempDownloadPurge.test.ts.
 if (!process.env.VITEST) {
-  purgeStartupOrphans();
+  loadPersistedTempRegistry(); // 9.18uuu : d'abord restaurer les liens livrés…
+  purgeStartupOrphans(); // …puis purger les VRAIS orphelins (pas les restaurés)
   sweepExpiredDownloads();
 }

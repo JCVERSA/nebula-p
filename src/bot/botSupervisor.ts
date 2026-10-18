@@ -108,6 +108,10 @@ export function buildChildEnv(slot: BotSlot, baseEnv: NodeJS.ProcessEnv): NodeJS
   env.NEBULA_AUTO_START = slot.autoStart ? "1" : "0";
   // L'enfant n'est pas un panneau public : jamais de PORT du parent.
   delete env.PORT;
+  // 9.18uuu : bridage glibc (audit 8.50) — manage.sh l'exporte pour le
+  // panneau, mais un moteur lancé autrement (dev, tsx, systemd) en serait
+  // privé : la fragmentation des arenas fait grimper le RSS jusqu'à l'OOM.
+  if (!env.MALLOC_ARENA_MAX) env.MALLOC_ARENA_MAX = "2";
   return env;
 }
 

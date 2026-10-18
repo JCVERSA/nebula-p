@@ -63,6 +63,13 @@ describe("buildChildEnv", () => {
     buildChildEnv(defaultSingleBot(), base);
     expect(base).toEqual({ GEMINI_API_KEY: "k" });
   });
+  it("9.18uuu : l'enfant reçoit MALLOC_ARENA_MAX=2 même sans héritage (OOM 8.50)", () => {
+    const slot = { ...defaultSingleBot() };
+    const env = buildChildEnv(slot, { HOME: "/home/x" });
+    expect(env.MALLOC_ARENA_MAX).toBe("2");
+    const inherited = buildChildEnv(slot, { HOME: "/home/x", MALLOC_ARENA_MAX: "4" });
+    expect(inherited.MALLOC_ARENA_MAX).toBe("4"); // la valeur explicite gagne
+  });
 });
 
 describe("pipeUpstreamToClient (abort client — audit 8.76 / ARCH-01)", () => {
