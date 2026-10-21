@@ -283,6 +283,39 @@ describe("enforceMemoryHeadroom", () => {
   });
 });
 
+describe("9.18dddd P4 : garde adaptative (terrain 18/10 — 2 × 5 s systématiques coûtaient ~70 s/batch en high stable)", () => {
+  it("en high qui s'améliore : 1ʳᵉ attente 3 s, 2ᵉ attente SAUTÉE (gc × 1)", async () => {
+    const gc = vi.fn();
+    (globalThis as { gc?: unknown }).gc = gc;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // High à l'entrée, encore high mais en baisse après la première pause.
+    vi.spyOn(process, "memoryUsage")
+      .mockReturnValueOnce(fakeRss(750))
+      .mockReturnValueOnce(fakeRss(700));
+
+    const pending = enforceMemoryHeadroom("unit-adaptive-improve", BIG_HOST);
+    await vi.advanceTimersByTimeAsync(3500);
+    const result = await pending;
+
+    expect(result).toBe("high");
+    expect(gc).toHaveBeenCalledTimes(1); // la 2ᵉ attente est sautée : ça s'améliore
+  });
+
+  it("en high figée : 3 s PUIS 5 s (gc × 2) — toujours borné", async () => {
+    const gc = vi.fn();
+    (globalThis as { gc?: unknown }).gc = gc;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(process, "memoryUsage").mockReturnValue(fakeRss(750));
+
+    const pending = enforceMemoryHeadroom("unit-adaptive-stuck", BIG_HOST);
+    await vi.advanceTimersByTimeAsync(8200);
+    const result = await pending;
+
+    expect(result).toBe("high");
+    expect(gc).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("8.50/8.51 wiring (the 8.49b lesson: green locally ≠ wired in production)", () => {
   it("the novabox batch worker calls enforceMemoryHeadroom between episodes", () => {
     const source = fs.readFileSync("src/bot/commands/novabox.ts", "utf8");

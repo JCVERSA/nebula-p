@@ -203,18 +203,29 @@ export async function enforceMemoryHeadroom(
     return { mb, level: memoryPressure(mb, limitBytes), describe: `rss=${mb} MB` };
   };
 
-  let { level, describe } = measure();
+  let { level, describe, mb } = measure();
   if (level === "ok") {
     console.log(`[MEM] ${label}: ${describe} — ok`);
     return level;
   }
   console.warn(`[MEM] ${label}: ${describe} — ${level}, forcing GC and pausing…`);
+  // 9.18dddd P4 : garde ADAPTATIVE. Terrain 18/10 : en high stable (working
+  // set 744-748 Mo), les 2 × 5 s systématiques coûtaient ~70 s par batch de 8
+  // sans rien libérer de plus. En high : 1ʳᵉ attente courte (3 s) ; la 2ᵉ
+  // (5 s) ne se déclenche que si la première n'a RIEN amélioré. En critical,
+  // le comportement historique (2 × 5 s) reste inchangé.
   for (let attempt = 0; attempt < 2 && level !== "ok"; attempt++) {
+    const mbBeforeWait = mb;
+    const waitMs = level === "high" && attempt === 0 ? 3000 : 5000;
     try {
       (globalThis as any).gc?.();
     } catch {}
-    await new Promise(r => setTimeout(r, 5000));
-    ({ level, describe } = measure());
+    await new Promise(r => setTimeout(r, waitMs));
+    ({ level, describe, mb } = measure());
+    if (level === "high" && attempt === 0 && mb < mbBeforeWait) {
+      console.warn(`[MEM] ${label}: improving (${mbBeforeWait} → ${mb} MB) — skipping the second headroom wait.`);
+      break;
+    }
   }
   console.warn(`[MEM] ${label}: ${describe} after headroom wait — ${level}`);
   return level;

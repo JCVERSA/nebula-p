@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import fs from "fs";
 import { deriveSubVariantUrls, getHeaderCandidates } from "../src/bot/services/hlsDownloader.js";
 import { FASTLANE_HONEST_MAX_BYTES, fastLaneMismatch, formatFailedEpisodes } from "../src/bot/services/batchRecap.js";
+import { buildEpisodeFilename } from "../src/bot/commands/novabox.js";
 
 /**
  * Audit 8.40 — episodes served as `_,n,l,.urlset/master.m3u8` 403 on the
@@ -171,5 +172,38 @@ describe("9.18aaaa — quota du lot : livrer, jamais détruire ni mentir", () =>
     expect(src).toContain("indices.length - memoryDeferredCount - quotaDeferredCount");
     expect(src).toContain("Quota du lot atteint :");
     expect(src).toContain("demande les épisodes restants dans une nouvelle commande");
+  });
+});
+
+// ── 9.18cccc — audit complet : le flux SINGLE aussi honnête que le batch ────
+describe("9.18cccc — audit : parité d'honnêteté du flux single", () => {
+  const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+
+  it("buildEpisodeFilename : le segment RÉSOLUTION est remplacé, jamais le titre", () => {
+    // Un titre contenant « 480P » : l'ancien replace('_480P_', …) mutait le TITRE.
+    expect(buildEpisodeFilename("Solo_480P_Edition", "VF", "1080P", "S01", "E05"))
+      .toBe("Solo_480P_Edition_VF_1080P_S01_E05.mp4");
+    expect(buildEpisodeFilename("Jaadugar_A_Witch_in_Mongolia", "VF", "480P", "S01", "E03"))
+      .toBe("Jaadugar_A_Witch_in_Mongolia_VF_480P_S01_E03.mp4");
+    // plus AUCUN replace fragile dans le source
+    expect(src).not.toContain("filenameBase.replace(`_${resolution}_`");
+  });
+
+  it("sonde qualité en SINGLE : le mensonge « 480P » de 725 Mo est corrigé aussi", () => {
+    expect(src).toContain("fastLaneMismatch(resolution, stSizeSingle, null)");
+    expect(src).toContain("fastLaneMismatch(resolution, stSizeSingle, probedSingle.height)");
+    expect(src).toContain("singleQualityLieLine");
+    expect(src).toContain("(single, demandé ${resolution}");
+  });
+
+  it("le nom de l'épisode single est CONSTRUIT (let), pas figé avant la sonde", () => {
+    expect(src).toContain("let filename = sanitizeFilename(filenameBase)");
+    expect(src).toContain("filename = buildEpisodeFilename(animeClean, lang, realSingle");
+  });
+
+  it("l'offre .slim parle du fichier RÉELLEMENT livré (post-compression)", () => {
+    expect(src).toContain("const deliveredBytes =");
+    expect(src).toContain("deliveredBytes > slimTriggerBytes()");
+    expect(src).toContain("bytes: deliveredBytes");
   });
 });

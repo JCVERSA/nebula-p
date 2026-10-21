@@ -285,6 +285,51 @@ function buildPinnedAgentFor(url: URL, pinned: Array<{ address: string; family: 
     : new http.Agent(agentOptions);
 }
 
+export interface KeepAliveDownloadAgent {
+  /** Keep-alive agent (DNS épinglé aux adresses validées une seule fois). */
+  agent: http.Agent | https.Agent;
+  /** Hôte pour lequel cet agent est épinglé — tout autre hôte l'ignore. */
+  hostname: string;
+  /** À appeler quand le pool qui le partage est terminé. */
+  destroy(): void;
+}
+
+/**
+ * 9.18dddd P5 : agent keep-alive PARTAGÉ pour le téléchargement parallèle de
+ * segments HLS. Avant, chaque segment passait par le globalAgent axios dont
+ * la fenêtre keep-alive (5 s par défaut Node) laissait mourir les sockets
+ * entre deux salves ; ici tout le pool réutilise les mêmes connexions
+ * (maxSockets = concurrence, keep-alive 30 s) vers des adresses validées une
+ * seule fois par épisode. L'appelant DOIT appeler destroy() en fin de pool.
+ */
+export async function createKeepAliveDownloadAgent(url: string, maxSockets: number): Promise<KeepAliveDownloadAgent> {
+  const parsed = new URL(url);
+  const hostname = parsed.hostname.toLowerCase();
+  const isLiteralIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(hostname) || hostname.includes(":");
+  const pinned = isLiteralIp
+    ? [{ address: hostname.replace(/^\[|\]$/g, ""), family: hostname.includes(":") ? 6 : 4 }]
+    : await resolvePinnedAddresses(hostname);
+  if (pinned.length === 0) {
+    throw new Error(`No validated address for download host ${hostname}.`);
+  }
+  const agentOptions: any = {
+    keepAlive: true,
+    keepAliveMsecs: 30_000,
+    maxSockets: Math.max(1, Math.floor(maxSockets)),
+    lookup: makePinnedLookup(pinned)
+  };
+  const agent = parsed.protocol === "https:" ? new https.Agent(agentOptions) : new http.Agent(agentOptions);
+  return {
+    agent,
+    hostname,
+    destroy: () => {
+      try {
+        agent.destroy();
+      } catch {}
+    }
+  };
+}
+
 export interface SafeFetchLimits {
   /** Maximum response bytes to buffer (default 100 MB). */
   maxBytes?: number;

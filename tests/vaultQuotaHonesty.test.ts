@@ -119,3 +119,20 @@ describe("9.18yyy — wiring novabox : le refus de coffre est honnête (source p
     expect(src).toContain("let cacheFilename = filename;");
   });
 });
+
+describe("9.18cccc — audit : le flux SINGLE a le même chemin prudent que le batch", () => {
+  const src = fs.readFileSync("src/bot/commands/novabox.ts", "utf-8");
+
+  it("coffre plein en single : lien noCopy depuis le cache (plus de livraison SANS lien >100 Mo)", () => {
+    expect(src).toContain("const cachedSingleNow = lookupMediaReuse(reuseKeyFor(epNum));");
+    expect(src).toContain("registerTempDownload(cachedSingleNow.filePath, deliveredFilename, { noCopy: true })");
+    expect(src).toContain("épisode servi sans copie depuis le cache de réutilisation");
+  });
+
+  it("l'ordre est bon : store au cache AVANT la pré-vérification du quota", () => {
+    const storePos = src.indexOf("storeMediaReuse(reuseKeyFor(epNum), activeSendPath, deliveredFilename)");
+    const checkPos = src.indexOf("wouldExceedTempQuota(singleBytes)");
+    expect(storePos).toBeGreaterThan(-1);
+    expect(checkPos).toBeGreaterThan(storePos);
+  });
+});

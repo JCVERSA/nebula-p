@@ -231,6 +231,22 @@ function sanitizeFilename(name: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
+/**
+ * 9.18cccc : nom d'épisode CONSTRUIT segment par segment. L'ancien
+ * `filenameBase.replace("_480P_", "_1080P_")` remplaçait la PREMIÈRE
+ * occurrence — un titre contenant « _480P_ » (ex. « Solo 480P Edition »)
+ * faisait muter le TITRE et laissait la résolution mensongère. Pur — testé.
+ */
+export function buildEpisodeFilename(
+  animeClean: string,
+  lang: string,
+  res: string,
+  formattedSeason: string,
+  formattedEpisode: string
+): string {
+  return sanitizeFilename(`${animeClean}_${lang}_${res}_${formattedSeason}_${formattedEpisode}`) + ".mp4";
+}
+
 /** Rejects non-public fetch destinations before any server-side request. */
 async function isPublicFetchTarget(rawUrl: string, label: string): Promise<boolean> {
   try {
@@ -2765,7 +2781,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
               const probedCache = await probeVideoInfo(cachedEp.filePath);
               const realCache = fastLaneMismatch(resolution, cachedEp.bytes, probedCache.height);
               if (realCache) {
-                cacheFilename = sanitizeFilename(filenameBase.replace(`_${resolution}_`, `_${realCache}_`)) + ".mp4";
+                cacheFilename = buildEpisodeFilename(animeClean, lang, realCache, formattedSeason, formattedEpisode);
                 qualityLies.push({ epNum, real: realCache, sizeMB: Math.round(cachedEp.bytes / 1e6) });
                 console.warn(
                   `[NOVABOX] Qualité réelle E${String(epNum).padStart(2, "0")} : ${realCache} (cache, demandé ${resolution}, ${Math.round(
@@ -2862,7 +2878,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
               const probedFast = await probeVideoInfo(localPath);
               const real = fastLaneMismatch(resolution, stSize, probedFast.height);
               if (real) {
-                filename = sanitizeFilename(filenameBase.replace(`_${resolution}_`, `_${real}_`)) + ".mp4";
+                filename = buildEpisodeFilename(animeClean, lang, real, formattedSeason, formattedEpisode);
                 qualityLies.push({ epNum, real, sizeMB: Math.round(stSize / 1e6) });
                 console.warn(
                   `[NOVABOX] Qualité réelle E${String(epNum).padStart(2, "0")} : ${real} (demandé ${resolution}, ${Math.round(stSize / 1e6)} Mo) — étiquette corrigée honnêtement.`
@@ -2961,12 +2977,19 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       while (nextEpisodeIdx < indices.length) {
         if (quotaExceeded || memoryStop) break;
         const currentIdx = nextEpisodeIdx++;
+        const episodeWorkT0 = Date.now(); // 9.18dddd P1 : chrono par épisode
         await processEpisodeTask(currentIdx);
+        const episodeWorkMs = Date.now() - episodeWorkT0;
         gcBetweenEpisodes();
         // 8.50 OOM hardening: heavy batches (~120 MB/episode) pushed RSS into
         // the ~954 MB cgroup ceiling and the kernel killed the bot mid-batch.
         // Observe the footprint and back off when pressure rises.
+        const guardT0 = Date.now();
         const level = await enforceMemoryHeadroom(`batch episode ${currentIdx + 1}/${indices.length} done`);
+        const guardMs = Date.now() - guardT0;
+        console.log(
+          `[NOVABOX] ⏱️ ép. ${indices[currentIdx]} : travail ${(episodeWorkMs / 1000).toFixed(1)} s | garde ${(guardMs / 1000).toFixed(1)} s | cycle ${((episodeWorkMs + guardMs) / 1000).toFixed(1)} s`
+        );
         if (level === "critical") {
           console.warn(`[NOVABOX] Memory guard: RSS critical after headroom wait — deferring remaining episodes.`);
           memoryStop = true;
@@ -3217,7 +3240,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
   // Formatted filename: [AnimeName]_[Language]_[Resolution]_[Season]_[Episode]
   const filenameBase = `${animeClean}_${lang}_${resolution}_${formattedSeason}_${formattedEpisode}`;
-  const filename = sanitizeFilename(filenameBase) + ".mp4";
+  let filename = sanitizeFilename(filenameBase) + ".mp4";
 
   const vidmolyUrl = getVidMolyUrl(session.episodes, epIndex, session.episodeListLabels, session.selectedLanguage);
 
@@ -3357,6 +3380,30 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
     }
   }
 
+  // 9.18cccc : honnêteté qualité en SINGLE aussi (le batch le fait depuis
+  // 9.18xxx) — un « 480P » servi en 1080P (725 Mo) était livré étiqueté
+  // 480P sans aucune sonde. Même règle : la seule vérité est le fichier.
+  let singleQualityLieLine = "";
+  try {
+    if (downloadSuccess && fs.existsSync(localPath)) {
+      const stSizeSingle = fs.statSync(localPath).size;
+      if (fastLaneMismatch(resolution, stSizeSingle, null)) {
+        const probedSingle = await probeVideoInfo(localPath);
+        const realSingle = fastLaneMismatch(resolution, stSizeSingle, probedSingle.height);
+        if (realSingle) {
+          filename = buildEpisodeFilename(animeClean, lang, realSingle, formattedSeason, formattedEpisode);
+          singleQualityLieLine =
+            `⚠️ *Qualité réelle :* servi en ${realSingle} (${Math.round(stSizeSingle / 1e6)} Mo) — la source n'a pas servi le ${resolution} demandé, lien étiqueté avec la qualité réelle.\n\n`;
+          console.warn(
+            `[NOVABOX] Qualité réelle E${String(epNum).padStart(2, "0")} : ${realSingle} (single, demandé ${resolution}, ${Math.round(
+              stSizeSingle / 1e6
+            )} Mo) — étiquette corrigée honnêtement.`
+          );
+        }
+      }
+    }
+  } catch {}
+
   // 8.69: mono-source strict — the cross-source fallback is GONE. The
   // delivered language is the requested one, period.
   const deliveredLang = lang;
@@ -3489,9 +3536,28 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       try {
         // 9.15 : entrée au cache de réutilisation (lien physique).
         try { storeMediaReuse(reuseKeyFor(epNum), activeSendPath, deliveredFilename); } catch {}
-        tempDownload = registerTempDownload(activeSendPath, deliveredFilename, {
-          moveFile: true
-        });
+        // 9.18cccc : coffre plein ? Le fichier vient d'entrer au cache de
+        // réutilisation — un lien noCopy le sert TEL QUEL (zéro octet de
+        // coffre), même chemin prudent que le batch (9.18yyy). Sans lui, un
+        // épisode single >100 Mo était livré SANS lien alors que la source
+        // avait livré et que le fichier était disponible.
+        const singleBytes = fs.statSync(activeSendPath).size;
+        if (wouldExceedTempQuota(singleBytes)) {
+          const cachedSingleNow = lookupMediaReuse(reuseKeyFor(epNum));
+          if (cachedSingleNow) {
+            try {
+              tempDownload = registerTempDownload(cachedSingleNow.filePath, deliveredFilename, { noCopy: true });
+              console.warn(
+                `[NOVABOX] 🗄️ Coffre de livraison plein — épisode servi sans copie depuis le cache de réutilisation (zéro octet de coffre).`
+              );
+            } catch {} // retombe sur l'essai classique ci-dessous
+          }
+        }
+        if (!tempDownload) {
+          tempDownload = registerTempDownload(activeSendPath, deliveredFilename, {
+            moveFile: true
+          });
+        }
         if (tempDownload && tempDownload.filePath) {
           activeSendPath = tempDownload.filePath;
         }
@@ -3504,7 +3570,14 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       // 9.18ddd : l'offre d'allègement — la question qui accompagne la
       // livraison (jamais imposée, valable 10 min, .slim pour accepter).
       let slimOfferText = "";
-      if (stats.size > slimTriggerBytes() && tempDownload && tempDownload.filePath) {
+      // 9.18cccc : l'offre parle du fichier RÉELLEMENT livré — après une
+      // compression WhatsApp-fit, l'ancien test (taille ORIGINALE) proposait
+      // de re-compresser un fichier déjà compressé.
+      const deliveredBytes =
+        tempDownload?.filePath && fs.existsSync(tempDownload.filePath)
+          ? fs.statSync(tempDownload.filePath).size
+          : stats.size;
+      if (deliveredBytes > slimTriggerBytes() && tempDownload && tempDownload.filePath) {
         // 9.18fff : cible ADAPTÉE à la durée (probe léger) — l'offre annonce
         // le vrai chiffre : ~190 Mo pour un épisode, ~590 Mo pour un film
         // de 90 min (plancher qualité 800 kbps).
@@ -3513,7 +3586,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           tempFilePath: tempDownload.filePath,
           sourceUrl: tempDownloadLink,
           filename: deliveredFilename,
-          bytes: stats.size,
+          bytes: deliveredBytes,
           targetMB: slimEffectiveTargetMB(stats.size, probedOffer.durationSec || 0, slimTargetMB()),
           meta: {
             title: session.animeTitle,
@@ -3536,7 +3609,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         `🗣️ *Language:* ${deliveredLang}${fbLanguageNote}\n` +
         `📅 *Season:* ${session.selectedSeason?.name}\n` +
         `🎞️ *Episode:* Episode ${epNum}\n` +
-        `⚙️ *Resolution:* ${resolution}\n`;
+        `⚙️ *Resolution:* ${resolution}\n` +
+        singleQualityLieLine;
       const captionTail = (highSpeedLink: string) =>
         `📺 *Player Source:* ${activePlayerName}\n` +
         `📄 *Filename:* \`${deliveredFilename}\`\n\n` +

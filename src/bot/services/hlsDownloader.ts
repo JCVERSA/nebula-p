@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { type AxiosRequestConfig } from "axios";
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
@@ -6,10 +6,41 @@ import os from "os";
 import crypto from "crypto";
 import { spawn } from "child_process";
 import { trackSpawn } from "./spawnRegistry.js";
-import { isSafeDownloadUrl, safeAxiosGet } from "../urlSafety.js";
+import { isSafeDownloadUrl, safeAxiosGet, createKeepAliveDownloadAgent, type KeepAliveDownloadAgent } from "../urlSafety.js";
 import { animeProxyOptions } from "./scrapingProxy.js";
 
 import { resolvedFfmpegPath } from "../ffmpeg.js";
+
+// ---------------------------------------------------------------------------
+// 9.18dddd — pack vitesse (recherche 18/10, décision owner) :
+// P2 concurrence réglable, P3 demuxer concat sans copie consolidée,
+// P5 agent keep-alive partagé, P1 chronomètre par phase.
+// ---------------------------------------------------------------------------
+
+/**
+ * P2 : concurrence du pool de segments (NEBULA_HLS_CONCURRENCY, défaut 16).
+ * Terrain 18/10 : les 8 en dur bornaient les épisodes limités par la latence
+ * (E03 : ~11 Mo/s en 12 salves de 8) alors qu'E05 filait à ~56 Mo/s. 16 est
+ * la zone sûre documentée ; au-delà de ~32 le throttling CDN apparaît.
+ */
+export function hlsSegmentConcurrency(): number {
+  const parsed = Number(process.env.NEBULA_HLS_CONCURRENCY);
+  if (Number.isFinite(parsed) && parsed >= 1) return Math.min(32, Math.floor(parsed));
+  return 16;
+}
+
+/**
+ * P3 : contenu du fichier liste pour le demuxer concat de ffmpeg
+ * (`-f concat -safe 0 -i liste.txt`) — même architecture que
+ * N_m3u8DL-RE --ffmpeg-concat-mode DEMUXER. Les noms sont résolus RELATIFS
+ * au dossier de la liste. Échappement du format concat : `'` devient `'\''`.
+ */
+export function buildConcatDemuxerList(segmentFilenames: string[]): string {
+  return (
+    segmentFilenames.map((name) => `file '${String(name).replace(/'/g, "'\\''")}'`).join("\n") +
+    "\n"
+  );
+}
 
 /**
  * Resolves absolute URL based on parent playlist URL and relative path.
@@ -374,8 +405,23 @@ export async function resolveVidmolyUrlset(
 
 /**
  * Fetches binary content (Buffers) with multiple fallback layers and header rotations.
+ * 9.18dddd P5 : un agent keep-alive partagé (DNS épinglé) peut être passé par
+ * le pool de segments — il ne s'applique qu'à SON hôte, et toujours AVANT
+ * animeProxyOptions() (si un proxy anime est actif, c'est son agent qui prime).
  */
-export async function robustFetchBuffer(url: string, headers: Record<string, string>): Promise<Buffer | null> {
+function hostnameOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+export async function robustFetchBuffer(
+  url: string,
+  headers: Record<string, string>,
+  keepAlive?: KeepAliveDownloadAgent
+): Promise<Buffer | null> {
   if (!url || !(await isSafeDownloadUrl(url).catch(() => false))) {
     console.warn(`[ROBUST_BUFFER] Blocked non-public destination: ${url}`);
     return null;
@@ -384,12 +430,19 @@ export async function robustFetchBuffer(url: string, headers: Record<string, str
   const isValid = (buf: any) => buf && Buffer.isBuffer(buf) && buf.length > 0;
   const headerCandidates = getHeaderCandidates(url, headers);
 
+  let keepAliveConfig: AxiosRequestConfig = {};
+  if (keepAlive && keepAlive.hostname === hostnameOf(url)) {
+    keepAliveConfig = url.toLowerCase().startsWith("https:")
+      ? { httpsAgent: keepAlive.agent as any }
+      : { httpAgent: keepAlive.agent as any };
+  }
+
   for (let i = 0; i < headerCandidates.length; i++) {
     const candidateHeaders = headerCandidates[i];
 
     // Try Axios arraybuffer
     try {
-      const resp = await safeAxiosGet(url, { headers: candidateHeaders, timeout: 15000, responseType: "arraybuffer", validateStatus: (status) => status >= 200 && status < 300, ...animeProxyOptions() });
+      const resp = await safeAxiosGet(url, { headers: candidateHeaders, timeout: 15000, responseType: "arraybuffer", validateStatus: (status) => status >= 200 && status < 300, ...keepAliveConfig, ...animeProxyOptions() });
       const buf = Buffer.from(resp.data);
       if (isValid(buf)) return buf;
     } catch (err: any) {
@@ -525,6 +578,7 @@ export async function downloadHlsAppLevel(
   const tempDir = path.join(os.tmpdir(), `cat_catch_${crypto.randomBytes(8).toString("hex")}`);
   try {
     await fsp.mkdir(tempDir, { recursive: true });
+    const startedAtMs = Date.now(); // 9.18dddd P1 : chrono par phase
 
     // Step 1: Resolve master playlist down to media playlist
     const resolved = await resolveMediaPlaylistUrl(playlistUrl, headers);
@@ -532,6 +586,9 @@ export async function downloadHlsAppLevel(
       console.warn(`[CAT_CATCH_DOWNLOAD] Failed to fetch or parse HLS playlist.`);
       return false;
     }
+
+    const playlistMs = Date.now() - startedAtMs; // P1 : résolution (master → variante → segments)
+    const dlT0 = Date.now(); // P1 : téléchargement du pool
 
     const { mediaPlaylistUrl, content: playlistContent } = resolved;
     const lines = playlistContent.split(/\r?\n/);
@@ -612,7 +669,22 @@ export async function downloadHlsAppLevel(
       return false;
     }
 
-    console.log(`[CAT_CATCH_DOWNLOAD] Starting parallel download of ${segments.length} HLS segments. AES encrypted: ${!!currentKeyInfo}. Init map: ${!!initSegmentUrl}`);
+    console.log(`[CAT_CATCH_DOWNLOAD] Starting parallel download of ${segments.length} HLS segments (concurrence ${hlsSegmentConcurrency()}). AES encrypted: ${!!currentKeyInfo}. Init map: ${!!initSegmentUrl}`);
+
+    // 9.18dddd P2 : concurrence réglable — NEBULA_HLS_CONCURRENCY (défaut 16).
+    const CONCURRENCY = hlsSegmentConcurrency();
+    let downloadedBytes = 0; // P1 : débit réseau réel du pool
+
+    // 9.18dddd P5 : agent keep-alive épinglé partagé par tout le pool. Désactivé
+    // si un proxy anime est actif (son agent prime) ou si l'épinglage échoue —
+    // le chemin historique (globalAgent) reste la parade dans ce cas.
+    const proxyActive = Object.keys(animeProxyOptions()).length > 0;
+    let keepAliveAgent: KeepAliveDownloadAgent | null = null;
+    if (!proxyActive && segments.length > 0) {
+      try {
+        keepAliveAgent = await createKeepAliveDownloadAgent(segments[0].url, CONCURRENCY);
+      } catch {}
+    }
 
     // Fetch decryption key if HLS is encrypted
     let decryptionKey: Buffer | null = null;
@@ -644,7 +716,7 @@ export async function downloadHlsAppLevel(
     }
 
     // Step 2: Parallel download pool with adaptive retry strategy
-    const CONCURRENCY = 8;
+    // (CONCURRENCY + agent keep-alive P5 définis ci-dessus, 9.18dddd)
     let activeWorkers = 0;
     let nextIndex = 0;
     let downloadedCount = 0;
@@ -684,9 +756,10 @@ export async function downloadHlsAppLevel(
 
       while (retries > 0 && !success && !hasFailed && !deadlineReached()) {
         try {
-          buffer = await robustFetchBuffer(segment.url, segmentHeaders);
+          buffer = await robustFetchBuffer(segment.url, segmentHeaders, keepAliveAgent || undefined);
           if (buffer && buffer.length > 0) {
             success = true;
+            downloadedBytes += buffer.length; // 9.18dddd P1 : octets réseau réels
           }
         } catch (err: any) {
           if (process.env.DEBUG_MEDIA === "true") {
@@ -767,42 +840,76 @@ export async function downloadHlsAppLevel(
     });
 
     const poolResult = await poolPromise;
+    keepAliveAgent?.destroy(); // 9.18dddd P5 : le pool est fini, on rend les sockets
+    keepAliveAgent = null;
     if (!poolResult || hasFailed) {
       console.error(`[CAT_CATCH_DOWNLOAD] Segment download pool failed or was interrupted.`);
       return false;
     }
 
+    const dlMs = Date.now() - dlT0; // 9.18dddd P1
     console.log(`[CAT_CATCH_DOWNLOAD] Successfully downloaded and decrypted all ${segments.length} segments!`);
 
-    // Step 4: Sequentially concatenate segments into a single consolidated local .ts file
-    const concatInputPath = path.join(tempDir, "consolidated_stream.ts");
-    const writer = fs.createWriteStream(concatInputPath);
-
-    // If init segment exists, prepend it
+    // Step 4 (9.18dddd P3) : PLUS de copie consolidée systématique. Le demuxer
+    // concat de ffmpeg lit directement la liste des fichiers de segments
+    // (architecture N_m3u8DL-RE --ffmpeg-concat-mode DEMUXER) — chaque segment
+    // était lu puis réécrit (~1,4 Go d'I/O disque évités par épisode géant).
+    // Repli éprouvé : si la liste échoue au palier 1, on reconstruit le flux
+    // consolidé historique et on retente. Les flux fMP4 (init map) gardent le
+    // chemin consolidé d'office — le demuxer concat ne sait pas sonder des
+    // fragments .m4s nus, l'init+fragments concaténés si.
+    const fusionT0 = Date.now(); // P1
     const initPath = path.join(tempDir, "init_segment.mp4");
-    if (fs.existsSync(initPath)) {
-      const initBuf = await fsp.readFile(initPath);
-      writer.write(initBuf);
-    }
+    const hasInitSegment = fs.existsSync(initPath);
 
-    for (let i = 0; i < segments.length; i++) {
-      const segmentFile = path.join(tempDir, `segment_${String(i).padStart(6, "0")}.ts`);
-      const buffer = await fsp.readFile(segmentFile);
-      if (!writer.write(buffer)) {
-        // Backpressure: wait for the drain event instead of queueing every
-        // segment buffer in memory (batch OOM fix, audit 8.12).
-        await new Promise<void>((resolveDrain) => writer.once("drain", () => resolveDrain()));
+    const buildConsolidatedInput = async (): Promise<string> => {
+      const consolidatedPath = path.join(tempDir, "consolidated_stream.ts");
+      const writer = fs.createWriteStream(consolidatedPath);
+
+      // If init segment exists, prepend it
+      if (hasInitSegment) {
+        const initBuf = await fsp.readFile(initPath);
+        writer.write(initBuf);
       }
-    }
-    
-    await new Promise<void>((resolveWriter, rejectWriter) => {
-      writer.end((err: any) => {
-        if (err) rejectWriter(err);
-        else resolveWriter();
-      });
-    });
 
-    console.log(`[CAT_CATCH_DOWNLOAD] Consolidated TS generated. Running offline FFmpeg conversion...`);
+      for (let i = 0; i < segments.length; i++) {
+        const segmentFile = path.join(tempDir, `segment_${String(i).padStart(6, "0")}.ts`);
+        const buffer = await fsp.readFile(segmentFile);
+        if (!writer.write(buffer)) {
+          // Backpressure: wait for the drain event instead of queueing every
+          // segment buffer in memory (batch OOM fix, audit 8.12).
+          await new Promise<void>((resolveDrain) => writer.once("drain", () => resolveDrain()));
+        }
+      }
+
+      await new Promise<void>((resolveWriter, rejectWriter) => {
+        writer.end((err: any) => {
+          if (err) rejectWriter(err);
+          else resolveWriter();
+        });
+      });
+      return consolidatedPath;
+    };
+
+    let ffmpegInputArgs: string[];
+    let inputKind: "concat-list" | "consolidated";
+    if (hasInitSegment) {
+      ffmpegInputArgs = ["-i", await buildConsolidatedInput()];
+      inputKind = "consolidated";
+    } else {
+      const listPath = path.join(tempDir, "concat_list.txt");
+      await fsp.writeFile(
+        listPath,
+        buildConcatDemuxerList(segments.map((s) => `segment_${String(s.index).padStart(6, "0")}.ts`)),
+        "utf8"
+      );
+      ffmpegInputArgs = ["-f", "concat", "-safe", "0", "-i", listPath];
+      inputKind = "concat-list";
+    }
+    const fusionMs = Date.now() - fusionT0; // P1
+    console.log(
+      `[CAT_CATCH_DOWNLOAD] FFmpeg input: ${inputKind} (prêt en ${(fusionMs / 1000).toFixed(1)} s). Running offline FFmpeg conversion...`
+    );
 
     // Step 5: Convert via offline FFmpeg to production-grade faststart .mp4 with absolute 0% network reliance
     const runFfmpegConvert = (args: string[]): Promise<boolean> => {
@@ -837,22 +944,46 @@ export async function downloadHlsAppLevel(
       });
     };
 
+    // Step 5 tiers — 9.18dddd P1 : palier utilisé + chrono remux.
+    const remuxT0 = Date.now();
+    let remuxTierUsed = 1;
+
     // Tier 1: Direct copy remux with faststart
     let ffmpegSuccess = await runFfmpegConvert([
       "-y",
-      "-i", concatInputPath,
+      ...ffmpegInputArgs,
       "-c", "copy",
       "-bsf:a", "aac_adtstoasc",
       "-movflags", "+faststart",
       outputPath
     ]);
 
+    // 9.18dddd P3 : repli — la liste concat a échoué au palier 1 (TS exotique) ?
+    // On reconstruit le flux consolidé historique et on retente le copy AVANT
+    // les paliers de ré-encodage (le copy reste le plus rapide et le plus fidèle).
+    if (!ffmpegSuccess && inputKind === "concat-list") {
+      console.warn(
+        `[CAT_CATCH_DOWNLOAD] Concat demuxer failed at tier 1 — rebuilding consolidated stream (proven path) and retrying copy...`
+      );
+      ffmpegInputArgs = ["-i", await buildConsolidatedInput()];
+      inputKind = "consolidated";
+      ffmpegSuccess = await runFfmpegConvert([
+        "-y",
+        ...ffmpegInputArgs,
+        "-c", "copy",
+        "-bsf:a", "aac_adtstoasc",
+        "-movflags", "+faststart",
+        outputPath
+      ]);
+    }
+
     // Tier 2: If direct copy failed (audio timestamp issues), re-encode audio to AAC
     if (!ffmpegSuccess) {
       console.warn(`[CAT_CATCH_DOWNLOAD] Direct stream copy failed. Attempting audio re-encode fallback...`);
+      remuxTierUsed = 2;
       ffmpegSuccess = await runFfmpegConvert([
         "-y",
-        "-i", concatInputPath,
+        ...ffmpegInputArgs,
         "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "128k",
@@ -864,9 +995,10 @@ export async function downloadHlsAppLevel(
     // Tier 3: Complete fast re-encoding fallback
     if (!ffmpegSuccess) {
       console.warn(`[CAT_CATCH_DOWNLOAD] Audio copy failed. Attempting ultrafast complete transcode fallback...`);
+      remuxTierUsed = 3;
       ffmpegSuccess = await runFfmpegConvert([
         "-y",
-        "-i", concatInputPath,
+        ...ffmpegInputArgs,
         "-c:v", "libx264",
         "-preset", "ultrafast",
         "-crf", "24",
@@ -876,6 +1008,15 @@ export async function downloadHlsAppLevel(
         outputPath
       ]);
     }
+
+    // 9.18dddd P1 : une ligne par épisode, chaque phase chronométrée — le
+    // prochain terrain SAURA où partent les 75-90 s de cycle constatés.
+    const remuxMs = Date.now() - remuxT0;
+    const dlSeconds = dlMs / 1000;
+    const dlRateMoS = dlSeconds > 0 ? (downloadedBytes / 1048576 / dlSeconds).toFixed(1) : "?";
+    console.log(
+      `[CAT_CATCH_DOWNLOAD] ⏱️ ${segments.length} segments | résolution ${(playlistMs / 1000).toFixed(1)} s | dl ${dlSeconds.toFixed(1)} s (${dlRateMoS} Mo/s) | fusion ${(fusionMs / 1000).toFixed(1)} s (${inputKind}) | remux ${(remuxMs / 1000).toFixed(1)} s (palier ${remuxTierUsed}) | total ${((Date.now() - startedAtMs) / 1000).toFixed(1)} s`
+    );
 
     return ffmpegSuccess;
 

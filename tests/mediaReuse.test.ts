@@ -260,26 +260,57 @@ describe("9.18t — TTL par entrée : 5 h social, 24 h défaut", () => {
   });
 });
 
-// ── 9.18yyy : cap calibré terrain — un batch entier tient au cache ─────────
-describe("9.18yyy — cap calibré terrain (plus de thrash en plein batch)", () => {
-  it("défaut 2048 Mo (terrain 18/10 : 8 épisodes = 1,81 Go, dont deux « 480P » réellement 1080P)", () => {
-    expect(reuseMaxBytes()).toBe(2048 * 1024 * 1024);
+// ── 9.18bbbb : cache calibré sur la saison ENTIÈRE (terrain 3,4 Go) ────────
+describe("9.18bbbb — cache calibré sur la saison ENTIÈRE (terrain 3,4 Go)", () => {
+  // Tailles EXACTES du terrain 18/10 (runs 08:18 et 09:15) : E03-E10 — trois
+  // « 480P » réellement 1080P (E05/E08/E09) + E10 servi 906 Mo.
+  const TERRAIN_SIZES = [
+    90_871_818,
+    95_108_933,
+    725_592_829,
+    97_074_069,
+    89_877_934,
+    709_731_409,
+    719_659_487,
+    905_850_286
+  ];
+  const terrainKeys = TERRAIN_SIZES.map((_, i) => animeReuseKey("Jaadugar: A Witch in Mongolia", 1, i + 3, "VF", "480P"));
+  const makeSparse = (name: string, bytes: number): string => {
+    const p = path.join(staging, name);
+    fs.writeFileSync(p, Buffer.alloc(64, 1));
+    fs.truncateSync(p, bytes); // fichier creux : taille apparente sans occuper le disque
+    return p;
+  };
+
+  it("défaut 4096 Mo (le clamp max — la saison terrain complète pèse 3,4 Go)", () => {
+    expect(reuseMaxBytes()).toBe(4096 * 1024 * 1024);
   });
 
-  it("le run 2 du terrain ne thrash plus : les 6 épisodes restent tous cachés (fichiers creux)", () => {
-    // Tailles EXACTES du terrain (octets réels) : E03-E08 de Jaadugar.
-    const sizes = [90_871_818, 95_108_933, 725_592_829, 97_074_069, 89_877_934, 709_731_409];
-    const keys = sizes.map((_, i) => animeReuseKey("Jaadugar: A Witch in Mongolia", 1, i + 3, "VF", "480P"));
-    sizes.forEach((sz, i) => {
-      const p = path.join(staging, `terrain_${i}.mp4`);
-      fs.writeFileSync(p, Buffer.alloc(64, 1));
-      fs.truncateSync(p, sz); // fichier creux : taille apparente sans occuper le disque
-      expect(storeMediaReuse(keys[i], p, `Jaadugar_E${String(i + 3).padStart(2, "0")}.mp4`)).not.toBeNull();
+  it("la saison ENTIÈRE reste cachée : chaque lookup du run suivant touche", () => {
+    TERRAIN_SIZES.forEach((sz, i) => {
+      expect(storeMediaReuse(terrainKeys[i], makeSparse(`terrain_${i}.mp4`, sz), `Jaadugar_E${String(i + 3).padStart(2, "0")}.mp4`)).not.toBeNull();
     });
-    // Run 2 : chaque lookup doit TOUCHER — à l'ancien cap 1 GiB, les stores
-    // de E03/E04/E05 évictaient E06 puis E07/E08 AVANT leurs lookups.
-    for (const k of keys) {
+    for (const k of terrainKeys) {
       expect(lookupMediaReuse(k)).not.toBeNull();
+    }
+  });
+
+  it("à l'ancien cap 2048, le même terrain thrashait un run plus tard (E03/E04 évictés — documenté)", () => {
+    purgeAllMediaReuse();
+    process.env.NEBULA_REUSE_MAX_MB = "2048";
+    try {
+      TERRAIN_SIZES.forEach((sz, i) => {
+        storeMediaReuse(terrainKeys[i], makeSparse(`oldcap_${i}.mp4`, sz), `old_${i}.mp4`);
+      });
+      // 3,4 Go > 2048 → éviction LRU : les plus vieux partent (E03, E04,
+      // E05, E06, E07, E08 évictés au fil des stores) — c'est exactement le
+      // re-téléchargement de ~1,9 Go observé au run 09:15 du terrain.
+      expect(lookupMediaReuse(terrainKeys[0])).toBeNull();
+      // les récents (E09, E10) survivent
+      expect(lookupMediaReuse(terrainKeys[6])).not.toBeNull();
+      expect(lookupMediaReuse(terrainKeys[7])).not.toBeNull();
+    } finally {
+      delete process.env.NEBULA_REUSE_MAX_MB;
     }
   });
 });

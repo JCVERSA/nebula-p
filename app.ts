@@ -1945,6 +1945,26 @@ The \`.env\` file contains a placeholder API key. Set your real \`GEMINI_API_KEY
 
     const range = req.headers.range;
 
+    // 9.18dddd : débit réel servi, une ligne par téléchargement — c'est ce qui
+    // dira quel maillon (tunnel Cloudflare, réseau, appareil) plafonne la
+    // livraison vers le PC/téléphone (recherche vitesse livraison 18/10).
+    const trackServeRate = (fileStream: fs.ReadStream) => {
+      const serveStart = Date.now();
+      let servedBytes = 0;
+      fileStream.on("data", (chunk) => {
+        servedBytes += chunk.length;
+      });
+      res.on("close", () => {
+        if (servedBytes <= 0) return;
+        const seconds = Math.max(0.001, (Date.now() - serveStart) / 1000);
+        const servedMB = servedBytes / 1048576;
+        const state = res.writableEnded ? "complet" : "interrompu";
+        console.log(
+          `[MEDIA] ${record.filename} : ${servedMB.toFixed(1)} Mo en ${seconds.toFixed(1)} s (${(servedMB / seconds).toFixed(1)} Mo/s, ${state}${range ? ", range" : ""})`
+        );
+      });
+    };
+
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Content-Type", record.mimeType || "application/octet-stream");
     res.setHeader("Cache-Control", "private, no-cache, no-store, must-revalidate");
@@ -1973,6 +1993,7 @@ The \`.env\` file contains a placeholder API key. Set your real \`GEMINI_API_KEY
 
       const chunksize = end - start + 1;
       const fileStream = fs.createReadStream(filePath, { start, end });
+      trackServeRate(fileStream);
 
       res.writeHead(206, {
         "Content-Range": `bytes ${start}-${end}/${fileSize}`,
@@ -1983,6 +2004,7 @@ The \`.env\` file contains a placeholder API key. Set your real \`GEMINI_API_KEY
     } else {
       res.setHeader("Content-Length", fileSize);
       const fileStream = fs.createReadStream(filePath);
+      trackServeRate(fileStream);
       fileStream.pipe(res);
     }
   };

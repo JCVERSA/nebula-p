@@ -14,7 +14,8 @@
  *   moveFile du coffre — c'est le même inode sous deux noms).
  * - Index JSON atomique (clé logique → chemin, taille, lastHitAt).
  * - Vie : 24 h FENÊTRE GLISSANTE (chaque réutilisation rafraîchit), cap
- *   dédié 1 GiB, éviction LRU (le plus anciennement utile part en premier).
+ *   dédié 4 GiB (9.18bbbb — une saison terrain entière), éviction LRU (le
+ *   plus anciennement utile part en premier).
  *   L'éviction ne supprime JAMAIS un fichier actuellement servi par un lien
  *   vivant du coffre (vérifié via listTempRecords) — il sera candidat au
  *   prochain passage.
@@ -72,12 +73,13 @@ export function reuseMaxBytes(): number {
   const raw = Number(process.env.NEBULA_UPLOAD_MAX_MB); // (garde-fou typo éventuel)
   void raw;
   const mb = Number(process.env.NEBULA_REUSE_MAX_MB);
-  // 9.18yyy : défaut relevé à 2048 Mo — terrain 18/10 : un batch de 8
-  // épisodes pèse 1,81 Go (dont deux « 480P » réellement 1080P à 710-725
-  // Mo). À 1 GiB le cache évictait EN PLEIN BATCH (LRU) : au run suivant,
-  // chaque lookup arrivait APRÈS l'éviction de son épisode — 1,7 Go
-  // re-téléchargés pour rien. 2048 tient un batch terrain entier.
-  const value = Number.isFinite(mb) && mb > 0 ? Math.min(4096, Math.max(64, Math.floor(mb))) : 2048;
+  // 9.18yyy : 1024 → 2048 (un batch de 6 ≈ 1,81 Go). 9.18bbbb : 2048 →
+  // 4096 (le clamp max) — terrain 18/10 09:15 : la saison COMPLÈTE pèse
+  // 3,4 Go (trois « 480P » réellement 1080P + E10 à 906 Mo) ; à 2048 le
+  // cache évictait E03/E04 un run plus tard et le batch suivant
+  // re-téléchargeait ~1,9 Go encore chauds la veille. 4096 tient la
+  // saison entière (disque VPS : 2,9 To).
+  const value = Number.isFinite(mb) && mb > 0 ? Math.min(4096, Math.max(64, Math.floor(mb))) : 4096;
   return value * 1024 * 1024;
 }
 
