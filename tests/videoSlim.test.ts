@@ -15,6 +15,7 @@ vi.mock("../src/bot/services/mediaToolkit.js", () => ({
 }));
 
 import {
+  cgroupAvailableBytes,
   parseMemAvailableBytes,
   slimAggressiveArgs,
   slimAggressiveKbps,
@@ -368,6 +369,35 @@ describe("9.18aaa — bornes mémoire + préflight (le SLIM ne tue plus le moteu
     expect(src).toContain("cmd_swap()");
     expect(src).toContain("swapon /swapfile");
     expect(src).toContain("swap)    cmd_swap");
+  });
+});
+
+describe("9.18eeee — préflight CONSCIENT DU CONTENEUR (terrain 21/10 : SIGKILL passe 1 après un /proc/meminfo menteur)", () => {
+  it("math terrain : usage 923 Mo / limite 953 Mo / cache 280 Mo → 310 Mo dispo → le 1080P de 490 Mo est REFUSÉ", () => {
+    const available = cgroupAvailableBytes(923 * 1024 * 1024, 953 * 1024 * 1024, 280 * 1024 * 1024);
+    expect(available).toBe(310 * 1024 * 1024); // limite − (usage − cache) = 953 − 643
+    const v = slimPreflightDecision(490 * 1024 * 1024, available); // le 1080P du terrain
+    expect(v.run).toBe(false);
+    expect(v.reason).toContain("RAM disponible");
+  });
+
+  it("cgroup illisible ou sans limite → null (repli /proc/meminfo : machine hôte nue)", () => {
+    expect(cgroupAvailableBytes(null, 953 * 1024 * 1024, 100)).toBeNull();
+    expect(cgroupAvailableBytes(500, null, 100)).toBeNull();
+    expect(cgroupAvailableBytes(500, 0, 100)).toBeNull();
+    expect(cgroupAvailableBytes(500, Number.NaN, 100)).toBeNull();
+  });
+
+  it("cache inconnu → working set = usage entier (conservateur, jamais optimiste)", () => {
+    expect(cgroupAvailableBytes(600 * 1024 * 1024, 953 * 1024 * 1024, null)).toBe(353 * 1024 * 1024);
+  });
+
+  it("câblage : le préflight mesure le conteneur quand le cgroup est lisible (leçon zzz appliquée au slim)", () => {
+    const src = fs.readFileSync("src/bot/services/videoSlim.ts", "utf8");
+    expect(src).toContain("slimEffectiveAvailableBytes()");
+    expect(src).toContain("readCgroupMemLimitBytes");
+    expect(src).toContain("readCgroupMemUsageBytes");
+    expect(src).toContain("readCgroupPageCacheBytes");
   });
 });
 

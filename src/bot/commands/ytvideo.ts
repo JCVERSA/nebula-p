@@ -6,7 +6,7 @@ import { getConfig } from "../config.js";
 import { activeCookiesFile, isPlaylistLink, probeYoutubeEntry, ytvViaYtDlp } from "../services/ytDlp.js";
 import { slimEtaMinutes, slimVideoIfNeeded, slimTriggerBytes } from "../services/videoSlim.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus, completeBatchJob } from "../batchDownloadManager.js";
-import { buildDownloadPage } from "../services/downloadPage.js";
+import { buildDownloadPage, registerDownloadPage } from "../services/downloadPage.js";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { lookupMediaReuse, storeMediaReuse, ytvReuseKey } from "../services/mediaReuseStore.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
@@ -318,18 +318,41 @@ async function executePlaylistDownload(
 
   // Page HTML (comme les batches animé) — sauf si le ZIP est là.
   let pageDelivered = false;
+  let pageMode: "link" | "document" = "link"; // 9.18ffff : lien hébergé (primaire) ou document (repli)
   if (links.length > 1 && !zipUrl) {
     try {
       const expiresAt = links.reduce((min, l) => (l.expiresAt && (!min || l.expiresAt < min) ? l.expiresAt : min), 0);
       const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "playlist";
+      const pageFilename = `nebula-${slug}-playlist.html`;
       const html = buildDownloadPage({
         title: `${title} — Playlist`,
         subtitle: `${quality}p${audioLang ? ` · audio ${langLabel(audioLang)}` : ""} · ${links.length} vidéos prêtes`,
         entries: links.map((l) => ({ label: l.label, url: l.url, sizeMB: l.sizeMB })),
         expiresAt
       });
-      await sock.sendMessage(chatId, { document: Buffer.from(html, "utf-8"), mimetype: "text/html", fileName: `nebula-${slug}-playlist.html` }, { quoted: msg });
-      pageDelivered = true;
+      // 9.18ffff : page HÉBERGÉE (WhatsApp filtre désormais les documents
+      // text/html) — le bot envoie le LIEN, Chrome rend la page en inline.
+      const pageLink = registerDownloadPage(html, pageFilename, { jobId: batchJob.id });
+      if (pageLink) {
+        await sock.sendMessage(
+          chatId,
+          {
+            text:
+              `📄 *Page de téléchargement prête* — ${links.length} vidéos\n\n` +
+              `🔗 ${pageLink}\n\n` +
+              `👉 Ouvre ce lien dans Chrome : un seul bouton *« Tout télécharger »*, ou un bouton par vidéo.\n` +
+              `⏳ Valable ${getLinkTtlMinutes()} min (relancée à chaque ouverture).`
+          },
+          { quoted: msg }
+        );
+        pageDelivered = true;
+        pageMode = "link";
+        console.log(`[YTVIDEO] Delivered playlist page as HOSTED LINK (${links.length} links, inline).`);
+      } else {
+        await sock.sendMessage(chatId, { document: Buffer.from(html, "utf-8"), mimetype: "text/html", fileName: pageFilename }, { quoted: msg });
+        pageDelivered = true;
+        pageMode = "document";
+      }
     } catch {}
   }
 
@@ -341,7 +364,9 @@ async function executePlaylistDownload(
     `📦 *Prêtes :* ${links.length}/${ids.length} vidéos\n${failedNote}${stopped ? stopped + "\n" : ""}` +
     `⏳ *Liens valides 30 min* (relancées à chaque téléchargement, max 2 h)\n\n` +
     (pageDelivered
-      ? `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un bouton « Tout télécharger », ou un bouton par vidéo.`
+      ? (pageMode === "link"
+          ? `📄 *Page de téléchargement :* le lien ci-dessus s'ouvre dans Chrome → un bouton « Tout télécharger », ou un bouton par vidéo.`
+          : `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un bouton « Tout télécharger », ou un bouton par vidéo.`)
       : zipUrl
         ? `📦 *ZIP complet :* ${zipFilename} (~${zipSizeMB} Mo)\n🔗 ${zipUrl}`
         : links.map((l) => `• ${l.label} — ${l.sizeMB} Mo\n🔗 ${l.url}`).join("\n\n"));

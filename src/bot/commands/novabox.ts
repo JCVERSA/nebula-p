@@ -12,7 +12,7 @@ import {
   getTempMaxTotalBytes
 } from "../tempDownloadManager.js";
 import { animeReuseKey, lookupMediaReuse, storeMediaReuse } from "../services/mediaReuseStore.js";
-import { buildDownloadPage } from "../services/downloadPage.js";
+import { buildDownloadPage, registerDownloadPage } from "../services/downloadPage.js";
 import { formatFailedEpisodes, fastLaneMismatch } from "../services/batchRecap.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
 import { isNakanimeUrl, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js"; // 8.69: dormant mirror — parse helpers only, never searched
@@ -3094,6 +3094,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       // user must tap one by one inside WhatsApp. Falls back to the legacy
       // links message if the document cannot be sent.
       let pageDelivered = false;
+      let pageMode: "link" | "document" = "link"; // 9.18ffff : lien hébergé (primaire) ou document (repli)
       // ZIP mode (NEBULA_BATCH_ZIP=1) is an explicit one-archive request — skip
       // the HTML page then to avoid delivering both (audit 8.41).
       if (generatedLinks.length > 1 && !zipDownloadUrl) {
@@ -3103,23 +3104,47 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
             0
           );
           const slug = (session.animeTitle || "anime").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "anime";
+          const pageFilename = `nebula-${slug}-${(session.selectedSeason?.name || formattedSeason || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 20) || "saison"}.html`;
           const html = buildDownloadPage({
             title: `${session.animeTitle} — ${session.selectedSeason?.name || formattedSeason}`,
             subtitle: `${lang} · ${resolution} · ${generatedLinks.length} épisodes prêts`,
             entries: generatedLinks.map(g => ({ label: `Épisode ${g.epNum}`, url: g.downloadUrl, sizeMB: g.sizeMB })),
             expiresAt
           });
-          await sock.sendMessage(
-            msg.key.remoteJid,
-            {
-              document: Buffer.from(html, "utf-8"),
-              mimetype: "text/html",
-              fileName: `nebula-${slug}-${(session.selectedSeason?.name || formattedSeason || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 20) || "saison"}.html`
-            },
-            { quoted: msg }
-          );
-          pageDelivered = true;
-          console.log(`[NOVABOX] Delivered offline download page (${generatedLinks.length} links) as HTML document.`);
+          // 9.18ffff : WhatsApp filtre désormais les documents text/html —
+          // la page est HÉBERGÉE (route /d/ + tunnel, inline) et le bot
+          // envoie le LIEN. Le pipeline document de WhatsApp n'intervient plus.
+          const pageLink = registerDownloadPage(html, pageFilename, { jobId: batchJob.id });
+          if (pageLink) {
+            await sock.sendMessage(
+              msg.key.remoteJid,
+              {
+                text:
+                  `📄 *Page de téléchargement prête* — ${generatedLinks.length} épisodes\n\n` +
+                  `🔗 ${pageLink}\n\n` +
+                  `👉 Ouvre ce lien dans Chrome : un seul bouton *« Tout télécharger »*, ou un bouton par épisode.\n` +
+                  `⏳ Valable ${getLinkTtlMinutes()} min (relancée à chaque ouverture).`
+              },
+              { quoted: msg }
+            );
+            pageDelivered = true;
+            pageMode = "link";
+            console.log(`[NOVABOX] Delivered download page as HOSTED LINK (${generatedLinks.length} links, inline).`);
+          } else {
+            // Repli : envoi en document (là où WhatsApp l'accepte encore).
+            await sock.sendMessage(
+              msg.key.remoteJid,
+              {
+                document: Buffer.from(html, "utf-8"),
+                mimetype: "text/html",
+                fileName: pageFilename
+              },
+              { quoted: msg }
+            );
+            pageDelivered = true;
+            pageMode = "document";
+            console.log(`[NOVABOX] Delivered offline download page (${generatedLinks.length} links) as HTML document.`);
+          }
         } catch (pageErr: any) {
           console.warn("[NOVABOX] HTML download page could not be sent — legacy links message:", pageErr?.message);
         }
@@ -3160,7 +3185,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
           : "") +
         `⏳ *Links Validity:* ${getLinkTtlMinutes()} min (reset at each download, max 2 h)\n\n` +
         (pageDelivered
-          ? `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un seul bouton *« Tout télécharger »* lance tous les épisodes d'un coup (ou bouton par épisode).\n\n`
+          ? (pageMode === "link"
+              ? `📄 *Page de téléchargement :* le lien ci-dessus s'ouvre dans Chrome → un seul bouton *« Tout télécharger »* lance tous les épisodes d'un coup (ou bouton par épisode).\n\n`
+              : `📄 *Ouvre le fichier HTML ci-dessus dans Chrome* → un seul bouton *« Tout télécharger »* lance tous les épisodes d'un coup (ou bouton par épisode).\n\n`)
           : `📥 *Direct Episode Links:*\n\n` +
             generatedLinks
               .map(g => `• 🎬 *Episode ${g.epNum}:* [${g.sizeMB} MB]\n  🔗 ${g.downloadUrl}`)

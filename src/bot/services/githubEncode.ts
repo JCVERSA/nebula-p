@@ -205,7 +205,16 @@ export async function githubSlimEncode(opts: {
         log(`[GH] artefact introuvable — repli local`);
         return null;
       }
-      const zipResp = await axios.get(art.archive_url, {
+      // 9.18eeee : le champ de l'API artefacts est « archive_download_url » —
+      // « archive_url » N'EXISTE PAS (vérifié sur l'API live). Terrain 21/10 :
+      // axios.get(undefined) → « Invalid URL » APRÈS un run GitHub pourtant
+      // réussi (dispatch + encodage + upload OK) — seul le rapport était cassé.
+      // Repli : l'URL canonique est de toute façon de cette forme.
+      const artifactZipUrl =
+        typeof art.archive_download_url === "string" && /^https?:\/\//i.test(art.archive_download_url)
+          ? art.archive_download_url
+          : `${GH_API}/repos/${cfg.repo}/actions/artifacts/${art.id}/zip`;
+      const zipResp = await axios.get(artifactZipUrl, {
         headers: ghHeaders(cfg.token),
         timeout: 120_000,
         responseType: "arraybuffer"

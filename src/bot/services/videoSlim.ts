@@ -38,6 +38,7 @@
  */
 
 import fs from "fs";
+import { readCgroupMemLimitBytes, readCgroupMemUsageBytes, readCgroupPageCacheBytes } from "./memoryGuard.js";
 import path from "path";
 import { probeVideoInfo, runFfmpegKit } from "./mediaToolkit.js";
 
@@ -91,6 +92,30 @@ export function readMemAvailableBytes(): number | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Pur (9.18eeee) : disponible vu DU CONTENEUR à partir des compteurs cgroup.
+ * Terrain 21/10 : /proc/meminfo montre la RAM de l'HÔTE (dizaines de Go)
+ * alors que le cgroup plafonne à 953 Mo — le préflight aaa validait des
+ * encodages que le OOM killer tuait ensuite (SIGKILL passe 1, 1080P 490 Mo).
+ * Le working set = usage − cache fichier (le kernel peut réclamer le cache,
+ * mais on ne compte pas dessus — conservateur par design).
+ */
+export function cgroupAvailableBytes(
+  usageBytes: number | null,
+  limitBytes: number | null,
+  cacheBytes: number | null
+): number | null {
+  if (usageBytes === null || limitBytes === null || !Number.isFinite(limitBytes) || limitBytes <= 0) return null;
+  const workingSet = Math.max(0, usageBytes - (cacheBytes ?? 0));
+  return Math.max(0, limitBytes - workingSet);
+}
+
+/** IO : disponible effectif — conteneur d'abord, /proc/meminfo sinon (hôte nu). */
+export function slimEffectiveAvailableBytes(): number | null {
+  const container = cgroupAvailableBytes(readCgroupMemUsageBytes(), readCgroupMemLimitBytes(), readCgroupPageCacheBytes());
+  return container ?? readMemAvailableBytes();
 }
 
 export interface SlimPreflight {
@@ -322,9 +347,11 @@ export async function slimVideoIfNeeded(
   // 9.18aaa — préflight : un encodage qui ne TIENT PAS sur la machine ne
   // part pas (RAM disponible, taille d'entrée). L'original est livré —
   // la livraison >100 Mo passe de toute façon par le lien /d/.
+  // 9.18eeee : le disponible est mesuré DEPUIS LE CONTENEUR quand le cgroup
+  // est lisible (limit − working set) — /proc/meminfo ment dans Docker.
   const preflight = slimPreflightDecision(
     originalBytes,
-    opts.memAvailableBytes !== undefined ? opts.memAvailableBytes : readMemAvailableBytes()
+    opts.memAvailableBytes !== undefined ? opts.memAvailableBytes : slimEffectiveAvailableBytes()
   );
   if (!preflight.run) {
     console.log(`[SLIM] préflight : ${preflight.reason} — fichier original livré`);

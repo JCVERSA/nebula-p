@@ -127,3 +127,21 @@ describe("9.18eee — wiring (l'idée owner, câblée de bout en bout)", () => {
     expect(wf).toContain("slim-output");
   });
 });
+
+describe("9.18eeee — retrieval de l'artefact (terrain 21/10 : Invalid URL APRES un run GitHub reussi)", () => {
+  const readSrc = (rel: string) => fs.readFileSync(path.resolve(process.cwd(), rel), "utf8");
+
+  it("l'URL du zip utilise archive_download_url — archive_url n'existe PAS dans l'API artefacts (verifie live)", () => {
+    const svc = readSrc("src/bot/services/githubEncode.ts");
+    expect(svc).toContain("archive_download_url");
+    // Terrain : art.archive_url = undefined -> axios.get(undefined) -> Invalid URL
+    // -> « echec recuperation » alors que le run avait REUSSI.
+    expect(svc).not.toContain("art.archive_url");
+  });
+
+  it("repli : l'URL canonique du zip est construite si le champ est absent ou mal forme", () => {
+    const svc = readSrc("src/bot/services/githubEncode.ts");
+    expect(svc).toContain("actions/artifacts/${art.id}/zip");
+    expect(svc).toContain("/^https?:\\/\\//i.test(art.archive_download_url)");
+  });
+});

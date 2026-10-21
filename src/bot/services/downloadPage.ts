@@ -30,10 +30,59 @@
  *   hostile `</script>` inside a URL can never break out of the script.
  */
 
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { registerTempDownload, purgeTempRecords } from "../tempDownloadManager.js";
+
 export interface DownloadPageEntry {
   label: string;
   url: string;
   sizeMB?: number;
+}
+
+/**
+ * 9.18ffff : HÉBERGE la page et renvoie son LIEN public d'affichage.
+ *
+ * Terrain 21/10 : la page envoyée en DOCUMENT WhatsApp (mimetype text/html)
+ * ne s'ouvrait plus — WhatsApp filtre désormais silencieusement les documents
+ * HTML (vecteur phishing classique ; PDF/ZIP passent, HTML non). La page vit
+ * donc sur NOTRE serveur (route /d/ existante + tunnel), servie en inline
+ * (?inline=true → Content-Disposition: inline, mimetype text/html) : le bot
+ * n'envoie qu'un LIEN, Chrome rend la page directement — le pipeline
+ * document de WhatsApp n'intervient plus du tout.
+ *
+ * Retourne null (repli document historique) si l'URL ne peut pas être
+ * absolue (APP_URL absent) ou si l'enregistrement échoue (coffre plein).
+ */
+export function registerDownloadPage(
+  html: string,
+  filename: string,
+  opts?: { jobId?: string }
+): string | null {
+  const tmpPath = path.join(os.tmpdir(), `nebula-page-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
+  fs.writeFileSync(tmpPath, html, "utf8");
+  try {
+    const rec = registerTempDownload(tmpPath, filename, {
+      mimeType: "text/html",
+      moveFile: true,
+      jobId: opts?.jobId
+    });
+    if (!/^https?:\/\//i.test(rec.downloadUrl)) {
+      // Base relative → lien inutilisable dans WhatsApp : on ne laisse pas
+      // un record mort derrière nous, l'appelant replie sur le document.
+      try {
+        purgeTempRecords([rec.token]);
+      } catch {}
+      return null;
+    }
+    return `${rec.downloadUrl}?inline=true`;
+  } catch {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+    return null;
+  }
 }
 
 export const DOWNLOAD_PAGE_PALETTE = {
