@@ -28,7 +28,7 @@ import path from "path";
 
 export interface AnimeChoiceRecord {
   title: string;
-  source: "va" | "as";
+  source: "va" | "as" | "jt";
   language: "VF" | "VOSTFR";
   seasonName: string;
   quality: string;
@@ -73,7 +73,7 @@ function normalizeEntry(raw: any): AnimeChoiceRecord | null {
   if (!raw || typeof raw !== "object" || typeof raw.ts !== "number") return null;
   return {
     title: String(raw.title || "").slice(0, MAX_TITLE_CHARS),
-    source: raw.source === "as" ? "as" : "va",
+    source: raw.source === "as" ? "as" : raw.source === "jt" ? "jt" : "va",
     language: raw.language === "VF" ? "VF" : "VOSTFR",
     seasonName: String(raw.seasonName || "").slice(0, MAX_FIELD_CHARS),
     quality: String(raw.quality || "").slice(0, MAX_FIELD_CHARS),
@@ -129,7 +129,7 @@ export function recordAnimeChoice(
   chatJid: string,
   rec: {
     title: string;
-    source: "va" | "as";
+    source: "va" | "as" | "jt";
     language: "VF" | "VOSTFR";
     seasonName?: string;
     quality?: string;
@@ -141,7 +141,7 @@ export function recordAnimeChoice(
   if (!chatJid || !rec?.title || isDisabled()) return;
   const entry: AnimeChoiceRecord = {
     title: cap(rec.title, MAX_TITLE_CHARS),
-    source: rec.source === "as" ? "as" : "va",
+    source: rec.source === "as" ? "as" : rec.source === "jt" ? "jt" : "va",
     language: rec.language === "VF" ? "VF" : "VOSTFR",
     seasonName: cap(rec.seasonName),
     quality: cap(rec.quality),

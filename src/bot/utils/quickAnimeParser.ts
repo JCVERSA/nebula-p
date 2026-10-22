@@ -125,14 +125,15 @@ export function parseQuickDownloadParams(input: string[] | string): QuickDownloa
   let episodesMode: "all" | "single" | "list" | "range" | undefined;
   let parsedEpisodeNumbers: number[] | undefined;
 
-  // 0. Catalog flag (`as` / `va`, optional trailing "=") — FIRST token only,
-  // and only when a title follows (`.a as` alone stays a literal query).
+  // 0. Catalog flag (`as` / `va` / `jt`, optional trailing "=") — FIRST token
+  // only, and only when a title follows (`.a as` alone stays a literal query).
   // Refonte 2026-09-21: one catalog per query, chosen by the user.
+  // 9.18gggg: jt = jetanimes (alias jeta/jetanime).
   let source: AnimeSourceId | undefined;
   if (tokens.length > 1) {
     const first = tokens[0].toLowerCase().replace(/=+$/, "");
-    if (first === "as" || first === "va") {
-      source = first;
+    if (first === "as" || first === "va" || first === "jt" || first === "jeta" || first === "jetanime") {
+      source = first === "as" || first === "va" ? first : "jt";
       tokens.shift();
     }
   }

@@ -59,7 +59,7 @@ export const MENU_SECTIONS: MenuSection[] = [
     emoji: "🎌",
     title: "ANIME",
     entries: [
-      ["a", "Anime VF / VOSTFR (catalogues as ou va)"],
+      ["a", "Anime VF / VOSTFR (catalogues as, va ou jt)"],
       ["slim", "Allège la dernière vidéo lourde livrée (~190 Mo, même résolution)"],
       ["w", "Veille des nouveaux épisodes"],
       ["trace", "Identifie l’anime d’une image (réponds à l’image)"],

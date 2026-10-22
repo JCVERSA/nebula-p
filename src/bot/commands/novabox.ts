@@ -29,6 +29,8 @@ import {
   searchEmptyMessage,
   vaDisabledMessage,
   VA_DISABLED_CODE,
+  jtDisabledMessage,
+  JT_DISABLED_CODE,
   sourceLogLabel,
   type AnimeSourceId,
   type SeasonLanguage,
@@ -40,6 +42,12 @@ import {
   resolveVoiranimeSeason,
   type VoiranimeEpisode
 } from "../services/voiranimeClient.js";
+import {
+  jetanimesSeasons,
+  jetanimesSeasonEpisodes,
+  jetanimesEpisodePlayers,
+  type JetanimesEpisode
+} from "../services/jetanimesClient.js";
 import { bestAnimeMatch, formatAnimeCard } from "../services/jikanClient.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 import { createBatchJob, updateEpisodeProgress, updateJobStatus } from "../batchDownloadManager.js";
@@ -94,13 +102,16 @@ export interface AnimeSession {
   selectedLanguage?: string;
   /** ALL seasons of the chosen catalog with their STRUCTURAL language —
    * `.a vf` / `.a vostfr` re-filter this list without any network call. */
-  sourceSeasons?: Array<{ name: string; subPath: string; url: string; isVoiranime?: boolean; language?: SeasonLanguage }>;
-  seasons: Array<{ name: string; subPath: string; url: string; isVoiranime?: boolean }>;
-  selectedSeason?: { name: string; subPath: string; url: string; isVoiranime?: boolean };
+  sourceSeasons?: Array<{ name: string; subPath: string; url: string; isVoiranime?: boolean; isJetanimes?: boolean; jtSeason?: number; jtLanguage?: "VF" | "VOSTFR" | null; language?: SeasonLanguage }>;
+  seasons: Array<{ name: string; subPath: string; url: string; isVoiranime?: boolean; isJetanimes?: boolean; jtSeason?: number; jtLanguage?: "VF" | "VOSTFR" | null }>;
+  selectedSeason?: { name: string; subPath: string; url: string; isVoiranime?: boolean; isJetanimes?: boolean; jtSeason?: number; jtLanguage?: "VF" | "VOSTFR" | null };
   episodes?: Record<number, string[]>;
   episodeListLabels?: Record<number, { host: string; language: string }>; // nakanime: host+lang per list
   voiranimeAnimeUrl?: string; // voir-anime.to VF path (audit 8.9)
   voiranimeEpisodes?: VoiranimeEpisode[]; // positional episode list of the VF entry
+  /** 9.18gggg : liste positionnelle des épisodes d'une saison jetanimes
+   *  (players résolus paresseusement, comme voiranime). */
+  jetanimesEpisodes?: JetanimesEpisode[];
   selectedEpisodeIndex?: number;
   selectedEpisodeIndices?: number[]; // Multi-episode batch support
   isSeasonZipDownload?: boolean; // Full season download mode
@@ -526,6 +537,46 @@ export async function fillVoiranimePlayers(session: AnimeSession, indices: numbe
 }
 
 /**
+ * 9.18gggg — jetanimes : résolution PARESSEUSE des lecteurs (un fetch de
+ * page épisode par épisode, options DooPlay -> admin-ajax, replis iframe).
+ * Chaque slot de lecteur (1..3) devient une LISTE de miroirs — les épisodes
+ * sans ce slot restent vides (falsy → ignorés par l'itération de miroirs).
+ * Toutes les listes portent la langue REELLE câblée de la saison (8.78).
+ */
+export async function fillJetanimesPlayers(session: AnimeSession, indices: number[]): Promise<void> {
+  if (!session.jetanimesEpisodes) return;
+  const total = session.jetanimesEpisodes.length;
+  const lists: Record<number, string[]> =
+    session.episodes && Object.keys(session.episodes).length > 0 ? session.episodes : { 1: new Array(total).fill("") };
+  const labels = session.episodeListLabels || {};
+  let firstHost = "jetanimes";
+  try {
+    for (const idx of indices) {
+      const ep = session.jetanimesEpisodes[idx];
+      if (!ep) continue;
+      const players = await jetanimesEpisodePlayers(ep.url);
+      players.forEach((player, slot) => {
+        const listId = slot + 1;
+        if (!lists[listId]) lists[listId] = new Array(total).fill("");
+        lists[listId][idx] = player;
+        if (slot === 0) {
+          try {
+            firstHost = new URL(player).hostname;
+          } catch {}
+        }
+      });
+    }
+  } catch {}
+  for (const key of Object.keys(lists).map(Number)) {
+    if ((lists[key] || []).some(Boolean)) {
+      labels[key] = { host: key === 1 ? firstHost : `lecteur ${key}`, language: session.selectedLanguage || "VOSTFR" };
+    }
+  }
+  session.episodes = lists;
+  session.episodeListLabels = labels;
+}
+
+/**
  * Audit 8.17 — language hint shown on the interactive season screen. Must
  * always offer the OPPOSITE of the active default (the old screen displayed
  * "switch to VOSTFR" while VOSTFR was already the default) or honestly state
@@ -614,6 +665,33 @@ export async function wireSessionSeasons(
       isVoiranime: true,
       language: e.language ?? null
     }));
+    session.animeUrl = chosen.url;
+  } else if (session.source === "jt") {
+    // 9.18gggg : jetanimes — les saisons viennent de la page série (liens
+    // /episodes/<serie>-saison-N-episode-M/), la langue de badges page +
+    // sonde REST. Une saison MIXTE VF+VOSTFR est dédoublée en deux entrées
+    // étiquetées (même mécanique que as saison1/vf vs saison1/vostfr).
+    const seasons = await jetanimesSeasons(chosen.url);
+    session.sourceSeasons = [];
+    for (const s of seasons) {
+      const push = (name: string, subPath: string, language: "VF" | "VOSTFR" | null) => {
+        session.sourceSeasons!.push({
+          name,
+          subPath,
+          url: chosen.url,
+          isJetanimes: true,
+          jtSeason: s.seasonNumber,
+          jtLanguage: language,
+          language
+        });
+      };
+      if (s.mixed) {
+        push(`Saison ${s.seasonNumber} (VF)`, `saison${s.seasonNumber}/vf`, "VF");
+        push(`Saison ${s.seasonNumber} (VOSTFR)`, `saison${s.seasonNumber}/vostfr`, "VOSTFR");
+      } else {
+        push(`Saison ${s.seasonNumber}`, `saison${s.seasonNumber}`, s.language);
+      }
+    }
     session.animeUrl = chosen.url;
   } else {
     const parsed = await parseSeasons(chosen.url);
@@ -874,6 +952,29 @@ async function executeQuickDownloadPipeline(
 
 ` +
             `💡 *Essaie l'autre catalogue :* \`.a ${otherFlagOf(session.source)} <titre> s${targetSeasonNum} ep${resolvedIndices[0] + 1} r2\``
+        );
+      }
+    }
+
+    // 5a-bis. 9.18gggg — jetanimes : résolution PARESSEUSE des lecteurs pour
+    // les seuls épisodes demandés (page épisode -> options DooPlay ->
+    // admin-ajax, replis iframe).
+    if (session.source === "jt" && session.jetanimesEpisodes) {
+      const tJt = Date.now();
+      const idxs = resolvedIndices.slice(0, MAX_BATCH_EPISODES);
+      if (resolvedIndices.length > idxs.length) {
+        console.warn(`[NOVABOX] jetanimes: capping player lookups to ${idxs.length}/${resolvedIndices.length} episodes`);
+      }
+      await fillJetanimesPlayers(session, idxs);
+      console.log(`[NOVABOX] jetanimes players resolved for ${idxs.length} ep(s) in ${((Date.now() - tJt) / 1000).toFixed(1)}s`);
+      const anyJtMirror = Object.values(session.episodes || {}).some((arr) => arr.some(Boolean));
+      if (!anyJtMirror) {
+        clearUserSession(context.sender);
+        return context.reply(
+          `❌ *Lecteur introuvable:* impossible de résoudre le lecteur de cette saison depuis le serveur.
+
+` +
+            `💡 *Essaie un autre catalogue :* \`.a ${otherFlagOf(session.source)} <titre> s${targetSeasonNum} ep${resolvedIndices[0] + 1} r2\``
         );
       }
     }
@@ -1164,6 +1265,7 @@ const animeCommand: BotCommand = {
     // 9.18rrr (owner 18/10) : la VOSTFR vient AUSSI de voir-anime (couverture
     // complète depuis ooo/ppp) — plus de détour systématique par l'autre
     // catalogue, qui reste joignable explicitement (`.a as <titre> vostfr`).
+    // 9.18gggg : 3e catalogue jetanimes — `.a jt <titre>` (alias jeta/jetanime).
     let source = quickParams.source || effectiveDefaultSource();
 
     // Reset session helper
@@ -1274,6 +1376,7 @@ const animeCommand: BotCommand = {
         `*Catalogues (source au choix) :*\n` +
         `• Catalogue complet *(défaut)* : \`.a [titre]\`\n` +
         `• Catalogue VF : \`.a va [titre]\`\n` +
+        `• Catalogue VOSTFR récent : \`.a jt [titre]\` _(alias jeta, jetanime)_\n` +
         `• Langue : \`.a [titre] vostfr\` _(VF par défaut)_\n\n` +
         `*Téléchargement direct :*\n` +
         `• Saison entière : \`.a jjk s3 all r2\`\n` +
@@ -1483,6 +1586,22 @@ const animeCommand: BotCommand = {
             session.voiranimeEpisodes = vaEps;
             session.episodes = { 1: new Array(vaEps.length).fill("") };
             session.episodeListLabels = {};
+          } else if (selectedSeason.isJetanimes) {
+            // 9.18gggg — jetanimes season: positional episode list (liens
+            // /episodes/<serie>-saison-N-episode-M/), players resolved
+            // lazily at download time (options DooPlay -> admin-ajax).
+            const jtEps = await jetanimesSeasonEpisodes(
+              selectedSeason.url,
+              selectedSeason.jtSeason ?? 1,
+              selectedSeason.jtLanguage ?? undefined
+            );
+            if (jtEps.length === 0) {
+              clearUserSession(sender);
+              return context.reply(`❌ *Erreur :* aucun épisode trouvé pour cette saison. Session terminée.`);
+            }
+            session.jetanimesEpisodes = jtEps;
+            session.episodes = { 1: new Array(jtEps.length).fill("") };
+            session.episodeListLabels = {};
           } else {
             const jsUrl = selectedSeason.url + "episodes.js";
             const { lists: eps, labels: epLabels } = await parseEpisodesDetailed(jsUrl);
@@ -1518,6 +1637,10 @@ const animeCommand: BotCommand = {
             // voiranime: resolve the first episode's player for stream inspection
             if (session.voiranimeAnimeUrl) {
               await fillVoiranimePlayers(session, [0]);
+            }
+            // 9.18gggg — jetanimes : idem, premier épisode pour l'inspection flux.
+            if (session.source === "jt" && session.jetanimesEpisodes) {
+              await fillJetanimesPlayers(session, [0]);
             }
 
             await context.react("🔍");
@@ -2013,6 +2136,7 @@ const animeCommand: BotCommand = {
         console.error("[NOVABOX] Quick Search Error:", err?.response?.status || err?.code || err?.message);
         await context.react("❌");
         if (err?.message === VA_DISABLED_CODE) return context.reply(vaDisabledMessage());
+        if (err?.message === JT_DISABLED_CODE) return context.reply(jtDisabledMessage());
         return context.reply(searchFailureMessage(err));
       }
     }
@@ -2170,6 +2294,7 @@ const animeCommand: BotCommand = {
       console.error("[NOVABOX] Search Error:", err?.response?.status || err?.code || err?.message);
       await context.react("❌");
       if (err?.message === VA_DISABLED_CODE) return context.reply(vaDisabledMessage());
+      if (err?.message === JT_DISABLED_CODE) return context.reply(jtDisabledMessage());
       return context.reply(searchFailureMessage(err));
     }
   }

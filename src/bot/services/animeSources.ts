@@ -23,9 +23,10 @@ import { isExactAnimeMatch } from "../utils/quickAnimeParser.js";
 import axios from "axios";
 import * as cheerio from "cheerio";
 import { completeVoiranimeFranchises, voiranimeSearch } from "./voiranimeClient.js";
+import { jetanimesSearch } from "./jetanimesClient.js";
 import { animeProxyOptions } from "./scrapingProxy.js";
 
-export type AnimeSourceId = "as" | "va";
+export type AnimeSourceId = "as" | "va" | "jt";
 export type SeasonLanguage = "VF" | "VOSTFR" | null;
 
 /**
@@ -51,6 +52,9 @@ export function effectiveDefaultSource(): AnimeSourceId {
 /** Error code surfaced when the operator disabled the va catalog. */
 export const VA_DISABLED_CODE = "NEBULA_VA_DISABLED";
 
+/** Error code surfaced when the operator disabled the jt catalog (gggg). */
+export const JT_DISABLED_CODE = "NEBULA_JT_DISABLED";
+
 export interface SourceSearchResult {
   title: string;
   subtitle: string;
@@ -66,11 +70,16 @@ export interface SourceSearchResult {
 
 /** Console-only label (owner diagnostics) — NEVER sent to users. */
 export function sourceLogLabel(source: AnimeSourceId): string {
-  return source === "va" ? "voir-anime" : "anime-sama";
+  return source === "va" ? "voir-anime" : source === "jt" ? "jetanimes" : "anime-sama";
 }
 
-/** The other catalog's flag (used in anonymized hints). */
+/**
+ * The next catalog to suggest (anonymized hints). 9.18gggg: three catalogs —
+ * as/va keep their historical pair (pinned by tests and terrain), jt points
+ * at va (the default catalog, the most useful guide for a jt user).
+ */
 export function otherFlagOf(source: AnimeSourceId): AnimeSourceId {
+  if (source === "jt") return "va";
   return source === "as" ? "va" : "as";
 }
 
@@ -245,6 +254,11 @@ export function vaDisabledMessage(): string {
   return "😕 *Ce catalogue est momentanément indisponible.*\n\n🔁 *Réessaie plus tard* — l'autre catalogue reste utilisable.";
 }
 
+/** Operator disabled the jt catalog (NEBULA_JETANIMES_DISABLED=1) — gggg. */
+export function jtDisabledMessage(): string {
+  return "😕 *Ce catalogue est momentanément indisponible.*\n\n🔁 *Réessaie plus tard* — les autres catalogues restent utilisables.";
+}
+
 // ---------------------------------------------------------------------------
 // Search routing (mono-source, no fallback)
 // ---------------------------------------------------------------------------
@@ -368,6 +382,30 @@ export async function searchAnimeBySource(
       ...withLang.filter((r) => r.language === "VF"),
       ...withLang.filter((r) => r.language !== "VF")
     ];
+  }
+  // 9.18gggg — catalogue jt (jetanimes) : DooPlay, deux domaines en cascade
+  // côté client. La langue d'une entrée n'est PAS dans le slug : elle se
+  // détermine au wiring des saisons (badges page série + sonde REST), donc
+  // les résultats partent avec language null (comme as).
+  if (source === "jt") {
+    if (process.env.NEBULA_JETANIMES_DISABLED === "1") {
+      throw new Error(JT_DISABLED_CODE);
+    }
+    const jtVariants = searchQueryVariants(foldTitleDiacritics(query));
+    for (let i = 0; i < jtVariants.length; i++) {
+      const raw = await jetanimesSearch(jtVariants[i]);
+      if (raw.length) {
+        if (i > 0) console.log(`[NOVABOX] recherche élargie « ${jtVariants[i]} » : ${raw.length} résultat(s)`);
+        return raw.map((r) => ({
+          title: r.title,
+          subtitle: r.isFilm ? "Film" : "",
+          url: r.url,
+          slug: r.slug,
+          language: null as SeasonLanguage
+        }));
+      }
+    }
+    return [];
   }
   // 9.18kkk — même retry à variantes pour le catalogue as.
   const samaVariants = searchQueryVariants(query);
