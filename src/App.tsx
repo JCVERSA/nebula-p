@@ -133,7 +133,7 @@ function StatCard({ icon: Icon, label, value, sub }: { icon: any; label: string;
 
 function Card({ title, icon: Icon, action, children, className = "" }: { title?: string; icon?: any; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
-    <div className={`bg-[#0e0e11] rounded-2xl border border-white/5 shadow-xl hover:shadow-2xl/10 transition-all duration-300 ${className}`}>
+    <div className={`bg-[#0e0e11] rounded-2xl border border-white/5 shadow-xl hover:shadow-2xl/10 transition duration-300 ${className}`}>
       {title && (
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
           <div className="flex items-center gap-2.5">
@@ -2327,7 +2327,11 @@ export default function App() {
               {/* ============================================================ SIMULATOR */}
               {activeTab === "simulator" && (
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-                  <div className="xl:col-span-2 bg-[#0b0b0c] rounded-2xl border border-white/10 shadow-xl overflow-hidden flex flex-col h-[calc(100vh-180px)] min-h-[480px]">
+                  {/* 9.18iiii (audit design v3) : hauteur recalibrée par breakpoint —
+                      180px = topbar 56 + p-3 12 + pb-28 112 (mobile, dock), 120px =
+                      topbar 56 + p-8 32 + pb-8 32 (desktop) ; dvh pour la barre
+                      d'URL mobile ; sticky pour rester visible au scroll latéral. */}
+                  <div className="xl:col-span-2 bg-[#0b0b0c] rounded-2xl border border-white/10 shadow-xl overflow-hidden flex flex-col h-[calc(100dvh-180px)] md:h-[calc(100dvh-120px)] min-h-[480px] self-start xl:sticky xl:top-8">
                     {/* WhatsApp header mockup */}
                     <div className="bg-[#1f2c34] text-white px-5 py-3.5 flex items-center justify-between border-b border-white/10 shadow-md">
                       <div className="flex items-center gap-3">
@@ -2352,12 +2356,13 @@ export default function App() {
                         <input
                           type="text"
                           placeholder="Search messages..."
+                          aria-label="Search messages in the simulator conversation"
                           value={chatSearchQuery}
                           onChange={(e) => setChatSearchQuery(e.target.value)}
-                          className="w-full bg-[#202c33] text-zinc-100 text-xs pl-8 pr-8 py-2 rounded-lg border border-white/10 focus:outline-none focus:border-amber-400 transition placeholder-zinc-500"
+                          className="w-full bg-[#202c33] text-zinc-100 text-xs pl-8 pr-8 py-2 rounded-lg border border-white/10 focus:outline-none focus:border-amber-400 transition placeholder-zinc-400"
                         />
                         {chatSearchQuery && (
-                          <button onClick={() => setChatSearchQuery("")} className="absolute right-2.5 top-2 text-zinc-400 hover:text-white cursor-pointer">
+                          <button onClick={() => setChatSearchQuery("")} aria-label="Clear search" className="absolute right-2.5 top-2 text-zinc-400 hover:text-white cursor-pointer">
                             <X className="w-3.5 h-3.5" />
                           </button>
                         )}
@@ -2464,10 +2469,11 @@ export default function App() {
                       <input
                         type="text"
                         placeholder={`Send message (start with prefix: '${config.prefix}')`}
+                        aria-label="Message the bot in the simulator"
                         value={inputValue}
                         onChange={(e) => setInputValue(e.target.value)}
                         disabled={isSimulating}
-                        className="flex-1 bg-[#2a3942] border border-white/10 rounded-full px-4 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-amber-400 placeholder-zinc-500 transition shadow-inner"
+                        className="flex-1 bg-[#2a3942] border border-white/10 rounded-full px-4 py-2.5 text-xs text-zinc-100 focus:outline-none focus:border-amber-400 placeholder-zinc-400 transition shadow-inner"
                       />
                       <button
                         type="button"
@@ -2524,14 +2530,18 @@ export default function App() {
 
                     <Card title="Quick Send" icon={Zap}>
                       <div className="flex flex-wrap gap-2">
-                        {[".ping", ".menu", ".anime", ".yts", ".ytv", ".ytm", ".w", ".sweb"].map((cmd) => (
+                        {/* 9.18iiii (audit design v3) : préfixe DYNAMIQUE — la liste
+                            codée ".ping" envoyait des commandes mortes dès que le
+                            préfixe configuré changeait (incohérent avec Playground
+                            Info qui, lui, affiche le préfixe réel). */}
+                        {["ping", "menu", "anime", "yts", "ytv", "ytm", "w", "sweb"].map((cmd) => (
                           <button
                             key={cmd}
-                            onClick={() => simulateCommandFromDoc(cmd)}
+                            onClick={() => simulateCommandFromDoc(`${config.prefix}${cmd}`)}
                             disabled={isSimulating}
                             className="px-3 py-1.5 bg-white/5 hover:bg-amber-500/15 hover:border-amber-500/40 disabled:bg-zinc-900 text-amber-300 disabled:text-zinc-500 rounded-lg text-[11px] font-mono font-semibold transition cursor-pointer border border-white/10"
                           >
-                            {cmd}
+                            {config.prefix}{cmd}
                           </button>
                         ))}
                       </div>
@@ -2548,11 +2558,11 @@ export default function App() {
                                 style={{ width: `${Math.min(100, (count / Math.max(1, Math.max(...Object.values(analyticsStats)))) * 100)}%` }}
                               />
                             </div>
-                            <span className="text-[11px] font-bold text-amber-400 w-6 text-right font-mono">{count}</span>
+                            <span className="text-[11px] font-bold text-amber-400 min-w-6 text-right font-mono">{count}</span>
                           </div>
                         ))}
                         {Object.keys(analyticsStats).length === 0 && (
-                          <p className="text-xs text-zinc-500 italic">No usage yet — run commands to populate stats.</p>
+                          <p className="text-xs text-zinc-400 italic">No usage yet — run commands to populate stats.</p>
                         )}
                       </div>
                     </Card>

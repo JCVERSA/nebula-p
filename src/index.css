@@ -48,7 +48,19 @@
 }
 
 .dark-scroll::-webkit-scrollbar-thumb {
-  background: #334155;
+  background: #64748b;
+}
+
+.dark-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 9.18iiii (audit design v3) : contraste du pouce >= 3:1 sur les fonds de chat
+   (#334155 faisait 1,81:1 - WCAG 1.4.11 composants non texte) + support
+   Firefox (scrollbar-color), avant : WebKit uniquement. */
+.dark-scroll {
+  scrollbar-color: #64748b transparent;
+  scrollbar-width: thin;
 }
 
 /* ==========================================================================

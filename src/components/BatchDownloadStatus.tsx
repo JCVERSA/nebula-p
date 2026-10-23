@@ -338,6 +338,8 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
 
           <button
             onClick={() => setShowDetails(!showDetails)}
+            aria-expanded={showDetails}
+            aria-controls="batch-download-details"
             className="p-1.5 text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition border border-white/5 cursor-pointer"
             title={showDetails ? "Collapse View" : "Expand View"}
           >
@@ -671,7 +673,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
 
             {/* Concurrent Episode Stream List */}
             {showDetails && (
-              <div className="space-y-2">
+              <div id="batch-download-details" className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-zinc-400 px-1">
                   <span className="font-bold text-zinc-300 flex items-center gap-1.5">
                     <Radio className="w-3.5 h-3.5 text-amber-400" />
@@ -731,7 +733,7 @@ export const BatchDownloadStatus: React.FC<BatchDownloadStatusProps> = ({
                       <div className="flex-1 max-w-[180px] hidden sm:block">
                         <div className="w-full h-2 bg-black/50 rounded-full overflow-hidden border border-white/5">
                           <div
-                            className={`h-full rounded-full transition-all duration-300 ${
+                            className={`h-full rounded-full transition-[width] duration-300 ${
                               ep.status === "completed"
                                 ? "bg-emerald-400"
                                 : ep.status === "downloading"

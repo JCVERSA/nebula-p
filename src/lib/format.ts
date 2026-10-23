@@ -23,7 +23,7 @@ export function formatMessageLine(line: string): string {
   // Italic replacements
   formatted = formatted.replace(/_(.*?)_/g, "<em>$1</em>");
   // Monospace replacements
-  formatted = formatted.replace(/`(.*?)`/g, "<code class='bg-black/40 text-amber-300 border border-white/10 px-1 py-0.5 rounded text-[10px] font-mono'>$1</code>");
+  formatted = formatted.replace(/`(.*?)`/g, "<code class='bg-black/40 text-amber-300 border border-white/10 px-1 py-0.5 rounded text-[11px] font-mono'>$1</code>");
   return formatted;
 }
 
