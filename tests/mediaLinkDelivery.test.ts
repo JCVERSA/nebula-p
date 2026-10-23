@@ -47,7 +47,7 @@ describe("9.18r — Instagram : liens automatiques (structure)", () => {
   const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/instagram.ts"), "utf-8");
 
   it("chaque média est téléchargé localement puis enregistré dans le store", () => {
-    expect(src).toContain("await fetchMediaToTempFile(mediaUrl)");
+    expect(src).toContain("await fetchMediaToTempFile(mediaUrl, (received, total) => {");
     expect(src).toContain("registerMediaLink(local,");
   });
 
@@ -75,7 +75,7 @@ describe("9.18r — TikTok : lien dans la caption (structure)", () => {
   const src = fs.readFileSync(path.resolve(process.cwd(), "src/bot/commands/tiktok.ts"), "utf-8");
 
   it("vidéo téléchargée localement, lien ajouté à la caption, repli distant", () => {
-    expect(src).toContain("await fetchMediaToTempFile(videoUrl)");
+    expect(src).toContain("await fetchMediaToTempFile(videoUrl, (received, total) => {");
     expect(src).toContain("sendPath = rec.filePath");
     expect(src).toContain("let sendPath = videoUrl");
     expect(src).toContain("🔗 *Lien :*");
@@ -131,7 +131,7 @@ describe("9.18t — caches sociaux 5 h : IG, TikTok, musique (structure)", () =>
 
   it("IG : lookup AVANT le fetch, store 5 h après enregistrement, marque ⚡ honnête", () => {
     expect(ig).toContain("const cachedHit = cacheKey ? lookupMediaReuse(cacheKey) : null;");
-    expect(ig.indexOf("lookupMediaReuse(cacheKey)")).toBeLessThan(ig.indexOf("await fetchMediaToTempFile(mediaUrl)"));
+    expect(ig.indexOf("lookupMediaReuse(cacheKey)")).toBeLessThan(ig.indexOf("await fetchMediaToTempFile(mediaUrl,"));
     expect(ig).toContain("storeMediaReuse(cacheKey, rec.filePath, linkName, { ttlMs: SOCIAL_REUSE_TTL_MS })");
     expect(ig).toContain("Marqué déjà en cache (5 h)");
     expect(ig).toContain('${l.cached ? "⚡ " : ""}${l.url}');

@@ -4,6 +4,8 @@ import { getConfig } from "../config.js";
 import { extractTikTokMedia } from "../services/tiktokExtractor.js";
 import { getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
+import { createProgressReporter, type ProgressSendFn } from "../services/progressMessenger.js";
+import { resolveLiveSocket } from "../liveSocket.js";
 import {
   tiktokReuseKey,
   lookupMediaReuse,
@@ -127,7 +129,28 @@ const tiktokCommand: BotCommand = {
         } catch {}
       }
       if (!ttCacheNote) {
-        const local = await fetchMediaToTempFile(videoUrl);
+        // 9.18hhhh — tableau de bord LIVE DIFFÉRÉ : la plupart des TikTok
+        // tombent en < 4 s (aucun message) ; les lents montrent la barre.
+        const sendTtProgress: ProgressSendFn = async (text: string, editKey?: unknown) => {
+          const target = resolveLiveSocket(sock);
+          if (!target) throw new Error("no live socket");
+          return await target.sendMessage(
+            msg.key.remoteJid!,
+            editKey ? { text, edit: editKey as any } : { text },
+            { quoted: msg }
+          );
+        };
+        const ttProgress = createProgressReporter({
+          send: sendTtProgress,
+          title: `🎵 TikTok — ${safeTitle}`,
+          initialPhaseLabel: "Téléchargement",
+          firstSendDelayMs: 4000
+        });
+        const local = await fetchMediaToTempFile(videoUrl, (received, total) => {
+          const pct = total > 0 ? Math.min(100, (received / total) * 100) : null;
+          ttProgress.update({ percent: pct, bytesDone: received });
+        });
+        await ttProgress.finish();
         if (local) {
           const rec = registerMediaLink(local, ttFilename);
           if (rec) {

@@ -54,6 +54,8 @@ import { createBatchJob, updateEpisodeProgress, updateJobStatus } from "../batch
 import { acquireDiskClaim, availableForNewClaims } from "../diskClaims.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 import { downloadHlsAppLevel, resolveVidmolyUrlset, isDeadFileSlug, markDeadFileSlug } from "../services/hlsDownloader.js";
+import { createProgressReporter, type ProgressSendFn } from "../services/progressMessenger.js";
+import { resolveLiveSocket } from "../liveSocket.js";
 import { probeVideoInfo, whatsappFitVideoOptions, runFfmpegKit } from "../services/mediaToolkit.js";
 import { slimEffectiveTargetMB, slimEtaMinutes, slimTargetMB, slimTriggerBytes } from "../services/videoSlim.js";
 import { registerSlimOffer, slimOfferLine } from "../services/slimOffer.js";
@@ -2613,7 +2615,8 @@ async function executeFfmpegDownload(
   downloadSourceUrl: string,
   originUrl: string,
   localPath: string,
-  timeoutMs: number = 25000
+  timeoutMs: number = 25000,
+  onProgress?: (percent: number, bytesDone?: number) => void
 ): Promise<boolean> {
   // SSRF through downloader: never hand an unvalidated URL to a subprocess.
   if (!(await isPublicFetchTarget(targetHlsUrl, "downloader input"))) {
@@ -2634,7 +2637,9 @@ async function executeFfmpegDownload(
   try {
     console.log(`[NOVABOX_FFMPEG] Starting primary Cat-Catch style downloader for: ${targetHlsUrl}`);
     // Use an elevated timeout for full HLS segment downloads (default to 4 minutes)
-    const success = await downloadHlsAppLevel(targetHlsUrl, localPath, headers, 240000);
+    const success = await downloadHlsAppLevel(targetHlsUrl, localPath, headers, 240000, (pct, detail) => {
+      if (onProgress) onProgress(pct, detail?.bytesDone);
+    });
     if (success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
       console.log(`[NOVABOX_FFMPEG] Primary Cat-Catch style downloader succeeded! Size: ${fs.statSync(localPath).size} bytes`);
       return true;
@@ -2767,7 +2772,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       );
     }
     await context.react("⏳");
-    await context.reply(
+    const batchAnchor = await context.reply(
       `📦 *Nebula Novabox - Batch Media Preparation* 🚀\n\n` +
       `🎬 *Anime:* ${session.animeTitle}\n` +
       `🗣️ *Language:* ${lang}\n` +
@@ -2776,6 +2781,26 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       `📦 *Episodes to Process:* ${indices.length} episodes\n\n` +
       `⏳ _Preparing direct episode links... Please wait a moment._`
     );
+
+    // 9.18hhhh — ce message devient le tableau de bord LIVE du lot :
+    // épisodes traités, barre globale, temps restant — édité sur place
+    // (re-ancré au pire 1 fois / 13 min pour un très long lot).
+    const sendBatchProgress: ProgressSendFn = async (text: string, editKey?: unknown) => {
+      const target = resolveLiveSocket(sock);
+      if (!target) throw new Error("no live socket");
+      return await target.sendMessage(
+        msg.key.remoteJid!,
+        editKey ? { text, edit: editKey as any } : { text },
+        { quoted: msg }
+      );
+    };
+    const batchProgress = createProgressReporter({
+      send: sendBatchProgress,
+      anchorKey: (batchAnchor as any)?.key,
+      title: `📦 ${session.animeTitle} — ${session.selectedSeason?.name || formattedSeason} (${indices.length} épisodes)`,
+      initialPhaseLabel: "Téléchargement des épisodes"
+    });
+    batchProgress.startBatch(indices.length);
 
     // Create tracked batch job for live status component
     const batchJob = createBatchJob({
@@ -2927,6 +2952,21 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
       updateEpisodeProgress(batchJob.id, epNum, { status: "downloading", progressPercent: 35 });
 
+      // 9.18hhhh — progression RÉELLE de cet épisode (les 35 % figés étaient
+      // un plâtre) : remonte au tableau de bord LIVE du lot ET au panneau
+      // (throttle ±10 % pour le store, l'édition WhatsApp a son propre
+      // throttle côté reporter).
+      let lastPanelPct = -10;
+      const onBatchEpProgress = (pct: number) => {
+        batchProgress.updateBatchItem(epNum, pct / 100, `ÉP ${epNum}`);
+        if (pct - lastPanelPct >= 10 || pct >= 100) {
+          lastPanelPct = pct;
+          try {
+            updateEpisodeProgress(batchJob.id, epNum, { progressPercent: Math.min(99, Math.floor(pct)) });
+          } catch {}
+        }
+      };
+
       try {
         // Collect mirror URLs for this episode (session language first, audit 8.3)
         const { primary: batchPrimary, secondary: batchSecondary } = splitMirrorsByLanguage(
@@ -2940,7 +2980,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         for (const tier of [batchPrimary, batchSecondary]) {
           if (success || tier.length === 0) continue;
           try {
-            const fallbackResult = await downloadWithAllMirrorsFallback(tier, resolution, localPath, 240000);
+            const fallbackResult = await downloadWithAllMirrorsFallback(tier, resolution, localPath, 240000, onBatchEpProgress);
             if (fallbackResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
               success = true;
             }
@@ -2965,7 +3005,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
               }
             }
 
-            success = await executeFfmpegDownload(targetHlsUrl, downloadSourceUrl, originUrl, localPath, 240000);
+            success = await executeFfmpegDownload(targetHlsUrl, downloadSourceUrl, originUrl, localPath, 240000, onBatchEpProgress);
             if (!success) markDeadFileSlug(targetHlsUrl);
           }
         }
@@ -3104,6 +3144,9 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         const currentIdx = nextEpisodeIdx++;
         const episodeWorkT0 = Date.now(); // 9.18dddd P1 : chrono par épisode
         await processEpisodeTask(currentIdx);
+        // 9.18hhhh — l'épisode est TRAITÉ (livré, caché, différéré ou échoué :
+        // l'avancement global du lot avance dans tous les cas, honnêtement).
+        batchProgress.completeBatchItem(indices[currentIdx] + 1);
         const episodeWorkMs = Date.now() - episodeWorkT0;
         gcBetweenEpisodes();
         // 8.50 OOM hardening: heavy batches (~120 MB/episode) pushed RSS into
@@ -3125,6 +3168,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
     const workers = Array.from({ length: Math.min(CONCURRENCY_LIMIT, indices.length) }, () => worker());
     await Promise.all(workers);
+    // 9.18hhhh — clôture du tableau de bord LIVE du lot avant le récapitulatif.
+    await batchProgress.finish(
+      `*📦 ${session.animeTitle} — ${session.selectedSeason?.name || formattedSeason}*\n✅ Lot traité — préparation des liens et du récapitulatif…`
+    );
     // Episodes never claimed by a worker = deferred by the memory guard (an
     // episode claimed and failed is NOT deferred — it is reported as failed).
     const memoryDeferredCount = memoryStop ? indices.length - nextEpisodeIdx : 0;
@@ -3418,13 +3465,35 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
 
   // React to let the user know we are downloading the video
   await context.react("⏳");
-  await context.reply(
+  const singleAnchor = await context.reply(
     `📥 *Nebula Novabox* - _Direct Media Preparation_\n\n` +
     `🎬 *Anime:* ${session.animeTitle}\n` +
     `🎞️ *Episode:* Episode ${epNum}\n` +
     `⚙️ *Resolution:* ${resolution}\n\n` +
     `⏳ _Downloading and packing stream segments into MP4... This will take about 10-25 seconds._`
   );
+
+  // 9.18hhhh — ce message devient le tableau de bord LIVE : barre, vitesse,
+  // Mo et temps restant, édité sur place (jamais de nouveau message par
+  // étape). Une édition échouée ne touche JAMAIS le téléchargement.
+  const sendProgress: ProgressSendFn = async (text: string, editKey?: unknown) => {
+    const target = resolveLiveSocket(sock);
+    if (!target) throw new Error("no live socket");
+    return await target.sendMessage(
+      msg.key.remoteJid!,
+      editKey ? { text, edit: editKey as any } : { text },
+      { quoted: msg }
+    );
+  };
+  const progress = createProgressReporter({
+    send: sendProgress,
+    anchorKey: (singleAnchor as any)?.key,
+    title: `📥 ${session.animeTitle} — ÉP ${epNum} (${resolution})`,
+    initialPhaseLabel: "Téléchargement direct"
+  });
+  const onDlProgress = (pct: number, bytesDone?: number) => {
+    progress.update({ percent: pct, bytesDone });
+  };
 
   let localPath = path.join(os.tmpdir(), filename);
   let compressedPath = "";
@@ -3465,7 +3534,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   // Multi-mirror fallback if direct selected variant failed or wasn't pre-selected
   if (!downloadSuccess && langPrimaryMirrors.length > 0) {
     console.log(`[NOVABOX] Multi-mirror download (${session.selectedLanguage || "VOSTFR"} lists first): ${langPrimaryMirrors.length} mirrors...`);
-    const fallbackResult = await downloadWithAllMirrorsFallback(langPrimaryMirrors, resolution, localPath, 240000);
+    const fallbackResult = await downloadWithAllMirrorsFallback(langPrimaryMirrors, resolution, localPath, 240000, onDlProgress);
     if (fallbackResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
       downloadSuccess = true;
       if (fallbackResult.hostName) activePlayerName = fallbackResult.hostName;
@@ -3474,7 +3543,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   }
   if (!downloadSuccess && mirrorUrls.length > 0) {
     console.log(`[NOVABOX] Retrying with the other language mirrors (${mirrorUrls.length})...`);
-    const fallbackResult = await downloadWithAllMirrorsFallback(mirrorUrls, resolution, localPath, 240000);
+    const fallbackResult = await downloadWithAllMirrorsFallback(mirrorUrls, resolution, localPath, 240000, onDlProgress);
     if (fallbackResult.success && fs.existsSync(localPath) && fs.statSync(localPath).size > 1000) {
       downloadSuccess = true;
       if (fallbackResult.hostName) activePlayerName = fallbackResult.hostName;
@@ -3555,6 +3624,19 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       }
     }
   } catch {}
+
+  // 9.18hhhh — clôture du tableau de bord LIVE : réussite avec la taille
+  // réelle, ou honnêteté sur l'échec (la barre ne reste JAMAIS figée).
+  if (downloadSuccess && fs.existsSync(localPath)) {
+    const doneSingleMB = fs.statSync(localPath).size / 1e6;
+    await progress.finish(
+      `*📥 ${session.animeTitle} — ÉP ${epNum}*\n✅ Téléchargement terminé (${doneSingleMB.toFixed(1).replace(".", ",")} Mo) — préparation de l'envoi…`
+    );
+  } else {
+    await progress.finish(
+      `*📥 ${session.animeTitle} — ÉP ${epNum}*\n⚠️ Téléchargement direct indisponible — je prépare une solution de repli…`
+    );
+  }
 
   // 8.69: mono-source strict — the cross-source fallback is GONE. The
   // delivered language is the requested one, period.

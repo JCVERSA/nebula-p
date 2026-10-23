@@ -1163,7 +1163,8 @@ export async function downloadWithAllMirrorsFallback(
   mirrorUrls: string[],
   preferredRes: string,
   outputPath: string,
-  timeoutMs: number = 240000
+  timeoutMs: number = 240000,
+  onProgress?: (percent: number, bytesDone?: number) => void
 ): Promise<{ success: boolean; hostName: string; usedUrl: string }> {
   if (!mirrorUrls || mirrorUrls.length === 0) {
     return { success: false, hostName: "None", usedUrl: "" };
@@ -1201,7 +1202,7 @@ export async function downloadWithAllMirrorsFallback(
       }
 
       console.log(`[MIRROR_FALLBACK] Attempting download with host "${targetStream.hostName}" on URL: ${targetStream.url}`);
-      const dlSuccess = await executeDirectOrFfmpegDownload(targetStream, outputPath, timeoutMs);
+      const dlSuccess = await executeDirectOrFfmpegDownload(targetStream, outputPath, timeoutMs, onProgress);
 
       if (dlSuccess && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
         console.log(`[MIRROR_FALLBACK] Mirror ${targetStream.hostName} succeeded! Size: ${fs.statSync(outputPath).size} bytes`);
@@ -1310,7 +1311,8 @@ export const HLS_FFMPEG_PROTOCOL_WHITELIST = "file,crypto,data,https,http,tcp,tl
 export async function executeDirectOrFfmpegDownload(
   stream: { url: string; type?: string; headers?: Record<string, string> },
   outputPath: string,
-  timeoutMs: number = 40000
+  timeoutMs: number = 40000,
+  onProgress?: (percent: number, bytesDone?: number) => void
 ): Promise<boolean> {
   try {
     if (!stream.url) return false;
@@ -1373,7 +1375,9 @@ export async function executeDirectOrFfmpegDownload(
     try {
       console.log(`[STREAM_EXTRACTOR] Launching primary Cat-Catch style HLS downloader for: ${stream.url}`);
       // Give the application-level downloader a comfortable timeout (e.g. 4 minutes)
-      const catCatchSuccess = await downloadHlsAppLevel(stream.url, outputPath, headers, 240000);
+      const catCatchSuccess = await downloadHlsAppLevel(stream.url, outputPath, headers, 240000, (pct, detail) => {
+        if (onProgress) onProgress(pct, detail?.bytesDone);
+      });
       if (catCatchSuccess && fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
         console.log(`[STREAM_EXTRACTOR] Primary Cat-Catch HLS download succeeded! Output size: ${fs.statSync(outputPath).size} bytes`);
         return true;

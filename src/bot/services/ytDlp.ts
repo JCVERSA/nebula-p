@@ -26,6 +26,7 @@
 
 import { spawn } from "child_process";
 import { trackSpawn } from "./spawnRegistry.js";
+import { parseYtDlpProgressLine } from "./progressMessenger.js";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -83,7 +84,8 @@ function resolveYtDlp(): string | null {
 export function runYtDlp(
   args: string[],
   timeoutMs = 120000,
-  maxStdoutChars = 16000
+  maxStdoutChars = 16000,
+  onStderrLine?: (line: string) => void
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise(resolve => {
     const bin = resolveYtDlp();
@@ -93,13 +95,26 @@ export function runYtDlp(
     }
     let stdout = "";
     let stderr = "";
+    let stderrTailBuf = ""; // 9.18hhhh : lignes complètes pour le callback
     try {
       const p = trackSpawn(spawn(bin, args)); // PAS de shell — args transmis tels quels
       p.stdout.on("data", (d: Buffer) => {
         if (stdout.length < maxStdoutChars) stdout += d.toString();
       });
       p.stderr.on("data", (d: Buffer) => {
-        if (stderr.length < 16000) stderr += d.toString();
+        const chunk = d.toString();
+        if (stderr.length < 16000) stderr += chunk;
+        if (onStderrLine) {
+          stderrTailBuf += chunk;
+          const lines = stderrTailBuf.split("\n");
+          stderrTailBuf = lines.pop() || "";
+          for (const line of lines) {
+            const t = line.trim();
+            if (t) {
+              try { onStderrLine(t); } catch {}
+            }
+          }
+        }
       });
       p.on("error", err => resolve({ ok: false, stdout, stderr: String(err) }));
       const timer = setTimeout(() => {
@@ -362,7 +377,12 @@ export async function ytvViaYtDlp(
   rawInput: string,
   quality: string,
   maxBytes: number,
-  opts: { audioLang?: string; subs?: { lang: string; auto: boolean } | null } = {}
+  opts: {
+    audioLang?: string;
+    subs?: { lang: string; auto: boolean } | null;
+    /** 9.18hhhh — avancement réel yt-dlp (lignes [download] N% of X at Y ETA Z). */
+    onProgress?: (sample: { percent: number; bytesTotal: number | null; speedBps: number | null; etaSeconds: number | null }) => void;
+  } = {}
 ): Promise<YtDlpVideoOutcome> {
   const url = canonicalYoutubeUrl(rawInput);
   if (!url) return { ok: false, reason: "no_id" };
@@ -384,7 +404,11 @@ export async function ytvViaYtDlp(
       // en tête de préférence quand elle existe.
       "-f", ytvFormatSpecWithAudio(q, opts.audioLang),
       "--merge-output-format", "mp4",
-      "--no-playlist", "--no-warnings", "--no-progress",
+      "--no-playlist", "--no-warnings",
+      // 9.18hhhh : avec un consommateur de progression on laisse yt-dlp
+      // écrire ses lignes [download] (une par mise à jour grâce à --newline)
+      // au lieu de les étouffer — elles alimentent le tableau de bord LIVE.
+      opts.onProgress ? "--newline" : "--no-progress",
       // 8.86b : --print implique --simulate — voir ytmViaYtDlp ci-dessus.
       "--no-simulate",
       // 8.87 : runtime JS — voir ytmViaYtDlp ci-dessus.
@@ -400,7 +424,14 @@ export async function ytvViaYtDlp(
       "-o", `${outBase}.%(ext)s`,
       url
     ];
-    let r = await runYtDlp(buildArgs(false), 180000);
+    // 9.18hhhh — les lignes [download] de yt-dlp alimentent le tableau de bord.
+    const onLine = (line: string) => {
+      const sample = parseYtDlpProgressLine(line);
+      if (sample && opts.onProgress) {
+        try { opts.onProgress(sample); } catch {}
+      }
+    };
+    let r = await runYtDlp(buildArgs(false), 180000, 16000, opts.onProgress ? onLine : undefined);
     // 9.6 : mur d'authentification → UN seul retry avec les cookies,
     // dans la limite du budget global (50/h, tous utilisateurs).
     if (!r.ok && SIGNIN_RE.test(r.stderr) && cookies) {
@@ -409,7 +440,7 @@ export async function ytvViaYtDlp(
         return { ok: false, reason: "session_quota" };
       }
       cookieDownloads.push(Date.now());
-      r = await runYtDlp(buildArgs(true), 180000);
+      r = await runYtDlp(buildArgs(true), 180000, 16000, opts.onProgress ? onLine : undefined);
     }
     // Refus de taille : yt-dlp peut sortir en erreur OU en code 0 (skip) —
     // on examine le message AVANT le code de sortie.

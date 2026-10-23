@@ -9,6 +9,8 @@ import { createBatchJob, updateEpisodeProgress, updateJobStatus, completeBatchJo
 import { buildDownloadPage, registerDownloadPage } from "../services/downloadPage.js";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { lookupMediaReuse, storeMediaReuse, ytvReuseKey } from "../services/mediaReuseStore.js";
+import { createProgressReporter, type ProgressSendFn } from "../services/progressMessenger.js";
+import { resolveLiveSocket } from "../liveSocket.js";
 import { BatchZipManager } from "../services/batchZipManager.js";
 
 /**
@@ -216,10 +218,29 @@ async function executePlaylistDownload(
   const truncated = probe.entryIds.length > MAX_PLAYLIST_VIDEOS;
   const ids = probe.entryIds.slice(0, MAX_PLAYLIST_VIDEOS);
   const title = probe.playlistTitle || "Playlist YouTube";
-  await context.reply(
+  const playlistAnchor = await context.reply(
     `📋 *Playlist « ${title} »* — ${ids.length} vidéos${truncated ? ` _(playlist de ${probe.playlistCount} — max ${MAX_PLAYLIST_VIDEOS})_` : ""}\n` +
     `⏳ Téléchargement en cours — je t'envoie une page de liens à la fin.`
   );
+
+  // 9.18hhhh — ce message devient le tableau de bord LIVE de la playlist
+  // (vidéos traitées, barre globale, temps restant — édité sur place).
+  const sendPlaylistProgress: ProgressSendFn = async (text: string, editKey?: unknown) => {
+    const target = resolveLiveSocket(sock);
+    if (!target) throw new Error("no live socket");
+    return await target.sendMessage(
+      chatId!,
+      editKey ? { text, edit: editKey as any } : { text },
+      { quoted: msg }
+    );
+  };
+  const playlistProgress = createProgressReporter({
+    send: sendPlaylistProgress,
+    anchorKey: (playlistAnchor as any)?.key,
+    title: `📋 ${title} (${ids.length} vidéos)`,
+    initialPhaseLabel: "Téléchargement des vidéos"
+  });
+  playlistProgress.startBatch(ids.length);
 
   // Job visible dans le dashboard (même machinerie que les batches animé).
   const batchJob = createBatchJob({
@@ -251,7 +272,10 @@ async function executePlaylistDownload(
           continue;
         } catch {} // quota de records → téléchargement normal
       }
-      const local = await ytvViaYtDlp(url, quality, SLIM_SOURCE_CEILING, { audioLang });
+      const local = await ytvViaYtDlp(url, quality, SLIM_SOURCE_CEILING, {
+        audioLang,
+        onProgress: (s) => playlistProgress.updateBatchItem(n, s.percent / 100, `Vidéo ${n}`)
+      });
       if (!local.ok) {
         failed.push(n);
         updateEpisodeProgress(batchJob.id, n, { status: "failed", progressPercent: 0, error: local.reason || "failed" });
@@ -281,8 +305,15 @@ async function executePlaylistDownload(
     } catch (err: any) {
       failed.push(n);
       updateEpisodeProgress(batchJob.id, n, { status: "failed", progressPercent: 0, error: err?.message || "error" });
+    } finally {
+      // 9.18hhhh — la vidéo est TRAITÉE (livrée, cachée ou échouée) :
+      // l'avancement global de la playlist avance dans tous les cas.
+      playlistProgress.completeBatchItem(n);
     }
   }
+  await playlistProgress.finish(
+    `*📋 ${title}*\n✅ ${links.length}/${ids.length} vidéos prêtes — préparation de la page de liens…`
+  );
 
   if (links.length === 0) {
     updateJobStatus(batchJob.id, "failed", "Toutes les vidéos ont échoué");
@@ -556,11 +587,34 @@ const ytvideoCommand: BotCommand = {
 
       let downloadUrl: string | null = null;
       let finalTitle = videoTitle;
+      // 9.18hhhh — tableau de bord LIVE DIFFÉRÉ : le premier message
+      // n'apparaît qu'après 4 s de téléchargement (une vidéo courte n'en
+      // laisse AUCUN — règle « pas de barre éclair »), puis s'édite sur place.
+      const sendVideoProgress: ProgressSendFn = async (text: string, editKey?: unknown) => {
+        const target = resolveLiveSocket(sock);
+        if (!target) throw new Error("no live socket");
+        return await target.sendMessage(
+          msg.key.remoteJid!,
+          editKey ? { text, edit: editKey as any } : { text },
+          { quoted: msg }
+        );
+      };
+      const videoProgress = createProgressReporter({
+        send: sendVideoProgress,
+        title: `📺 ${videoTitle} (${quality}p)`,
+        initialPhaseLabel: "Téléchargement",
+        firstSendDelayMs: 4000
+      });
+
       // 8.86 : yt-dlp LOCAL en premier recours (API tierces mortes en prod,
       // cf. src/bot/services/ytDlp.ts). URL canonisée en interne.
       if (!reusedHit) try {
         console.log(`[YTV] Trying yt-dlp (local, ${quality}p)...`);
-        const local = await ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING, { audioLang, subs });
+        const local = await ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING, {
+          audioLang,
+          subs,
+          onProgress: (s) => videoProgress.update({ percent: s.percent, bytesDone: null })
+        });
         if (local.ok) {
           videoPath = local.filePath;
           if (local.title) finalTitle = local.title;
@@ -597,7 +651,19 @@ const ytvideoCommand: BotCommand = {
 
       let mediaUrl = videoPath || downloadUrl;
       if (!mediaUrl) {
+        videoProgress.abort();
         return void (await context.reply("❌ Impossible de télécharger cette vidéo — toutes les sources ont échoué.\n🔄 Réessaie dans un instant."));
+      }
+
+      // 9.18hhhh — clôture du tableau de bord (taille réelle quand le
+      // fichier est local).
+      if (videoPath && fs.existsSync(videoPath)) {
+        const ytDoneMB = fs.statSync(videoPath).size / 1e6;
+        await videoProgress.finish(
+          `*📺 ${videoTitle}*\n✅ Téléchargement terminé (${ytDoneMB.toFixed(1).replace(".", ",")} Mo) — préparation de l'envoi…`
+        );
+      } else {
+        await videoProgress.finish();
       }
 
       // 9.7→ccc : amincissement DOUX même résolution (CRF 22, plus de cible

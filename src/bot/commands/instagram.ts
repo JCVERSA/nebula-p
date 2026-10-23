@@ -9,6 +9,8 @@ import {
 } from "../services/mediaReuseStore.js";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
+import { createProgressReporter, type ProgressSendFn } from "../services/progressMessenger.js";
+import { resolveLiveSocket } from "../liveSocket.js";
 
 /**
  * `.instagram` — portage natif de l'original neb (media/instagram.js, owner
@@ -142,6 +144,27 @@ const instagramCommand: BotCommand = {
       const collectedLinks: Array<{ url: string; cached: boolean }> = [];
       // 9.18s : nom lisible — reel_<shortcode> (au lieu d'instagram_<timestamp>).
       const shortcode = instagramShortcode(text) || `${Date.now()}`;
+
+      // 9.18hhhh — tableau de bord LIVE DIFFÉRÉ du carrousel/reel : le
+      // premier message n'apparaît qu'après 4 s (règle « pas de barre
+      // éclair »), puis s'édite sur place, média par média.
+      const sendIgProgress: ProgressSendFn = async (igText: string, editKey?: unknown) => {
+        const target = resolveLiveSocket(sock);
+        if (!target) throw new Error("no live socket");
+        return await target.sendMessage(
+          chatId,
+          editKey ? { text: igText, edit: editKey as any } : { text: igText },
+          { quoted: msg }
+        );
+      };
+      const igProgress = createProgressReporter({
+        send: sendIgProgress,
+        title: `📸 Instagram — ${shortcode}${mediaToDownload.length > 1 ? ` (${mediaToDownload.length} médias)` : ""}`,
+        initialPhaseLabel: "Téléchargement",
+        firstSendDelayMs: 4000
+      });
+      if (mediaToDownload.length > 1) igProgress.startBatch(mediaToDownload.length);
+
       for (let i = 0; i < mediaToDownload.length; i++) {
         try {
           const media = mediaToDownload[i];
@@ -172,7 +195,15 @@ const instagramCommand: BotCommand = {
             } catch {}
           }
           if (!servedFromCache) {
-            const local = await fetchMediaToTempFile(mediaUrl);
+            const mediaIndex = i + 1;
+            const local = await fetchMediaToTempFile(mediaUrl, (received, total) => {
+              const pct = total > 0 ? Math.min(100, (received / total) * 100) : null;
+              if (mediaToDownload.length > 1) {
+                igProgress.updateBatchItem(mediaIndex, pct !== null ? pct / 100 : 0, `Média ${mediaIndex}`);
+              } else {
+                igProgress.update({ percent: pct, bytesDone: received });
+              }
+            });
             if (local) {
               const rec = registerMediaLink(local, linkName);
               if (rec) {
@@ -205,8 +236,13 @@ const instagramCommand: BotCommand = {
           }
         } catch (mediaError) {
           console.error(`[IG] media ${i + 1} failed:`, mediaError);
+        } finally {
+          // 9.18hhhh — média TRAITÉ (envoyé, caché ou échoué) : la barre
+          // globale du carrousel avance dans tous les cas.
+          if (mediaToDownload.length > 1) igProgress.completeBatchItem(i + 1);
         }
       }
+      await igProgress.finish();
 
       // 9.18r : UN SEUL message avec tous les liens — fini les .up manuels
       // (retour terrain 14/10 : sept .up à la main pour sept reels).

@@ -458,7 +458,7 @@ describe("wiring 9.7", () => {
   it("ytvideo : plafond de téléchargement relevé + amincissement avant envoi", () => {
     const src = readSrc("src/bot/commands/ytvideo.ts");
     expect(src).toContain("SLIM_SOURCE_CEILING");
-    expect(src).toContain("ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING, { audioLang, subs })");
+    expect(src).toContain("ytvViaYtDlp(videoUrl, quality, SLIM_SOURCE_CEILING, {\n          audioLang,\n          subs,\n          onProgress:");
     expect(src).toContain("slimVideoIfNeeded(videoPath, { triggerBytes: MAX_VIDEO_BYTES })");
     expect(src).toContain("slimEtaMinutes"); // 9.18ccc : patience + ETA, douceur (plus de targetMB 92)
   });

@@ -38,7 +38,10 @@ export interface MediaLinkRecord {
  * tout problème (URL invalide, timeout, taille > plafond, disque) —
  * l'appelant retombe sur l'envoi distant.
  */
-export async function fetchMediaToTempFile(url: string): Promise<string | null> {
+export async function fetchMediaToTempFile(
+  url: string,
+  onProgress?: (receivedBytes: number, totalBytes: number) => void
+): Promise<string | null> {
   const target = String(url || "").trim();
   if (!/^https?:\/\//i.test(target)) return null;
   const ext = /\.(jpe?g|png|webp)(?:[?#]|$)/i.test(target)
@@ -60,6 +63,9 @@ export async function fetchMediaToTempFile(url: string): Promise<string | null> 
       const out = fs.createWriteStream(tmpPath);
       let received = 0;
       let settled = false;
+      // 9.18hhhh — total réel quand la source le donne (content-length).
+      const totalLen = Number(res.headers?.["content-length"]) || 0;
+      const totalBytes = Number.isFinite(totalLen) && totalLen > 0 ? totalLen : 0;
       const done = (err?: Error) => {
         if (settled) return;
         settled = true;
@@ -74,6 +80,9 @@ export async function fetchMediaToTempFile(url: string): Promise<string | null> 
       };
       res.data.on("data", (chunk: Buffer) => {
         received += chunk.length;
+        if (onProgress) {
+          try { onProgress(received, totalBytes); } catch {}
+        }
         if (received > MAX_MEDIA_BYTES) done(new Error("media exceeds size cap"));
       });
       res.data.on("error", done);

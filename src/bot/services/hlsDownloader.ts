@@ -573,7 +573,7 @@ export async function downloadHlsAppLevel(
   outputPath: string,
   headers: Record<string, string>,
   timeoutMs: number = 240000,
-  progressCallback?: (progress: number) => void
+  progressCallback?: (progress: number, detail?: { bytesDone: number; segmentsDone: number; segmentsTotal: number }) => void
 ): Promise<boolean> {
   const tempDir = path.join(os.tmpdir(), `cat_catch_${crypto.randomBytes(8).toString("hex")}`);
   try {
@@ -828,7 +828,11 @@ export async function downloadHlsAppLevel(
         downloadedCount++;
         if (progressCallback) {
           const pct = Math.floor((downloadedCount / segments.length) * 100);
-          progressCallback(pct);
+          progressCallback(pct, {
+            bytesDone: downloadedBytes,
+            segmentsDone: downloadedCount,
+            segmentsTotal: segments.length
+          });
         }
 
         runNext();
