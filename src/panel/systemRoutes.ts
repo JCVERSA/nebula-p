@@ -1,5 +1,6 @@
 import { execFile, spawn } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import type { Express } from "express";
 import { listDiskClaims } from "../bot/diskClaims.js";
@@ -30,6 +31,34 @@ import { listDiskClaims } from "../bot/diskClaims.js";
  */
 
 export type SystemAction = "update" | "restart" | "stop";
+
+// 9.18jjjj — état d'échantillonnage pour /api/system/metrics (deltas CPU
+// processus et débit réseau entre deux appels). État module : la vérité est
+// celle du processus panneau, partagée par toutes les instances de routes.
+let metricsLastCpu = process.cpuUsage();
+let metricsLastCpuAt = Date.now();
+let metricsLastNet: { rx: number; tx: number; at: number } | null = null;
+
+/** Octets cumulés rx/tx de toutes les interfaces (loopback exclu). Null si /proc absent. */
+function readProcNetDevBytes(): { rx: number; tx: number } | null {
+  try {
+    const lines = fs.readFileSync("/proc/net/dev", "utf-8").split("\n").slice(2);
+    let rx = 0;
+    let tx = 0;
+    for (const line of lines) {
+      const sep = line.indexOf(":");
+      if (sep < 0) continue;
+      if (line.slice(0, sep).trim() === "lo") continue;
+      const cols = line.slice(sep + 1).trim().split(/\s+/).map(Number);
+      if (cols.length < 16 || cols.some((n) => !Number.isFinite(n))) continue;
+      rx += cols[0];
+      tx += cols[8];
+    }
+    return { rx, tx };
+  } catch {
+    return null;
+  }
+}
 
 export interface SystemInfo {
   version: string;
@@ -253,6 +282,66 @@ export function registerSystemRoutes(app: Express, options: SystemRouteOptions =
     const parsed = Array.isArray(raw) ? Number(raw[0]) : Number(raw);
     const lines = Number.isFinite(parsed) ? parsed : 100;
     res.json({ lines: await actions.tailBotLog(lines) });
+  });
+
+  // 9.18jjjj (audit design v4 — onglet Système) : métriques RÉELLES.
+  // Le moniteur « diagnostics » affichait des données simulées (Math.random,
+  // PIDs codés en dur) présentées comme réelles — contraire au principe
+  // « jamais de chiffre inventé ». Ce endpoint expose les vraies mesures :
+  // processus Node (CPU en delta process.cpuUsage, RSS, heap V8), système
+  // (os.totalmem/freemem, loadavg, uptime) et réseau (/proc/net/dev, débit
+  // = delta des compteurs cumulés — Linux seulement, null sinon, jamais
+  // d'erreur 500).
+  app.get("/api/system/metrics", (_req, res) => {
+    const now = Date.now();
+    const cpu = process.cpuUsage();
+    const wallMs = Math.max(1, now - metricsLastCpuAt);
+    // % d'UN cœur (le VPS en a un) — peut dépasser 100 sur machine multi-cœurs.
+    const cpuPercent = Math.max(
+      0,
+      ((cpu.user - metricsLastCpu.user + (cpu.system - metricsLastCpu.system)) / (wallMs * 1000)) * 100,
+    );
+    metricsLastCpu = cpu;
+    metricsLastCpuAt = now;
+
+    const net = readProcNetDevBytes();
+    let network: { rxBps: number | null; txBps: number | null } = { rxBps: null, txBps: null };
+    if (net && metricsLastNet) {
+      const dt = Math.max(0.001, (now - metricsLastNet.at) / 1000);
+      network = {
+        rxBps: Math.max(0, (net.rx - metricsLastNet.rx) / dt),
+        txBps: Math.max(0, (net.tx - metricsLastNet.tx) / dt),
+      };
+    }
+    if (net) metricsLastNet = { rx: net.rx, tx: net.tx, at: now };
+
+    const mem = process.memoryUsage();
+    const totalMb = os.totalmem() / 1024 ** 2;
+    const freeMb = os.freemem() / 1024 ** 2;
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const load = os.loadavg();
+    res.json({
+      process: {
+        pid: process.pid,
+        cpuPercent: round1(cpuPercent),
+        rssMb: round1(mem.rss / 1024 ** 2),
+        heapUsedMb: round1(mem.heapUsed / 1024 ** 2),
+        heapTotalMb: round1(mem.heapTotal / 1024 ** 2),
+        uptimeSeconds: Math.floor(process.uptime()),
+        nodeVersion: process.version,
+      },
+      system: {
+        totalMb: Math.round(totalMb),
+        usedMb: Math.round(totalMb - freeMb),
+        usedPercent: totalMb > 0 ? round1(((totalMb - freeMb) / totalMb) * 100) : null,
+        loadAvg1: Number.isFinite(load[0]) ? round1(load[0]) : null,
+        loadAvg5: Number.isFinite(load[1]) ? round1(load[1]) : null,
+        uptimeSeconds: Math.floor(os.uptime()),
+        platform: `${os.type()} ${os.release()}`,
+        cores: os.cpus().length,
+      },
+      network,
+    });
   });
 
   const runAction = (action: SystemAction) => async (req: any, res: any) => {

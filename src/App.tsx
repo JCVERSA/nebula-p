@@ -1847,6 +1847,7 @@ export default function App() {
                       </div>
                       <a
                         href="/nebula-bot-latest.zip"
+                        download
                         className="shrink-0 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-md cursor-pointer"
                       >
                         <FileDown className="w-4 h-4" />

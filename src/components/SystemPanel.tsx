@@ -320,6 +320,18 @@ export default function SystemPanel() {
     return () => clearInterval(t);
   }, [refreshLogs, logsPaused, phase]);
 
+  // 9.18jjjj (audit design v4) : la modale pilote des actions destructrices
+  // (stop = extinction totale) — Escape = Annuler, comme toute boîte de
+  // dialogue natrice. Le focus démarre sur Annuler (choix sûr).
+  useEffect(() => {
+    if (!modal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setModal(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modal]);
+
   // ── Cycle de vie update : suivre jusqu'au retour du panneau ─────────────
   useEffect(() => {
     if (phase !== "updating") return;
@@ -406,9 +418,9 @@ export default function SystemPanel() {
   return (
     <div className="space-y-5 max-w-4xl" data-testid="system-panel">
       {/* ── État & version ─────────────────────────────────────────────── */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+      <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5">
         <div className="flex items-center gap-2 mb-4">
-          <Server size={18} className="text-sky-300" />
+          <Server size={18} className="text-amber-400" />
           <h3 className="text-sm font-semibold text-zinc-100">Système</h3>
           {updating && (
             <span className="ml-2 text-[11px] px-2 py-0.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300">
@@ -421,17 +433,17 @@ export default function SystemPanel() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
             <div>
-              <p className="text-zinc-500">Version</p>
+              <p className="text-zinc-400">Version</p>
               <p className="text-zinc-100 font-mono" data-testid="system-version">
                 {info?.version ?? "…"}
               </p>
             </div>
             <div>
-              <p className="text-zinc-500">Commit</p>
+              <p className="text-zinc-400">Commit</p>
               <p className="text-zinc-100 font-mono">{info?.commit ?? "…"}</p>
             </div>
             <div>
-              <p className="text-zinc-500">Build</p>
+              <p className="text-zinc-400">Build</p>
               <p
                 className={`font-mono ${
                   info?.buildCommit && info.buildCommit !== info.commit
@@ -444,11 +456,11 @@ export default function SystemPanel() {
               </p>
             </div>
             <div>
-              <p className="text-zinc-500">Branche</p>
+              <p className="text-zinc-400">Branche</p>
               <p className="text-zinc-100 font-mono">{info?.branch ?? "…"}</p>
             </div>
             <div>
-              <p className="text-zinc-500">Panneau up</p>
+              <p className="text-zinc-400">Panneau up</p>
               <p className="text-zinc-100 font-mono">
                 {info ? formatUptime(info.uptimeSeconds ?? 0) : "…"}
               </p>
@@ -468,9 +480,9 @@ export default function SystemPanel() {
       </div>
 
       {/* ── Actions ────────────────────────────────────────────────────── */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+      <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5">
         <h3 className="text-sm font-semibold text-zinc-100 mb-1">Actions</h3>
-        <p className="text-[11px] text-zinc-500 mb-4">
+        <p className="text-[11px] text-zinc-400 mb-4">
           La mise à jour tire la dernière version publiée sur GitHub (sync depuis ton PC d'abord).
         </p>
         <div className="flex flex-wrap gap-2">
@@ -542,12 +554,12 @@ export default function SystemPanel() {
       </div>
 
       {/* ── Configuration .env (9.3) ───────────────────────────────────── */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-5" data-testid="env-editor">
+      <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5" data-testid="env-editor">
         <div className="flex items-center gap-2 mb-1">
           <Settings2 size={16} className="text-zinc-300" />
           <h3 className="text-sm font-semibold text-zinc-100">Configuration (.env)</h3>
         </div>
-        <p className="text-[11px] text-zinc-500 mb-4">
+        <p className="text-[11px] text-zinc-400 mb-4">
           Les clés sont en écriture seule (masquées). La plupart des réglages s'appliquent après un
           redémarrage — le bouton Redémarrer est juste au-dessus.
         </p>
@@ -560,18 +572,18 @@ export default function SystemPanel() {
         )}
 
         {!envVars ? (
-          <p className="text-xs text-zinc-500">Chargement…</p>
+          <p className="text-xs text-zinc-400">Chargement…</p>
         ) : (
           (["quotas", "agent", "digest", "keys"] as const).map((group) => {
             const vars = envVars.filter((v) => v.group === group);
             if (!vars.length) return null;
             return (
               <div key={group} className="mb-4 last:mb-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 mb-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 mb-2">
                   {ENV_GROUP_META[group].title}
                 </p>
                 {ENV_GROUP_META[group].hint && (
-                  <p className="text-[11px] text-zinc-500 mb-2">{ENV_GROUP_META[group].hint}</p>
+                  <p className="text-[11px] text-zinc-400 mb-2">{ENV_GROUP_META[group].hint}</p>
                 )}
                 <div className="space-y-2">
                   {vars.map((v) => (
@@ -583,11 +595,11 @@ export default function SystemPanel() {
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-zinc-200 font-medium">
                           {v.label}{" "}
-                          {v.type === "secret" && <KeyRound size={11} className="inline text-zinc-500" />}
+                          {v.type === "secret" && <KeyRound size={11} className="inline text-zinc-400" />}
                         </p>
-                        <p className="text-[11px] text-zinc-500 truncate">{v.description}</p>
+                        <p className="text-[11px] text-zinc-400 truncate">{v.description}</p>
                         <p className="text-[11px] font-mono text-zinc-400 mt-0.5">
-                          {v.set ? v.value : <span className="text-zinc-500">(défaut{v.default ? ` : ${v.default}` : ""})</span>}
+                          {v.set ? v.value : <span className="text-zinc-400">(défaut{v.default ? ` : ${v.default}` : ""})</span>}
                         </p>
                       </div>
                       {envEditing === v.key ? (
@@ -596,19 +608,21 @@ export default function SystemPanel() {
                             type={v.type === "secret" ? "password" : "text"}
                             value={envDraft}
                             onChange={(e) => setEnvDraft(e.target.value)}
-                            placeholder={v.type === "secret" ? "colle la clé…" : v.default || ""}
-                            className="w-44 px-2 py-1 rounded-lg bg-black/40 border border-white/10 text-xs text-zinc-100 font-mono focus:outline-none focus:border-sky-500/50"
+                            aria-label={`Nouvelle valeur pour ${v.label}`}
+            placeholder={v.type === "secret" ? "colle la clé…" : v.default || ""}
+                            className="w-44 px-2 py-1 rounded-lg bg-black/40 border border-white/10 text-xs text-zinc-100 font-mono focus:outline-none focus:border-amber-400"
                             data-testid={`env-input-${v.key}`}
                           />
                           <button
                             onClick={() => saveEnvVar(v.key)}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-sky-500 hover:bg-sky-400 text-sky-950 transition cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-500 hover:bg-amber-400 text-black transition cursor-pointer"
                             data-testid={`env-save-${v.key}`}
                           >
                             OK
                           </button>
                           <button
                             onClick={() => { setEnvEditing(null); setEnvDraft(""); }}
+                            aria-label="Annuler la modification"
                             className="px-2 py-1 rounded-lg text-[11px] bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-400 transition cursor-pointer"
                           >
                             ✕
@@ -632,7 +646,7 @@ export default function SystemPanel() {
       </div>
 
       {/* ── Cookies YouTube (9.4) ───────────────────────────────────────── */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-5" data-testid="yt-cookies-card">
+      <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5" data-testid="yt-cookies-card">
         <div className="flex items-center gap-2 mb-1">
           <Cookie size={16} className="text-zinc-300" />
           <h3 className="text-sm font-semibold text-zinc-100">Cookies YouTube</h3>
@@ -642,7 +656,7 @@ export default function SystemPanel() {
             </span>
           )}
         </div>
-        <p className="text-[11px] text-zinc-500 mb-3">
+        <p className="text-[11px] text-zinc-400 mb-3">
           Débloque .ytv/.ytm quand YouTube exige une session. Sur ton PC : extension « Get cookies.txt
           LOCALLY » sur youtube.com connecté → Export → colle le contenu ci-dessous. Le contenu ne
           s'affiche jamais et n'est jamais renvoyé.
@@ -668,15 +682,16 @@ export default function SystemPanel() {
           value={ytContent}
           onChange={(e) => setYtContent(e.target.value)}
           rows={4}
+          aria-label="Contenu des cookies YouTube (format Netscape)"
           placeholder={"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t1893456000\tVISITOR_INFO1_LIVE\t…"}
-          className="w-full mb-2 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-[11px] font-mono text-zinc-200 focus:outline-none focus:border-sky-500/50"
+          className="w-full mb-2 px-3 py-2 rounded-xl bg-black/40 border border-white/10 text-[11px] font-mono text-zinc-200 focus:outline-none focus:border-amber-400"
           data-testid="yt-cookies-input"
         />
         <div className="flex flex-wrap gap-2">
           <button
             onClick={saveYtCookies}
             disabled={ytBusy || !ytContent.trim()}
-            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-sky-950 disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-40 disabled:cursor-not-allowed transition cursor-pointer"
             data-testid="yt-cookies-save"
           >
             Enregistrer les cookies
@@ -700,7 +715,7 @@ export default function SystemPanel() {
       </div>
 
       {/* ── Journal en direct ──────────────────────────────────────────── */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+      <div className="bg-[#0b0b0c] border border-white/10 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-zinc-100">Journal (bot.log)</h3>
           <div className="flex items-center gap-1.5">
@@ -735,7 +750,9 @@ export default function SystemPanel() {
         </div>
         <pre
           data-testid="system-log"
-          className="text-[11px] leading-relaxed font-mono text-zinc-400 bg-black/40 border border-white/5 rounded-xl p-3 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-all"
+          role="log"
+          aria-label="Journal du bot (100 dernières lignes)"
+          className="text-[11px] leading-relaxed font-mono text-zinc-400 bg-black/40 border border-white/5 rounded-xl p-3 overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-words"
         >
           {logs || "— aucune ligne —"}
         </pre>
@@ -747,13 +764,19 @@ export default function SystemPanel() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
           data-testid="system-modal"
         >
-          <div className="bg-zinc-900 border border-white/10 rounded-2xl p-6 max-w-md w-full">
-            <h4 className="text-sm font-semibold text-zinc-100 mb-2">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="system-modal-title"
+            className="bg-[#0e0e11] border border-white/10 rounded-2xl p-6 max-w-md w-full"
+          >
+            <h4 id="system-modal-title" className="text-sm font-semibold text-zinc-100 mb-2">
               {ACTION_META[modal].title} — confirmer ?
             </h4>
             <p className="text-xs text-zinc-400 leading-relaxed mb-5">{ACTION_META[modal].desc}</p>
             <div className="flex justify-end gap-2">
               <button
+                autoFocus
                 onClick={() => setModal(null)}
                 className="px-3.5 py-2 rounded-xl text-xs font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 transition cursor-pointer"
               >

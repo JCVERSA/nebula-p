@@ -81,6 +81,31 @@ describe("GET /api/system/logs", () => {
   });
 });
 
+describe("GET /api/system/metrics (9.18jjjj — vraies mesures, plus de simulacre)", () => {
+  it("expose processus + système + réseau sans jamais 500", async () => {
+    const res = await request(buildApp()).get("/api/system/metrics").expect(200);
+    expect(res.body.process.pid).toBeGreaterThan(0);
+    expect(res.body.process.rssMb).toBeGreaterThanOrEqual(0);
+    expect(res.body.process.heapUsedMb).toBeLessThanOrEqual(res.body.process.heapTotalMb);
+    expect(res.body.system.totalMb).toBeGreaterThan(0);
+    expect(res.body.system.usedMb).toBeLessThanOrEqual(res.body.system.totalMb);
+    // Réseau : null (premier échantillon) ou débit >= 0 — jamais négatif.
+    expect(res.body.network.rxBps === null || res.body.network.rxBps >= 0).toBe(true);
+    expect(res.body.network.txBps === null || res.body.network.txBps >= 0).toBe(true);
+  });
+
+  it("deux appels → deltas CPU finis et compteurs cohérents", async () => {
+    await request(buildApp()).get("/api/system/metrics");
+    const res = await request(buildApp()).get("/api/system/metrics").expect(200);
+    expect(Number.isFinite(res.body.process.cpuPercent)).toBe(true);
+    expect(res.body.process.cpuPercent).toBeGreaterThanOrEqual(0);
+    expect(res.body.process.uptimeSeconds).toBeGreaterThanOrEqual(0);
+    expect(res.body.system.loadAvg1 === null || res.body.system.loadAvg1 >= 0).toBe(true);
+    expect(res.body.system.cores).toBeGreaterThan(0);
+    expect(typeof res.body.process.nodeVersion).toBe("string");
+  });
+});
+
 describe("POST /api/system/update — lancement détaché + verrou", () => {
   it("lance le script (marqueur créé) et répond started", async () => {
     writeFakeManageSh();

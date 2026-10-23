@@ -112,3 +112,59 @@ describe("9.18iiii — audit design v3 (simulateur) : D9-D12", () => {
     expect(css).toContain("scrollbar-color: #64748b transparent");
   });
 });
+
+/**
+ * 9.18jjjj — audit design v4 (onglet Système) : normalisations D13-D16.
+ *
+ * D13 : DIAGNOSTICS RÉELS — le moniteur affichait des données simulées
+ *       (Math.random, PIDs 4110/4112/4119 codés en dur, « Speed Test
+ *       Burst », « RAM Cache Flush » factices). Désormais il pole
+ *       /api/system/metrics et ce qui n'est pas mesuré s'affiche « — ».
+ * D14 : SystemPanel unifié sur la palette D1 (#0b0b0c, plus de cartes
+ *       bg-white/5) et l'accent ambre (plus de sky, identité D8).
+ * D15 : la modale destructive (stop = extinction) est un vrai dialogue :
+ *       role/aria-modal/aria-labelledby, Escape = Annuler, focus initial
+ *       sur Annuler. Labels accessibles sur les champs du simulateur système.
+ * D16 : le gradient from-[#141416] (hex banni D1, échappé via le préfixe
+ *       from-) est parti — le garde-fou couvre désormais tout préfixe.
+ */
+describe("9.18jjjj — audit design v4 (onglet Système) : D13-D16", () => {
+  const panel = read("src/components/SystemPanel.tsx");
+  const diag = read("src/components/SystemDiagnostics.tsx");
+  const routes = read("src/panel/systemRoutes.ts");
+
+  it("D13 : diagnostics réels — plus de simulacre, polling de vraies mesures", () => {
+    expect(diag).not.toContain("Math.random("); // appel reel — le commentaire historique est autorise
+    expect(diag).not.toContain("PID 4110");
+    expect(diag).not.toContain("handleSpeedTest"); // action factice retiree
+    expect(diag).not.toContain("handleFlushMemory"); // action factice retiree
+    expect(diag).toContain("/api/system/metrics");
+    expect(routes).toContain('"/api/system/metrics"');
+    // Ce qui n'est pas mesuré s'affiche « — », jamais un 0 inventé.
+    expect(diag).toContain(': "—"');
+  });
+
+  it("D14 : SystemPanel dans la palette D1 + accent ambre (plus de sky, plus de bg-white/5)", () => {
+    expect(panel).toContain("bg-[#0b0b0c] border border-white/10 rounded-2xl");
+    expect(panel).not.toContain("bg-white/5 border border-white/10");
+    expect(panel).not.toContain("sky-");
+    expect(panel).not.toContain("text-zinc-500");
+  });
+
+  it("D15 : modale destructive accessible + labels des champs", () => {
+    expect(panel).toContain('role="dialog"');
+    expect(panel).toContain('aria-modal="true"');
+    expect(panel).toContain('aria-labelledby="system-modal-title"');
+    expect(panel).toContain('e.key === "Escape"');
+    expect(panel).toContain("autoFocus");
+    expect(panel).toContain('aria-label={`Nouvelle valeur pour'); // template literal
+    expect(panel).toContain('role="log"');
+  });
+
+  it("D16 : aucun hex banni D1, quel que soit le préfixe (bg-, from-, to-…)", () => {
+    for (const hex of ["#0a0a0c", "#141416", "#18181b", "#1c1c1e", "#0b1216", "#0d1420", "#0e0e10"]) {
+      expect(diag, `${hex} dans SystemDiagnostics`).not.toContain(`[${hex}]`);
+      expect(panel, `${hex} dans SystemPanel`).not.toContain(`[${hex}]`);
+    }
+  });
+});
