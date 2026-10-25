@@ -120,6 +120,9 @@ describe("nimClient — chat completions", () => {
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("not found for this key");
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("NEBULA_NIM_MODEL");
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("nvidia/nemotron-3-super-120b-a12b");
+    // 9.18rrrr : le diagnostic du problème compte connu (permission manquante)
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("Public API Endpoints");
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("NEBULA_AI_PRIMARY=gemini");
   });
 
   it("surfaces a truthful error (HTTP status) on non-transient failures", async () => {

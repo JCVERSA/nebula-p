@@ -136,11 +136,19 @@ export async function nimChat(
     );
   }
   if (status === 404) {
-    // 9.18qqqq (terrain 25/10 : 404 après rotation de clé) — le modèle
-    // n'existe pas pour CETTE clé : même remède que 410, en le disant.
+    // 9.18rrrr (terrain 25/10 : 404/403 avec des clés et modèles VALIDES) —
+    // problème NVIDIA connu 2026 : les comptes personnels sans permission
+    // « Public API Endpoints » voient /v1/models marcher mais TOUT
+    // /chat/completions échouer (403 Authorization failed ou 404 Function
+    // not found for account). Pas de correctif auto-service : demander
+    // l'activation sur les forums développeurs NVIDIA. En attendant, basculer
+    // le primaire sur Gemini pour ne plus payer ce rebond mort.
     throw new Error(
       `NVIDIA NIM error (HTTP 404): model "${getNimModel()}" not found for this key — ` +
-        `check NEBULA_NIM_MODEL (exact id from build.nvidia.com) and NVIDIA_NIM_API_KEY`
+        `check NEBULA_NIM_MODEL (exact id from build.nvidia.com). If EVERY model fails ` +
+        `(while GET /v1/models works), the account lacks the "Public API Endpoints" ` +
+        `permission (known NVIDIA 2026 issue — request activation on the NVIDIA developer ` +
+        `forums); meanwhile set NEBULA_AI_PRIMARY=gemini`
     );
   }
   throw new Error(status ? `NVIDIA NIM error (HTTP ${status}): ${detail}` : `NVIDIA NIM error: ${detail}`);
