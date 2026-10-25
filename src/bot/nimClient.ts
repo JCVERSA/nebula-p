@@ -17,10 +17,13 @@ import axios from "axios";
 const NIM_BASE_URL = "https://integrate.api.nvidia.com/v1";
 // 8.71: NVIDIA rotates hosted models and returns HTTP 410 Gone for retired
 // ones. meta/llama-3.3-70b-instruct (the previous default) was retired on
-// 2026-08-25 — production evidence: every NIM call answered 410. Current
-// replacement (September 2026): nvidia/nemotron-3-super-120b-a12b. Override
-// anytime with NEBULA_NIM_MODEL — copy the exact id from build.nvidia.com.
-export const NIM_DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b";
+// 2026-08-25 — production evidence: every NIM call answered 410. Then
+// nemotron-3-super-120b-a12b (September 2026) started answering 404 on the
+// production account (25/10) while the key was valid. Terrain verification
+// (curl 25/10, owner VPS): nvidia/nemotron-3-ultra-550b-a55b answers 200 —
+// promoted to default. Override anytime with NEBULA_NIM_MODEL — copy the
+// exact id from build.nvidia.com.
+export const NIM_DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 
 const NIM_PLACEHOLDERS = new Set(["", "MY_NVIDIA_API_KEY", "YOUR_API_KEY_HERE", "nvapi-xxx"]);
 

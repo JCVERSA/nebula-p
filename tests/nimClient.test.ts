@@ -55,7 +55,7 @@ describe("nimClient — configuration", () => {
   });
 
   it("default model is the current NVIDIA catalog entry, overridable via NEBULA_NIM_MODEL (8.71)", () => {
-    expect(NIM_DEFAULT_MODEL).toBe("nvidia/nemotron-3-super-120b-a12b");
+    expect(NIM_DEFAULT_MODEL).toBe("nvidia/nemotron-3-ultra-550b-a55b");
     expect(getNimModel()).toBe(NIM_DEFAULT_MODEL);
     process.env.NEBULA_NIM_MODEL = "qwen/qwen3-235b-a22b";
     expect(getNimModel()).toBe("qwen/qwen3-235b-a22b");
@@ -84,7 +84,7 @@ describe("nimClient — chat completions", () => {
     expect(capture).toHaveLength(1);
     expect(capture[0].url).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
     expect(capture[0].config.headers.Authorization).toBe("Bearer nvapi-test-key-123456789");
-    expect(capture[0].body.model).toBe("nvidia/nemotron-3-super-120b-a12b");
+    expect(capture[0].body.model).toBe("nvidia/nemotron-3-ultra-550b-a55b");
     expect(capture[0].body.messages).toEqual([
       { role: "system", content: "Tu es Nebula." },
       { role: "user", content: "Salut" }
@@ -109,7 +109,7 @@ describe("nimClient — chat completions", () => {
     const post = async () => { throw err; };
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("was retired by NVIDIA");
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("NEBULA_NIM_MODEL");
-    await expect(nimChat("q", undefined, { post })).rejects.toThrow("nvidia/nemotron-3-super-120b-a12b");
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("nvidia/nemotron-3-ultra-550b-a55b");
   });
 
   it("404 nomme le modèle et le remède clé/modèle (9.18qqqq, terrain 25/10)", async () => {
@@ -119,7 +119,7 @@ describe("nimClient — chat completions", () => {
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("HTTP 404");
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("not found for this key");
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("NEBULA_NIM_MODEL");
-    await expect(nimChat("q", undefined, { post })).rejects.toThrow("nvidia/nemotron-3-super-120b-a12b");
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("nvidia/nemotron-3-ultra-550b-a55b");
     // 9.18rrrr : le diagnostic du problème compte connu (permission manquante)
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("Public API Endpoints");
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("NEBULA_AI_PRIMARY=gemini");
