@@ -53,6 +53,8 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["yts", "Recherche YouTube (liens)"],
       ["tiktok", "TikTok sans watermark"],
       ["instagram", "Instagram photo / vidéo / reel"],
+      ["dl", "Facebook / X / Pinterest / Reddit… (générique)"],
+      ["dla", "Audio seul d'un lien (SoundCloud, YouTube…)"],
     ],
   },
   {
@@ -66,23 +68,51 @@ export const MENU_SECTIONS: MenuSection[] = [
     ],
   },
   {
+    emoji: "👥",
+    title: "GROUPE (ADMIN)",
+    entries: [
+      ["kick", "Expulser un membre (reply ou @mention)"],
+      ["promote", "Promouvoir admin"],
+      ["demote", "Retirer le rôle admin"],
+      ["warn", "Avertir (3e = expulsion auto)"],
+      ["mute", "Réserver le groupe aux admins"],
+      ["unmute", "Réouvrir le groupe à tous"],
+      ["tagall", "Mentionner tous les membres"],
+      ["hidetag", "Annonce à mentions invisibles"],
+      ["del", "Supprimer un message (reply)"],
+      ["grouplink", "Lien d’invitation (reset = owner)"],
+      ["groupinfo", "Fiche du groupe"],
+      ["welcome", "Message d’accueil automatique"],
+      ["goodbye", "Message de départ automatique"],
+    ],
+  },
+  {
     emoji: "🔧",
     title: "TOOLS & UTILITY",
     entries: [
       ["sweb", "Capture d'écran d'un site web"],
       ["up", "Lien temporaire (2 h) pour un fichier (ou en reply)"],
+      ["s", "Image / vidéo → sticker WhatsApp"],
+      ["take", "Reprends un sticker reçu (pack Nebula)"],
+      ["vv", "Révèle un média à consultation unique (reply)"],
       ["qr", "Génère un QR code"],
       ["base64", "Encode / décode (Base64, hex, binaire…)"],
       ["getpp", "Photo de profil"],
       ["whois", "Profil d'un membre du groupe"],
       ["purge", "Purge de l'espace disque (owner)"],
       ["remind", "Rappel programmé (ex: .remind 18h texte)"],
+      ["lyrics", "Paroles d'une chanson (seul après .ytm, ou .lyrics <titre>)"],
     ],
   },
   {
     emoji: "📊",
     title: "GENERAL",
-    entries: [["ping", "Vitesse et latence"], ["menu", "Cette liste (alias .cmds)"], ["help", "Aide détaillée par commande"]],
+    entries: [
+      ["ping", "Vitesse et latence"],
+      ["poll", "Sondage natif (.poll Question | choix 1 | choix 2)"],
+      ["menu", "Cette liste (alias .cmds)"],
+      ["help", "Aide détaillée par commande"],
+    ],
   },
 ];
 
@@ -164,6 +194,39 @@ const menuCommand: BotCommand = {
         known.add(cmd.name.toLowerCase());
         for (const a of cmd.aliases || []) known.add(a.toLowerCase());
       }
+
+      // 9.18oooo (quick win) — .menu <mot-clé> : filtre les sections. 50
+      // commandes = menu long ; un mot-clé ne renvoie que les entrées qui
+      // correspondent (nom, description ou titre de section, sans accents).
+      const filterArg = (context.args || []).join(" ").trim();
+      if (filterArg) {
+        const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        const needle = norm(filterArg);
+        const hits: string[] = [];
+        for (const s of MENU_SECTIONS) {
+          const lines: string[] = [];
+          for (const [key, desc] of s.entries) {
+            if (!known.has(key.toLowerCase())) continue; // honnêteté : commande inconnue ignorée
+            if (norm(key).includes(needle) || norm(desc || "").includes(needle) || norm(s.title).includes(needle)) {
+              lines.push(c(p, key, desc));
+            }
+          }
+          if (lines.length) hits.push(section(s.emoji, s.title, lines));
+        }
+        if (hits.length === 0) {
+          return void (await context.reply(
+            `🔍 Aucune commande ne correspond à « ${filterArg} ».\n\`${p}menu\` sans filtre pour tout afficher.`,
+          ));
+        }
+        await sock.sendMessage(
+          msg.key.remoteJid!,
+          { text: `╭─「 🔎 *MENU · ${filterArg.toUpperCase().slice(0, 30)}* 」\n\n${hits.join("\n\n")}\n\n> 🌌 *${bn}* │ _\`${p}menu\` pour tout afficher_` },
+          { quoted: msg },
+        );
+        console.log(`[Menu] Filtered "${filterArg}" (${hits.length} section(s)) in ${Date.now() - startTime}ms`);
+        return;
+      }
+
       const rendered: string[] = [];
       for (const s of MENU_SECTIONS) {
         const lines: string[] = [];

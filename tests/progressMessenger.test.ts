@@ -444,3 +444,37 @@ describe("progressMessenger — wiring pins (9.18hhhh)", () => {
     expect(env).toContain("NEBULA_PROGRESS_DISABLED");
   });
 });
+
+// 9.18kkkk — retour terrain : la progression live n'apparaissait pas sur le
+// flux « .a r N » (choix de qualité). Cause : les DEUX chemins principaux de
+// sendFinalEpisode (selectedVariantUrl direct + fallback legacy VidMoly)
+// téléchargeaient SANS passer onDlProgress — seul progress.finish() éditait
+// le message, jamais la barre. Ces pins garantissent que CHAQUE appel de
+// téléchargement de novabox passe un callback de progression.
+describe("progressMessenger — pins anti-régression kkkk (tout appel de téléchargement est câblé)", () => {
+  const read = (p: string) => fs.readFileSync(path.resolve(__dirname, "../src/bot", p), "utf8");
+
+  it("sendFinalEpisode : les deux chemins réparés passent onDlProgress", () => {
+    const novabox = read("commands/novabox.ts");
+    expect(novabox).toContain(
+      "executeDirectOrFfmpegDownload(streamToDownload, localPath, 240000, onDlProgress)",
+    );
+    expect(novabox).toContain(
+      "executeFfmpegDownload(targetHlsUrl, downloadSourceUrl, originUrl, localPath, 240000, onDlProgress)",
+    );
+  });
+
+  it("AUCUN appel de téléchargement novabox sans callback de progression", () => {
+    const novabox = read("commands/novabox.ts");
+    const callRegex = /await (executeDirectOrFfmpegDownload|executeFfmpegDownload|downloadWithAllMirrorsFallback)\(/g;
+    const lines = novabox.split("\n");
+    const offenders: string[] = [];
+    for (const line of lines) {
+      callRegex.lastIndex = 0;
+      if (!callRegex.test(line)) continue;
+      // Import et définitions exclus ; chaque APPEL doit câbler la progression.
+      if (!/on(Dl|BatchEp)Progress/.test(line)) offenders.push(line.trim());
+    }
+    expect(offenders, `Appels sans progression : ${JSON.stringify(offenders)}`).toEqual([]);
+  });
+});

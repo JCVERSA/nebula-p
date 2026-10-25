@@ -35,7 +35,7 @@ import {
   protectApiRoutes,
   registerProjectArchiveRoute,
 } from "./src/panel/httpMiddleware.js";
-import { getTempDownload, touchTempDownload, updateServerBaseUrl, cleanupExpiredZipFiles, getTempStorageStats } from "./src/bot/tempDownloadManager.js";
+import { getTempDownload, touchTempDownload, updateServerBaseUrl, cleanupExpiredZipFiles, getTempStorageStats, getServerBaseUrl } from "./src/bot/tempDownloadManager.js";
 import { getGroupPolicy, setGroupPolicy, listGroupPolicies } from "./src/bot/groupAccessStore.js";
 import { DEFAULT_GROUP_POLICY } from "./src/bot/accessControl.js";
 import { getAuditEvents, clearAudit, recordAudit } from "./src/bot/auditTrail.js";
@@ -1933,6 +1933,78 @@ The \`.env\` file contains a placeholder API key. Set your real \`GEMINI_API_KEY
 
     // Increment download counter
     record.downloadCount = (record.downloadCount || 0) + 1;
+
+    // 9.18oooo (quick win) — aperçu de lien WhatsApp (OpenGraph) : les
+    // navigations navigateur et les robots d'aperçu reçoivent une PAGE DE
+    // GARDE avec balises OG (titre, taille, vignette) au lieu d'un fichier
+    // brut que WhatsApp ne sait pas présenter. TOUT le reste continue de
+    // recevoir le fichier inchangé : Range (lecteurs vidéo), HEAD (sondes de
+    // la page épisodes), ?inline=true (page hébergée ffff), ?dl=1 (bouton de
+    // la page), iframes (Sec-Fetch-Dest: iframe — téléchargements groupés de
+    // la page épisodes) et clients sans Accept: text/html (curl, axios,
+    // Baileys, fetch blob du dashboard).
+    const acceptHeader = String(req.headers.accept || "");
+    const secFetchDest = req.headers["sec-fetch-dest"];
+    const wantsLandingPage =
+      req.method === "GET" &&
+      !req.headers.range &&
+      req.query.inline !== "true" &&
+      req.query.dl === undefined && // ?dl=1 (bouton de la page) → fichier brut
+      acceptHeader.includes("text/html") &&
+      (secFetchDest === undefined || String(secFetchDest) === "document");
+    if (wantsLandingPage) {
+      const escapeHtmlAttr = (v: string) =>
+        String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      const fname = escapeHtmlAttr(record.filename);
+      const sizeMB = (record.sizeBytes / 1048576).toFixed(1).replace(".", ",");
+      const isVideo = String(record.mimeType || "").startsWith("video/");
+      const base = getServerBaseUrl();
+      const baseForRaw = getServerBaseUrl();
+      const rawUrl = `${baseForRaw || req.baseUrl || ""}/api/media/download/${token}`;
+      const ogImage = base ? `${base}/apple-touch-icon.png` : "";
+      const ogVideoTags = isVideo
+        ? `<meta property="og:video" content="${escapeHtmlAttr(`${rawUrl}?inline=true`)}">\n` +
+          `<meta property="og:video:secure_url" content="${escapeHtmlAttr(`${rawUrl}?inline=true`)}">\n` +
+          `<meta property="og:video:type" content="${escapeHtmlAttr(record.mimeType || "video/mp4")}">\n`
+        : "";
+      const playBtn = isVideo
+        ? `<a class="ghost" href="?inline=true">▶️ Lire dans le navigateur</a>`
+        : "";
+      return res.status(200).setHeader("Content-Type", "text/html; charset=utf-8").send(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${fname} — Nebula</title>
+  <meta property="og:title" content="${fname}">
+  <meta property="og:description" content="${sizeMB} Mo · lien temporaire Nebula — télécharge-le avant expiration.">
+  <meta property="og:site_name" content="Nebula">
+  ${ogVideoTags}<meta property="og:type" content="website">
+  ${ogImage ? `<meta property="og:image" content="${escapeHtmlAttr(ogImage)}">\n  <meta name="twitter:card" content="summary">` : ""}
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b1011; color: #f4f7f4; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; }
+    .card { background: #142022; border: 1px solid #263737; border-radius: 14px; padding: 36px; max-width: 520px; width: 100%; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+    .icon { font-size: 44px; margin-bottom: 8px; }
+    h1 { color: #a2e3cb; font-size: 20px; word-break: break-all; margin: 0 0 6px; }
+    .meta { color: #b0bcb8; font-size: 14px; margin-bottom: 26px; }
+    a.btn, a.ghost { display: block; box-sizing: border-box; width: 100%; padding: 14px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 16px; margin-top: 10px; }
+    a.btn { background: #a2e3cb; color: #0b1011; }
+    a.ghost { background: transparent; border: 1px solid #263737; color: #b0bcb8; }
+    .badge { display: inline-block; margin-top: 22px; background: #1d2b2d; color: #b0bcb8; padding: 5px 14px; border-radius: 9999px; font-size: 12px; font-family: monospace; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${isVideo ? "🎬" : "📦"}</div>
+    <h1>${fname}</h1>
+    <p class="meta">${sizeMB} Mo · lien temporaire</p>
+    <a class="btn" href="?dl=1">⬇️ Télécharger</a>
+    ${playBtn}
+    <span class="badge">Nebula Secure Media Engine</span>
+  </div>
+</body>
+</html>`);
+    }
 
     const filePath = record.filePath;
     let fileSize = record.sizeBytes;

@@ -12,6 +12,7 @@ import {
   SOCIAL_REUSE_TTL_MS
 } from "../services/mediaReuseStore.js";
 import { activeCookiesFile, ytmViaYtDlp } from "../services/ytDlp.js";
+import { rememberLastTrack } from "../services/lastTrackStore.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
 
 /**
@@ -166,6 +167,8 @@ const songCommand: BotCommand = {
               `🔗 *Lien :* ${rec.downloadUrl}\n` +
               `⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_`
             );
+            // 9.18nnnn (P2) : .lyrics sans argument reprend cette chanson.
+            rememberLastTrack(String(chatId), videoTitle);
             return;
           }
         } catch {}
@@ -258,6 +261,8 @@ const songCommand: BotCommand = {
           ptt: false,
           fileName: `${safeName}.m4a`
         }, { quoted: msg });
+        // 9.18nnnn (P2) : .lyrics sans argument reprend cette chanson.
+        rememberLastTrack(String(chatId), videoTitle);
         if (songLink) {
           await context.reply(`🔗 *Lien :* ${songLink}\n⏳ _Valable ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)_`);
         }
@@ -269,6 +274,8 @@ const songCommand: BotCommand = {
           ptt: false,
           fileName: `${safeName}.m4a`
         }, { quoted: msg });
+        // 9.18nnnn (P2) : .lyrics sans argument reprend cette chanson.
+        rememberLastTrack(String(chatId), videoTitle);
       }
     } catch (err: any) {
       console.error("[SONG] Fatal:", err?.message || err);

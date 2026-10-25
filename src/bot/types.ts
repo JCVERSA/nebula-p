@@ -40,12 +40,28 @@ export interface BotCommand {
   usage?: string;
   aliases?: string[];
   /**
+   * 9.18oooo (quick win) — exemples concrets pour la carte `.help <cmd>`
+   * (chaque entrée est tapable telle quelle, préfixe compris).
+   */
+  examples?: string[];
+  /**
    * 9.3b — la commande attend des URLs dans ses arguments (ytv, sweb,
    * fetch, tiktok, instagram…). Le guardrail d'args de l'agent (8.99)
    * supprime les URLs par défaut ; si cette propriété est vraie, les
    * tokens URL sont préservés (cap dédié 500 chars).
    */
   acceptsUrlArgs?: boolean;
+  /**
+   * 9.18mmmm — capability tags pris en charge par le RoleGuard (accessControl) :
+   * ownerOnly (owner Nebula), adminOnly (admins du groupe + owner),
+   * groupOnly / privateOnly (type de chat — vérifiés AUSSI au runtime par
+   * chaque commande : défense en profondeur, le RoleGuard ne connaît pas le
+   * type de chat au moment de l'appel).
+   */
+  ownerOnly?: boolean;
+  adminOnly?: boolean;
+  groupOnly?: boolean;
+  privateOnly?: boolean;
   execute: (sock: any, msg: any, context: BotCommandContext) => Promise<void> | void;
 }
 

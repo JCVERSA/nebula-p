@@ -18,6 +18,8 @@ const DISPLAY_KEY_FOR: Record<string, string> = {
   ytlink: "yts",
   anime: "a",
   w: "w",
+  sticker: "s",
+  viewonce: "vv",
 };
 
 describe("menu style Na (8.60)", () => {

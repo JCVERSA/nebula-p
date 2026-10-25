@@ -19,6 +19,17 @@ import getppCommand from "./commands/getpp.js";
 import whoisCommand from "./commands/whois.js";
 import purgeCommand from "./commands/purge.js";
 import agentCommand from "./commands/agent.js";
+import stickerCommand from "./commands/sticker.js";
+import takeCommand from "./commands/take.js";
+import viewonceCommand from "./commands/viewonce.js";
+import dlCommand, { dlaCommand } from "./commands/dl.js";
+import { kickCommand, promoteCommand, demoteCommand } from "./commands/groupModeration.js";
+import { muteCommand, unmuteCommand, grouplinkCommand, groupinfoCommand } from "./commands/groupSettings.js";
+import { tagallCommand, hidetagCommand, delCommand } from "./commands/groupAnnounce.js";
+import { welcomeCommand, goodbyeCommand } from "./commands/groupWelcome.js";
+import warnCommand from "./commands/warn.js";
+import lyricsCommand from "./commands/lyrics.js";
+import pollCommand from "./commands/poll.js";
 import traceCommand from "./commands/trace.js";
 import menuCommand from "./commands/menu.js";
 import aiCommand from "./commands/ai.js";
@@ -80,7 +91,7 @@ const commandsMap = new Map<string, BotCommand>();
 // recharger, échouait en prod (Node ne parse pas les .ts) et affichait
 // « ⚠️ Commande non chargée : voiceMode.ts » à chaque démarrage alors que
 // .on/.off fonctionnaient parfaitement (31 commandes enregistrées).
-const BUILTIN_SOURCE_FILE_EXCEPTIONS = new Set(["novabox", "watch", "voicemode"]);
+const BUILTIN_SOURCE_FILE_EXCEPTIONS = new Set(["novabox", "watch", "voicemode", "dl", "groupModeration", "groupSettings", "groupAnnounce", "groupWelcome"]);
 
 /** Commands loaded from disk (name -> module), kept in memory between reloads. */
 const diskCommandCache = new Map<string, BotCommand>();
@@ -125,6 +136,26 @@ function getBuiltinCommands(): BotCommand[] {
     traceCommand,
     purgeCommand,
     agentCommand,
+    stickerCommand,
+    takeCommand,
+    viewonceCommand,
+    dlCommand,
+    dlaCommand,
+    kickCommand,
+    promoteCommand,
+    demoteCommand,
+    muteCommand,
+    unmuteCommand,
+    grouplinkCommand,
+    groupinfoCommand,
+    tagallCommand,
+    hidetagCommand,
+    delCommand,
+    welcomeCommand,
+    goodbyeCommand,
+    warnCommand,
+    lyricsCommand,
+    pollCommand,
   ];
 }
 

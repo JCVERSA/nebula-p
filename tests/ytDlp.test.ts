@@ -515,10 +515,10 @@ describe("wiring 9.10 (ytvideo)", () => {
 
   it("fiche agent : la ligne .ytv documente playlists + piste audio + sous-titres (8.42)", () => {
     const src = readSrc("src/bot/commandKnowledge.ts");
-    expect(src).toContain("playlist → \\`<lien> playlist\\`");
-    expect(src).toContain("piste audio → \\`vo\\`");
+    expect(src).toContain("playlist → \\`playlist\\`");
+    expect(src).toContain("audio → \\`vo\\`/\\`fr\\`/\\`ja\\`");
     expect(src).toContain("sous-titres FR auto");
-    expect(src).toContain("la vidéo ou la playlist YouTube Z"); // intention naturelle
+    expect(src).toContain("la vidéo YouTube Z"); // intention naturelle (9.18mmmm : compressé, wiki dédoublonné)
   });
 });
 

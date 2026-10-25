@@ -48,6 +48,7 @@ import {
 import { dispatchBotCommand, type DispatchInfo } from "./commandDispatch.js";
 import { handleAgentMessage, messageAddressesBot, type AgentMessageInfo, type AgentExecutor } from "./services/agentRunner.js";
 import { handleIncomingCalls } from "./services/callGate.js";
+import { handleGroupParticipantsUpdate } from "./services/groupEvents.js";
 import { describeMessageMedia, extractQuotedText } from "./utils/quotedMedia.js";
 import { getRecentMessage, recordRecentMessage } from "./services/recentMessages.js";
 import { peekPendingConfirmation } from "./services/agentBrain.js";
@@ -490,7 +491,10 @@ export async function simulateMessage(senderName: string, text: string): Promise
   // Mock sock + msg so commands that send directly (hidetag, download) work too.
   const mockSock = createMockSocket({
     replyText: () => replyText,
-    setReply: (t) => { replyText = t; },
+    // 9.18mmmm : les commandes multi-messages (menu en 2-3 pages) doivent
+    // apparaître ENTIÈRES dans le playground — on concatène au lieu de
+    // remplacer (le dernier message seul masquait les sections précédentes).
+    setReply: (t) => { replyText = replyText ? `${replyText}\n\n${t}` : t; },
     setImageUrl: (u) => { replyImageUrl = u; },
     setEmoji: (e) => { reactionEmoji = e; },
   });
@@ -979,6 +983,12 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
     // 9.18jj (A) — décrochage honnête : rejet propre + guidage note vocale.
     sock.ev.on("call", (calls: any[]) => {
       void handleIncomingCalls(sock, calls, { prefix: getConfig().prefix || "." });
+    });
+
+    // 9.18mmmm — suite admin groupe : welcome/goodbye (désactivés par défaut).
+    // Le handler avale TOUTE erreur : un événement groupe ne tue jamais le moteur.
+    sock.ev.on("group-participants.update", async (update: any) => {
+      await handleGroupParticipantsUpdate(sock, update).catch(() => {});
     });
 
     sock.ev.on("messages.upsert", async (m: any) => {

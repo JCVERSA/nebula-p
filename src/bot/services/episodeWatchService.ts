@@ -92,6 +92,29 @@ export function formatWatchNotification(sub: WatchSubscription, newEpisodes: num
   );
 }
 
+/**
+ * 9.18oooo (quick win) — digest groupé : quand un même cycle de veille
+ * détecte des épisodes neufs sur PLUSIEURS animes d'un même chat, UN seul
+ * message récapitule tout au lieu de N messages d'affilée (anti-spam).
+ * Pur — testé.
+ */
+export function formatWatchDigest(items: Array<{ sub: WatchSubscription; fresh: number[] }>): string {
+  const lines = items.map(({ sub, fresh }) => {
+    const first = fresh[0]!;
+    const last = fresh[fresh.length - 1]!;
+    const range = first === last ? `${first}` : `${first}-${last}`;
+    return (
+      `🎬 *${sub.title}* (${sub.lang}) — 🆕 Ép. ${fmtEpList(fresh)}\n` +
+      `📥 \`.a ${sub.title} s1 ${range} r1\``
+    );
+  });
+  return (
+    `📢 *${items.length} animes ont de nouveaux épisodes !*\n\n` +
+    `${lines.join("\n\n")}\n\n` +
+    `🌌 _Nebula Bot · veille automatique (\`.a unwatch <titre>\` pour arrêter)_`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Storage
 // ---------------------------------------------------------------------------
@@ -235,6 +258,9 @@ export async function runWatchCycle(options: WatchCycleOptions): Promise<WatchCy
 
   const summary: WatchCycleSummary = { checked: 0, notified: 0, errors: 0, skippedQuiet: 0 };
   let dirty = false;
+  // 9.18oooo : les notifications du cycle sont GROUPÉES par chat — envoyées
+  // en fin de cycle (digest) au lieu d'arriver en rafale.
+  const pendingByChat = new Map<string, Array<{ sub: WatchSubscription; fresh: number[] }>>();
 
   for (const sub of subs) {
     if (isQuietHour(now, tz, quietRange)) {
@@ -248,10 +274,11 @@ export async function runWatchCycle(options: WatchCycleOptions): Promise<WatchCy
       dirty = true;
       const fresh = computeNewEpisodes(sub.lastSeenEp, numbers);
       if (fresh.length > 0) {
-        await options.send(sub.chatJid, formatWatchNotification(sub, fresh));
-        sub.lastSeenEp = fresh[fresh.length - 1]!;
-        sub.consecutiveErrors = 0;
-        summary.notified++;
+        const list = pendingByChat.get(sub.chatJid) || [];
+        list.push({ sub, fresh });
+        pendingByChat.set(sub.chatJid, list);
+        // lastSeenEp n'avance qu'APRÈS un envoi réussi (sémantique d'origine) :
+        // un échec d'envoi laisse l'épisode en attente pour le cycle suivant.
       }
       summary.checked++;
     } catch (err: any) {
@@ -260,6 +287,26 @@ export async function runWatchCycle(options: WatchCycleOptions): Promise<WatchCy
       dirty = true;
       summary.errors++;
       console.warn(`[WATCH] fetch failed for "${sub.title}" (${sub.consecutiveErrors}x): ${err?.message || err}`);
+    }
+  }
+
+  // Envoi groupé : 1 anime → format simple habituel ; plusieurs → digest.
+  for (const [chatJid, items] of pendingByChat) {
+    try {
+      const text =
+        items.length === 1
+          ? formatWatchNotification(items[0]!.sub, items[0]!.fresh)
+          : formatWatchDigest(items);
+      await options.send(chatJid, text);
+      for (const it of items) {
+        it.sub.lastSeenEp = it.fresh[it.fresh.length - 1]!;
+        it.sub.consecutiveErrors = 0;
+        summary.notified++;
+      }
+    } catch (err: any) {
+      // Échec d'envoi : lastSeenEp NON avancé → l'épisode sera re-notifié au
+      // prochain cycle (jamais perdu), les autres chats restent servis.
+      console.warn(`[WATCH] digest send failed for ${chatJid}: ${err?.message || err}`);
     }
   }
 

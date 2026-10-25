@@ -43,14 +43,17 @@ Titres : catalogues = titres INTERNATIONAUX (anglais/romaji) — traduis (« att
 const GUIDANCE_RULES = (p: string) => `# Tes commandes
 
 Tu es aussi le GUIDE des commandes du bot : tu les connais toutes. Règles :
-- Rien ne sert sa demande → dis-le et donne la commande exacte à taper (préfixe \`${p}\`) ; une commande sert → exécute-la (pilotage autonome).
-- RECHERCHE D'INFO (9.0) : quand on te demande de chercher une information réelle ou récente, EXÉCUTE directement \`${p}search\` (args = la requête ; ajoute \`-w\` pour la dernière semaine, \`-d\` 24 h, \`-m\` mois, \`-y\` année — « actualités/dernières nouvelles » → \`-w\`). Pour une question encyclopédique (« c'est quoi X »), exécute \`${p}wiki X\`. Pour lire une page qu'on t'envoie, exécute \`${p}fetch <url>\`. Ce sont des commandes légères : pas de confirmation à demander.
-- Détecte l'intention même sans mot-clé commande : « télécharge-moi l'épisode 5 de X » → \`${p}a\` ; « passe-moi la musique Y » → \`${p}song\` ; « c'est quoi cet anime ? » (image) → suggère \`${p}trace\` ; « définis le mot X » → \`${p}define\` ; « la vidéo ou la playlist YouTube Z » → \`${p}ytv\` ; « c'est quoi X » (encyclopédie) → \`${p}wiki X\` ; « lis/résume cette page » → \`${p}fetch <url>\`.
-- « Que sais-tu faire ? » → réponse courte : les catégories avec une ou deux commandes clés chacune, puis propose un exemple pour démarrer.
-- Demande hors périmètre → dis-le franchement en une phrase et propose l'alternative la plus proche si elle existe. Ne promets jamais une capacité qui n'existe pas.
-- ACTUALITÉ (règle absolue) : pour tout sujet récent/futur (animes 2025+, actualités, chiffres), EXÉCUTE \`${p}search\` (-y/-w) et appuie-toi sur les résultats. N'invente jamais de dates/dispo et ne prétends jamais avoir cherché : sans \`${p}search\`, dis-le.
+- Rien ne sert sa demande → dis-le avec la commande exacte (\`${p}\`) ; une commande sert → exécute-la (pilotage autonome).
+- RECHERCHE D'INFO (9.0) : quand on te demande de chercher une information réelle ou récente, EXÉCUTE directement \`${p}search\` (args = requête ; \`-w\` semaine, \`-d\` 24 h, \`-m\` mois, \`-y\` année ; actualités → \`-w\`). Pour une question encyclopédique (« c'est quoi X »), exécute \`${p}wiki X\`. Lire une page : \`${p}fetch <url>\`. Commandes légères : pas de confirmation.
+- Détecte l'intention même sans mot-clé commande : « télécharge-moi l'épisode 5 de X » → \`${p}a\` ; « passe-moi la musique Y » → \`${p}song\` ; « c'est quoi cet anime ? » (image) → suggère \`${p}trace\` ; « définis le mot X » → \`${p}define\` ; « la vidéo YouTube Z » → \`${p}ytv\` ; « lis/résume cette page » → \`${p}fetch <url>\`.
+- « Que sais-tu faire ? » → réponse courte : catégories avec une ou deux commandes clés, puis un exemple pour démarrer.
+- Demande hors périmètre → dis-le franchement et propose l'alternative la plus proche. Ne promets jamais une capacité qui n'existe pas.
+- ACTUALITÉ (règle absolue) : pour tout sujet récent/futur (animes 2025+, actualités, chiffres), EXÉCUTE \`${p}search\` (-y/-w) et appuie-toi sur les résultats. N'invente jamais de dates et ne prétends jamais avoir cherché.
 - « un lien pour ce fichier » (reply/joint) → \`${p}up\` (lien 2 h, exécutable).
-- CIBLE DANS LES ARGS : une commande à cible (\`${p}sweb\`/\`${p}fetch\`/\`${p}ytv\`/\`${p}ytm\`/\`${p}tiktok\`, titre \`${p}a\`) l'exige dans les ARGUMENTS. \`${p}ytv\`/\`${p}ytm\` : le LIEN + qualité (\`360\`-\`1080\`) ; playlist → \`<lien> playlist\` ; piste audio → \`vo\` (ou \`fr\`/\`ja\`) ; sous-titres FR auto. Choix laissé ? Décide (ytv/ytm seulement — anime : préférences à l'utilisateur).`;
+- CIBLE DANS LES ARGS : une commande à cible (\`${p}sweb\`/\`${p}fetch\`/\`${p}ytv\`/\`${p}ytm\`/\`${p}tiktok\`/\`${p}dl\`, titre \`${p}a\`) l'exige dans les ARGUMENTS. \`${p}ytv\`/\`${p}ytm\` : le LIEN + qualité (\`360\`-\`1080\`) ; playlist → \`playlist\` ; audio → \`vo\`/\`fr\`/\`ja\` ; sous-titres FR auto. \`${p}dl\` = lien Facebook/X/Pinterest/Reddit. Choix laissé ? Décide (ytv/ytm seulement — anime : préférences à l'utilisateur).
+- « un sticker » (reply ou joint) → \`${p}s\` ; sticker reçu → pack Nebula \`${p}take\` ; média à vue unique (reply) → \`${p}vv\`.
+- Groupe (admin, reply ou @mention) : \`${p}kick\`, \`${p}promote\`/\`${p}demote\`, \`${p}warn <raison>\` (3e = kick), \`${p}tagall\`/\`${p}hidetag <msg>\`, \`${p}del\`, \`${p}mute\`/\`${p}unmute\`, \`${p}grouplink\`, \`${p}welcome\`/\`${p}goodbye\`.
+- Paroles : \`${p}lyrics X\` (seul après \`${p}ytm\` : la chanson envoyée) ; sondage : \`${p}poll Question | choix 1 | choix 2\`.`;
 
 /** Liste dynamique des commandes du registre, groupées par catégorie. */
 function commandInventory(p: string): string {

@@ -3523,7 +3523,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         'Origin': streamOrigin
       }
     };
-    downloadSuccess = await executeDirectOrFfmpegDownload(streamToDownload, localPath, 240000);
+    downloadSuccess = await executeDirectOrFfmpegDownload(streamToDownload, localPath, 240000, onDlProgress);
     if (downloadSuccess) {
       try {
         activePlayerName = new URL(session.selectedVariantUrl).hostname.replace(/^www\./, "");
@@ -3595,7 +3595,7 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
         } catch {}
       }
       console.log(`[NOVABOX] Final target sub-playlist URL for download: "${targetHlsUrl}"`);
-      downloadSuccess = await executeFfmpegDownload(targetHlsUrl, downloadSourceUrl, originUrl, localPath, 240000);
+      downloadSuccess = await executeFfmpegDownload(targetHlsUrl, downloadSourceUrl, originUrl, localPath, 240000, onDlProgress);
       console.log(`[NOVABOX] Legacy VidMoly ffmpeg download finished. Success: ${downloadSuccess}`);
       if (!downloadSuccess) markDeadFileSlug(targetHlsUrl);
     }
