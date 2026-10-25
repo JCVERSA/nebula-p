@@ -135,5 +135,13 @@ export async function nimChat(
         `set NEBULA_NIM_MODEL to a current model from build.nvidia.com`
     );
   }
+  if (status === 404) {
+    // 9.18qqqq (terrain 25/10 : 404 après rotation de clé) — le modèle
+    // n'existe pas pour CETTE clé : même remède que 410, en le disant.
+    throw new Error(
+      `NVIDIA NIM error (HTTP 404): model "${getNimModel()}" not found for this key — ` +
+        `check NEBULA_NIM_MODEL (exact id from build.nvidia.com) and NVIDIA_NIM_API_KEY`
+    );
+  }
   throw new Error(status ? `NVIDIA NIM error (HTTP ${status}): ${detail}` : `NVIDIA NIM error: ${detail}`);
 }

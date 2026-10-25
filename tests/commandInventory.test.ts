@@ -173,3 +173,37 @@ describe("9.18mm — voiceMode.ts exempté du scan disque (warning prod erroné)
     }
   });
 });
+
+describe("9.18qqqq — fichiers multi-commandes groupe : aucun faux warning (bug casse terrain 25/10)", () => {
+  it("groupModeration/groupSettings/groupAnnounce/groupWelcome sur disque ne produisent AUCUN warning", async () => {
+    // Retour terrain 25/10 : « ⚠️ Commande non chargée : groupModeration.ts » ×4
+    // à chaque boot VPS alors que les 13 commandes étaient enregistrées (53).
+    // Cause : les entrées camelCase du set d'exceptions ne matchaient jamais
+    // le nom lowercased du scanner. Fix 9.18qqqq : normalisation lowercase.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "nebula-cmds-case-"));
+    // Noms EXACTS du disque prod (camelCase) + contenu sans default export,
+    // comme les vrais fichiers (exports nommés seulement).
+    fs.writeFileSync(path.join(tmp, "groupModeration.ts"), "export const kickCommand = null; export const promoteCommand = null;");
+    fs.writeFileSync(path.join(tmp, "groupSettings.ts"), "export const muteCommand = null;");
+    fs.writeFileSync(path.join(tmp, "groupAnnounce.ts"), "export const tagallCommand = null;");
+    fs.writeFileSync(path.join(tmp, "groupWelcome.ts"), "export const welcomeCommand = null;");
+    process.env.NEBULA_COMMANDS_DIR = tmp;
+    const warns: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => { warns.push(a.join(" ")); });
+    try {
+      await initRegistry();
+      expect(warns.some((w) => w.includes("groupModeration.ts"))).toBe(false);
+      expect(warns.some((w) => w.includes("groupSettings.ts"))).toBe(false);
+      expect(warns.some((w) => w.includes("groupAnnounce.ts"))).toBe(false);
+      expect(warns.some((w) => w.includes("groupWelcome.ts"))).toBe(false);
+      // Les commandes groupe restent enregistrées (built-ins statiques).
+      for (const name of ["kick", "promote", "demote", "mute", "unmute", "tagall", "hidetag", "del", "welcome", "goodbye", "warn"]) {
+        expect(getCommand(name), `commande ${name}`).toBeTruthy();
+      }
+    } finally {
+      spy.mockRestore();
+      delete process.env.NEBULA_COMMANDS_DIR;
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+    }
+  });
+});

@@ -91,7 +91,14 @@ const commandsMap = new Map<string, BotCommand>();
 // recharger, échouait en prod (Node ne parse pas les .ts) et affichait
 // « ⚠️ Commande non chargée : voiceMode.ts » à chaque démarrage alors que
 // .on/.off fonctionnaient parfaitement (31 commandes enregistrées).
-const BUILTIN_SOURCE_FILE_EXCEPTIONS = new Set(["novabox", "watch", "voicemode", "dl", "groupModeration", "groupSettings", "groupAnnounce", "groupWelcome"]);
+// 9.18qqqq (retour terrain 25/10) : les entrées doivent être en MINUSCULES —
+// le scanner compare `name` déjà lowercased ; « groupModeration » (camelCase,
+// faute 9.18mmmm) ne matchait jamais « groupmoderation » → 4 faux warnings
+// « Commande non chargée » à chaque boot VPS alors que les 13 commandes
+// fonctionnaient (53 enregistrées). Normalisation défensive : plus jamais.
+const BUILTIN_SOURCE_FILE_EXCEPTIONS = new Set(
+  ["novabox", "watch", "voicemode", "dl", "groupModeration", "groupSettings", "groupAnnounce", "groupWelcome"].map((f) => f.toLowerCase())
+);
 
 /** Commands loaded from disk (name -> module), kept in memory between reloads. */
 const diskCommandCache = new Map<string, BotCommand>();

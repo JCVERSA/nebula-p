@@ -112,6 +112,16 @@ describe("nimClient — chat completions", () => {
     await expect(nimChat("q", undefined, { post })).rejects.toThrow("nvidia/nemotron-3-super-120b-a12b");
   });
 
+  it("404 nomme le modèle et le remède clé/modèle (9.18qqqq, terrain 25/10)", async () => {
+    const err: any = new Error("Request failed with status code 404");
+    err.response = { status: 404 };
+    const post = async () => { throw err; };
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("HTTP 404");
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("not found for this key");
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("NEBULA_NIM_MODEL");
+    await expect(nimChat("q", undefined, { post })).rejects.toThrow("nvidia/nemotron-3-super-120b-a12b");
+  });
+
   it("surfaces a truthful error (HTTP status) on non-transient failures", async () => {
     const err: any = new Error("400");
     err.response = { status: 400, data: { error: { message: "invalid model" } } };
