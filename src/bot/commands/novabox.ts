@@ -1402,13 +1402,18 @@ const animeCommand: BotCommand = {
       const step = session.step;
       const fullArgStr = args.join(" ").toLowerCase();
       if (step === "select_anime") {
-        isStepAction = !isNaN(parseInt(firstArg)) || firstArg === "select" || firstArg === "s" || firstArg === "choice" || /^s?\d+$/i.test(firstArg);
+        // 9.18tttt (terrain 24/10) : un token d'ÉPISODE (e4/ep4) n'est JAMAIS
+        // un titre — il entre dans le handler pour y recevoir une guidance
+        // honnête au lieu de partir en recherche littérale « e4 ».
+        isStepAction = !isNaN(parseInt(firstArg)) || firstArg === "select" || firstArg === "s" || firstArg === "choice" || /^s?\d+$/i.test(firstArg) || /^(?:ep|e)\d+$/i.test(firstArg);
       } else if (step === "language") {
         isStepAction = firstArg === "vostfr" || firstArg === "vf";
       } else if (step === "season") {
         isStepAction = !isNaN(parseInt(firstArg)) || firstArg === "season" || firstArg === "s" || /^s\d+/i.test(firstArg) || firstArg === "vostfr" || firstArg === "vf";
       } else if (step === "episode") {
-        isStepAction = !isNaN(parseInt(firstArg)) || firstArg === "ep" || firstArg === "e" || firstArg === "episode" || /^(?:ep|e)?\d+/i.test(firstArg) || fullArgStr.includes(",") || fullArgStr.includes("-");
+        // 9.18tttt (terrain 24/10) : « .a s4 » sur l'écran épisodes = changement
+        // de SAISON (re-routé ci-dessous), jamais une recherche « s4 ».
+        isStepAction = !isNaN(parseInt(firstArg)) || firstArg === "ep" || firstArg === "e" || firstArg === "episode" || /^(?:ep|e)?\d+/i.test(firstArg) || /^s\d+$/i.test(firstArg) || fullArgStr.includes(",") || fullArgStr.includes("-");
       } else if (step === "resolution") {
         isStepAction = !isNaN(parseInt(firstArg)) || firstArg === "res" || firstArg === "r" || firstArg === "resolution" || /^(?:r|res)\d+$/i.test(firstArg);
       } else if (step === "single_stream_choice") {
@@ -1445,8 +1450,27 @@ const animeCommand: BotCommand = {
       const session = sessions.get(sender)!;
       refreshSessionTimer(session);
 
+      // 9.18tttt (terrain 24/10) : « .a s4 » sur l'écran ÉPISODES = changement
+      // de saison — on re-route vers le handler saison. Avant, le token ne
+      // matchait AUCUNE règle d'étape et partait en RECHERCHE LITTÉRALE
+      // « s4 » (résultats absurdes : « Stratos 4 », « Zero no Tsukaima »),
+      // remplaçait la session, et le « .a e4 » suivant cherchait « e4 »
+      // à son tour (« aucun résultat ») — toute la suite déraillait.
+      if (session.step === "episode" && /^s\d+$/i.test(firstArg)) {
+        session.step = "season";
+      }
+
       // Handle anime selection step
       if (session.step === "select_anime") {
+        // 9.18tttt (terrain 24/10) : « .a e4 » ici = format d'épisode sur le
+        // mauvais écran — guidance honnête, pas de recherche littérale.
+        if (/^(?:ep|e)\d+$/i.test(firstArg)) {
+          const total = (session.searchResults || []).length;
+          return context.reply(
+            `🔢 \`.a ${firstArg}\` est un format d'*épisode* — l'écran affiché est la *sélection d'animes*.\n\n` +
+            `👉 Réponds avec un numéro d'entrée (1-${total > 0 ? total : "N"}) ou relance \`.a <titre>\`.`
+          );
+        }
         let choiceIndex = -1;
         const selectMatch = firstArg.match(/^s?(\d+)$/i);
         if (firstArg === "select" || firstArg === "s" || firstArg === "choice") {
