@@ -187,9 +187,9 @@ describe("9.18mmmm — groupTargets", () => {
 // ── groupSettingsStore (persistance + warns) ─────────────────────────────────
 
 describe("9.18mmmm — groupSettingsStore", () => {
-  it("welcome/goodbye désactivés par défaut, gabarit par défaut", () => {
-    expect(getWelcome(GID)).toEqual({ enabled: false, text: DEFAULT_WARN_TEXT });
-    expect(getGoodbye(GID)).toEqual({ enabled: false, text: DEFAULT_GOODBYE_TEXT });
+  it("welcome/goodbye désactivés par défaut, gabarit par défaut (card off aussi — 9.18pppp)", () => {
+    expect(getWelcome(GID)).toEqual({ enabled: false, text: DEFAULT_WARN_TEXT, card: { enabled: false, preset: "nebula" } });
+    expect(getGoodbye(GID)).toEqual({ enabled: false, text: DEFAULT_GOODBYE_TEXT, card: { enabled: false, preset: "nebula" } });
   });
 
   it("setWelcome active et PERSISTE sur disque (relecture après reset cache)", () => {

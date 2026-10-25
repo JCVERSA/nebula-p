@@ -8,6 +8,7 @@ import {
   Cpu,
   Users,
   Megaphone,
+  UsersRound,
   ShieldAlert,
   Server,
   BarChart2,
@@ -36,6 +37,7 @@ export type NavTab =
   | "commands"
   | "users"
   | "announcements"
+  | "groups"
   | "security"
   | "system"
   | "analytics"
@@ -241,6 +243,13 @@ export default function Sidebar({
               active={activeTab === "announcements"}
               collapsed={collapsed}
               onClick={() => setActiveTab("announcements")}
+            />
+            <NavItem
+              icon={<UsersRound size={16} />}
+              label="Groupes"
+              active={activeTab === "groups"}
+              collapsed={collapsed}
+              onClick={() => setActiveTab("groups")}
             />
           </div>
         </div>

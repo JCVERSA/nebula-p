@@ -2,6 +2,7 @@ node_modules/
 build/
 dist/
 assets/
+!src/bot/assets/
 coverage/
 .DS_Store
 *.log

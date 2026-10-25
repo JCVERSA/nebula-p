@@ -25,6 +25,7 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@hapi/boom": "^9.1.4",
+    "@napi-rs/canvas": "^1.0.13",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "@whiskeysockets/baileys": "7.0.0-rc14",

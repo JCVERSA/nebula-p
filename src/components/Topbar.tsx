@@ -36,6 +36,7 @@ const TAB_TITLES: Record<NavTab, string> = {
   simulator: "Bot Simulator",
   users: "Utilisateurs",
   announcements: "Annonces",
+  groups: "Welcome / Goodbye Cards",
   security: "Security & Antilink",
   system: "Système",
   analytics: "Usage & Analytics",

@@ -68,6 +68,7 @@ import AccessControlPanel from "./components/AccessControlPanel";
 import SecurityExtras from "./components/SecurityExtras";
 import BotsPanel from "./components/BotsPanel";
 import AgentPanel from "./components/AgentPanel";
+import GroupCardsPanel from "./components/GroupCardsPanel";
 import SystemPanel from "./components/SystemPanel";
 import UsersPanel from "./components/UsersPanel";
 import AnnouncementsPanel from "./components/AnnouncementsPanel";
@@ -1828,6 +1829,7 @@ export default function App() {
                 )}
                 {/* 9.18y (P3) : santé & activité de l'agent IA (compteurs uniquement) */}
                 {activeTab === "agent" && <AgentPanel />}
+              {activeTab === "groups" && <GroupCardsPanel />}
                 {/* 9.16 : Système absorbe Diagnostics + Export (décision owner) */}
                 {activeTab === "system" && (
                   <div className="space-y-6">

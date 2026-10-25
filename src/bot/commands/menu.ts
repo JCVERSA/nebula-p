@@ -82,8 +82,8 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["del", "Supprimer un message (reply)"],
       ["grouplink", "Lien d’invitation (reset = owner)"],
       ["groupinfo", "Fiche du groupe"],
-      ["welcome", "Message d’accueil automatique"],
-      ["goodbye", "Message de départ automatique"],
+      ["welcome", "Message d’accueil auto (+ .welcome card <preset>)"],
+      ["goodbye", "Message de départ auto (+ .goodbye card <preset>)"],
     ],
   },
   {

@@ -17,6 +17,7 @@
 import { resolveLiveSocket } from "../liveSocket.js";
 import { typingPresence } from "./humanize.js";
 import { getWelcome, getGoodbye, DEFAULT_WARN_TEXT, DEFAULT_GOODBYE_TEXT } from "./groupSettingsStore.js";
+import { cardAssetPath, isCardPreset, renderCard, type CardKind } from "./cardRenderer.js";
 
 export interface ParticipantsUpdate {
   id: string;
@@ -72,6 +73,93 @@ async function sendGroupMessage(sock: any, gid: string, text: string, mentions: 
 
 const BURST_RECAP_THRESHOLD = 5;
 
+// ── 9.18pppp : avatar du membre (cache 10 min, échecs compris) ─────────────
+
+interface AvatarCacheEntry {
+  buf: Buffer | null;
+  at: number;
+}
+const AVATAR_CACHE_TTL_MS = 10 * 60 * 1000;
+const avatarCache = new Map<string, AvatarCacheEntry>();
+
+/** Photo de profil du membre (Buffer) ou null — best effort, jamais bloquant. */
+async function fetchAvatarBuffer(sock: any, jid: string): Promise<Buffer | null> {
+  const cached = avatarCache.get(jid);
+  if (cached && Date.now() - cached.at < AVATAR_CACHE_TTL_MS) return cached.buf;
+  let buf: Buffer | null = null;
+  try {
+    const url = await sock.profilePictureUrl(jid, "image");
+    if (url && /^https?:\/\//i.test(String(url))) {
+      const res = await fetch(String(url), { signal: AbortSignal.timeout(8000) });
+      if (res.ok) {
+        const ab = await res.arrayBuffer();
+        if (ab.byteLength > 100 && ab.byteLength < 3 * 1024 * 1024) buf = Buffer.from(ab);
+      }
+    }
+  } catch {
+    buf = null; // photo privée / indisponible → silhouette sur la card
+  }
+  avatarCache.set(jid, { buf, at: Date.now() });
+  return buf;
+}
+
+/** Numéro lisible sur la card : +237 6 99 88 77 66. */
+export function formatPhoneJid(jid: string): string {
+  const d = String(jid || "").split("@")[0].replace(/\D/g, "");
+  if (!d) return "Membre";
+  if (d.length <= 4) return `+${d}`;
+  const head = d.slice(0, -8) || d.slice(0, 2);
+  const tail = d.slice(-8).replace(/(\d{2})(?=\d)/g, "$1 ");
+  return `+${head} ${tail}`.trim();
+}
+
+/**
+ * 9.18pppp — envoie la CARD (image + caption) si la config l'exige.
+ * Retourne false quand il faut replier sur le message texte seul :
+ * card désactivée, preset inconnu, plusieurs participants (anti-rafale :
+ * pas de N cards d'un coup), asset introuvable ou rendu échoué.
+ */
+async function trySendCard(
+  sock: any,
+  gid: string,
+  kind: CardKind,
+  conf: { card?: { enabled: boolean; preset: string } },
+  participants: string[],
+  groupName: string,
+  memberCount: number,
+  caption: { text: string; mentions: string[] },
+): Promise<boolean> {
+  const card = conf.card;
+  if (!card?.enabled || !isCardPreset(card.preset)) return false;
+  if (participants.length !== 1) return false; // un seul départ/arrivée = une card
+  try {
+    const target = resolveLiveSocket(sock);
+    const jid = participants[0]!;
+    await typingPresence(target, gid);
+    const asset = cardAssetPath(card.preset, kind);
+    if (asset) {
+      // Preset image (bannières owner) : art intact, mention en caption.
+      await target.sendMessage(gid, { image: { url: asset }, caption: caption.text, mentions: caption.mentions });
+      return true;
+    }
+    const avatar = await fetchAvatarBuffer(target, jid);
+    const buf = await renderCard({
+      kind,
+      preset: card.preset,
+      userName: formatPhoneJid(jid),
+      userNumber: jid,
+      avatar,
+      groupName,
+      memberCount,
+    });
+    if (!buf) return false; // rendu impossible → texte seul
+    await target.sendMessage(gid, { image: buf, caption: caption.text, mentions: caption.mentions });
+    return true;
+  } catch {
+    return false; // un envoi de card ne casse JAMAIS la notification
+  }
+}
+
 /**
  * Traite un événement participants-update. Ne lance JAMAIS (l'appelant
  * enveloppe déjà, mais la défense en profondeur est la règle maison).
@@ -98,7 +186,9 @@ export async function handleGroupParticipantsUpdate(sock: any, update: Participa
         groupName: name,
         memberCount: size,
       });
-      await sendGroupMessage(sock, gid, rendered.text, rendered.mentions);
+      // 9.18pppp : card graphique si configurée, sinon message texte.
+      const sent = await trySendCard(sock, gid, "welcome", conf, update.participants, name, size, rendered);
+      if (!sent) await sendGroupMessage(sock, gid, rendered.text, rendered.mentions);
       return;
     }
 
@@ -111,7 +201,8 @@ export async function handleGroupParticipantsUpdate(sock: any, update: Participa
         groupName: name,
         memberCount: Math.max(0, size - update.participants.length),
       });
-      await sendGroupMessage(sock, gid, rendered.text, rendered.mentions);
+      const sent = await trySendCard(sock, gid, "goodbye", conf, update.participants, name, Math.max(0, size - update.participants.length), rendered);
+      if (!sent) await sendGroupMessage(sock, gid, rendered.text, rendered.mentions);
       return;
     }
     // promote / demote / etc. : rien à publier.
@@ -123,4 +214,9 @@ export async function handleGroupParticipantsUpdate(sock: any, update: Participa
 /** Tests uniquement : vide le cache de noms. */
 export function __resetGroupNameCacheForTests(): void {
   nameCache.clear();
+}
+
+/** Tests uniquement : vide le cache d'avatars. */
+export function __resetAvatarCacheForTests(): void {
+  avatarCache.clear();
 }

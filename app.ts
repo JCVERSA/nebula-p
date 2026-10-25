@@ -7,6 +7,9 @@ import AdmZip from "adm-zip";
 import { getConfig, updateConfig } from "./src/bot/config.js";
 import { getCommandsDir, getCommands, getCommand } from "./src/bot/commandRegistry.js";
 import { getBotState, startLiveBot, stopLiveBot, retryLiveConnection, clearSessionAuth, requestPairingCode, addLog, simulateMessage, clearLogs, runAsOwnerCommand } from "./src/bot/botEngine.js";
+import { getLiveSocket } from "./src/bot/liveSocket.js";
+import { getWelcome, setWelcome, getGoodbye, setGoodbye, listConfiguredGroups } from "./src/bot/services/groupSettingsStore.js";
+import { CARD_PRESETS, isCardPreset, cardAssetPath, renderCard } from "./src/bot/services/cardRenderer.js";
 
 import { getCommandStats } from "./src/bot/commandStats.js";
 import { getAgentHealth, getAgentMetricsTimeline } from "./src/bot/services/agentMetrics.js";
@@ -486,6 +489,84 @@ export function createApp(): express.Express {
       res.json({ groupJid: req.params.groupJid, policy });
     } catch (error: any) {
       res.status(400).json({ error: error?.message || "Invalid policy." });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // API: Welcome/Goodbye cards par groupe (9.18pppp — owner, dashboard)
+  // ---------------------------------------------------------------------------
+  // NB : la route /preview doit être déclarée AVANT /:groupJid, sinon Express
+  // matcherait "preview" comme un identifiant de groupe.
+  app.get("/api/bot/group-cards/preview/:preset/:kind", rateLimit(30, 60_000), async (req, res) => {
+    const preset = String(req.params.preset || "");
+    const kind = String(req.params.kind || "") === "goodbye" ? "goodbye" : "welcome";
+    if (!isCardPreset(preset)) return res.status(404).json({ error: "Unknown preset." });
+    const asset = cardAssetPath(preset, kind);
+    if (asset) return res.sendFile(asset);
+    const group = String(req.query.group || "Ton Groupe").slice(0, 40);
+    const user = String(req.query.user || "Membre Test").slice(0, 40);
+    const buf = await renderCard({ kind, preset, userName: user, userNumber: "237600000000", groupName: group, memberCount: 42 });
+    if (!buf) return res.status(503).json({ error: "Card renderer unavailable on this host." });
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "no-cache");
+    res.send(buf);
+  });
+
+  app.get("/api/bot/group-cards", rateLimit(30, 60_000), async (_req, res) => {
+    const groups = new Map<string, string>();
+    try {
+      const live = getLiveSocket();
+      const all = live && typeof live.groupFetchAllParticipating === "function" ? await live.groupFetchAllParticipating() : null;
+      if (all && typeof all === "object") {
+        for (const [jid, meta] of Object.entries(all as Record<string, any>)) {
+          groups.set(jid, String((meta as any)?.subject || jid));
+        }
+      }
+    } catch {
+      /* socket absent / méthode indisponible — liste de repli ci-dessous */
+    }
+    for (const gid of listConfiguredGroups()) if (!groups.has(gid)) groups.set(gid, gid);
+    const configs: Record<string, { welcome: unknown; goodbye: unknown }> = {};
+    for (const gid of groups.keys()) configs[gid] = { welcome: getWelcome(gid), goodbye: getGoodbye(gid) };
+    res.json({
+      presets: CARD_PRESETS,
+      groups: [...groups.entries()].map(([jid, name]) => ({ jid, name })),
+      configs,
+    });
+  });
+
+  app.get("/api/bot/group-cards/:groupJid", rateLimit(30, 60_000), (req, res) => {
+    res.json({ groupJid: req.params.groupJid, welcome: getWelcome(req.params.groupJid), goodbye: getGoodbye(req.params.groupJid) });
+  });
+
+  app.put("/api/bot/group-cards/:groupJid", rateLimit(20, 60_000), (req, res) => {
+    try {
+      const body = req.body || {};
+      const apply = (which: "welcome" | "goodbye"): Record<string, unknown> | null => {
+        const b = body[which];
+        if (!b || typeof b !== "object") return null;
+        const patch: Record<string, unknown> = {};
+        if (typeof b.enabled === "boolean") patch.enabled = b.enabled;
+        if (typeof b.text === "string") patch.text = b.text.slice(0, 400);
+        if (b.card && typeof b.card === "object") {
+          const card: Record<string, unknown> = {};
+          if (typeof b.card.enabled === "boolean") card.enabled = b.card.enabled;
+          if (typeof b.card.preset === "string") {
+            if (!isCardPreset(b.card.preset)) throw new Error(`Preset inconnu : ${b.card.preset}`);
+            card.preset = b.card.preset;
+          }
+          patch.card = card;
+        }
+        return Object.keys(patch).length > 0 ? patch : null;
+      };
+      const w = apply("welcome");
+      if (w) setWelcome(req.params.groupJid, w as any);
+      const g = apply("goodbye");
+      if (g) setGoodbye(req.params.groupJid, g as any);
+      addLog(`🖼️ [Group Cards] Config updated for ${req.params.groupJid}`);
+      res.json({ groupJid: req.params.groupJid, welcome: getWelcome(req.params.groupJid), goodbye: getGoodbye(req.params.groupJid) });
+    } catch (error: any) {
+      res.status(400).json({ error: error?.message || "Invalid card config." });
     }
   });
 

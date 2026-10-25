@@ -16,10 +16,22 @@
 import fs from "fs";
 import path from "path";
 
+export interface CardConf {
+  enabled: boolean;
+  preset: string;
+}
+
 export interface WelcomeConf {
   enabled: boolean;
   text: string;
+  /** 9.18pppp : card graphique (générative canvas ou preset image). */
+  card: CardConf;
 }
+
+export const DEFAULT_CARD_CONF: CardConf = { enabled: false, preset: "nebula" };
+
+/** Patch accepté par setWelcome/setGoodbye (card elle-même partielle). */
+export type WelcomeConfPatch = Partial<Omit<WelcomeConf, "card">> & { card?: Partial<CardConf> };
 
 export interface WarnEntry {
   at: number;
@@ -83,25 +95,33 @@ function groupConf(gid: string): GroupConf {
 // ── Welcome / Goodbye ──────────────────────────────────────────────────────
 
 export function getWelcome(gid: string): WelcomeConf {
-  return { enabled: false, text: DEFAULT_WARN_TEXT, ...groupConf(gid).welcome };
+  return { enabled: false, text: DEFAULT_WARN_TEXT, card: { ...DEFAULT_CARD_CONF }, ...groupConf(gid).welcome };
 }
 
-export function setWelcome(gid: string, conf: Partial<WelcomeConf>): WelcomeConf {
+export function setWelcome(gid: string, conf: WelcomeConfPatch): WelcomeConf {
   const c = groupConf(gid);
-  c.welcome = { ...getWelcome(gid), ...conf };
+  const base = getWelcome(gid);
+  // merge profond du bloc card (partial) — le reste en shallow.
+  c.welcome = { ...base, ...conf, card: { ...base.card, ...(conf.card || {}) } };
   save();
   return c.welcome;
 }
 
 export function getGoodbye(gid: string): WelcomeConf {
-  return { enabled: false, text: DEFAULT_GOODBYE_TEXT, ...groupConf(gid).goodbye };
+  return { enabled: false, text: DEFAULT_GOODBYE_TEXT, card: { ...DEFAULT_CARD_CONF }, ...groupConf(gid).goodbye };
 }
 
-export function setGoodbye(gid: string, conf: Partial<WelcomeConf>): WelcomeConf {
+export function setGoodbye(gid: string, conf: WelcomeConfPatch): WelcomeConf {
   const c = groupConf(gid);
-  c.goodbye = { ...getGoodbye(gid), ...conf };
+  const base = getGoodbye(gid);
+  c.goodbye = { ...base, ...conf, card: { ...base.card, ...(conf.card || {}) } };
   save();
   return c.goodbye;
+}
+
+/** Tous les groupes ayant une configuration enregistrée (dashboard). */
+export function listConfiguredGroups(): string[] {
+  return Object.keys(load().groups);
 }
 
 // ── Warns ──────────────────────────────────────────────────────────────────
