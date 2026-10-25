@@ -102,6 +102,7 @@ const COMMANDS: Record<string, any> = {
   ai: { name: "ai" },
   menu: { name: "menu" },
   sweb: { name: "sweb" }, // 9.3 — test anti-placeholder example.com
+  search: { name: "search" }, // 9.18vvvv — récupération tool-call fuité
   ytvideo: { name: "ytvideo", acceptsUrlArgs: true }, // 9.3b — URLs autorisées
 };
 
@@ -161,6 +162,15 @@ describe("9.11 — audit agent : texte cité, adressage groupes, typo", () => {
     const sysPrompt = mAI.mock.calls[0][1] as string;
     expect(sysPrompt).toContain("Message cité");
     expect(sysPrompt).toContain("youtu.be/dQw4w9WgXcQ");
+  });
+
+  it("9.18vvvv : le prompt système porte la DATE DU JOUR (raisonnement de dates possible)", async () => {
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "ok" }));
+    const ctx = mk("salut");
+    await handleAgentMessage(ctx.sock, ctx.msg, ctx.info, mkExec());
+    const sysPrompt = mAI.mock.calls[0][1] as string;
+    expect(sysPrompt).toContain("## Date");
+    expect(sysPrompt).toMatch(/Nous sommes le \w+ \d+ \w+ \d{4}\./);
   });
 
   it("sans texte cité → aucun bloc « Message cité » (éco tokens)", async () => {
@@ -339,6 +349,32 @@ describe("8.93 — dégradation (leçon Laudacode : degrades, never aborts)", ()
     expect(mAI).toHaveBeenCalledTimes(2);
     expect(exec).not.toHaveBeenCalled();
     expect(texts(ctx.sent)[0]).toContain("Tape");
+  });
+
+  it("9.18vvvv : tool-call brut fuité → la recherche voulue est EXÉCUTÉE, aucun JSON affiché", async () => {
+    // Terrain 25/10 : « peux tu researcher le bon titre stp » → l'utilisateur
+    // a reçu {"query": "...", "recency_days": 365} tel quel. Le modèle reste
+    // en mode tool-call même sur le prompt de guidage classique.
+    const leak = '{"query": "The Witch of Mongolia anime titre correct", "recency_days": 365}';
+    mAI.mockResolvedValueOnce("pas un JSON de décision").mockResolvedValueOnce(leak);
+    const ctx = mk("peux tu researcher le bon titre stp");
+    const exec = mkExec({ texts: ["🔍 Résultats…"] });
+    await run(ctx, exec);
+    const sent = texts(ctx.sent).join("\n");
+    expect(sent).not.toContain("{");
+    expect(sent).toContain("🔎 Je cherche : The Witch of Mongolia anime titre correct");
+    expect(exec).toHaveBeenCalledWith("search", ["The Witch of Mongolia anime titre correct"], "agent");
+  });
+
+  it("9.18vvvv : JSON fuité SANS intention exploitable → message honnête, jamais de JSON brut", async () => {
+    mAI.mockResolvedValueOnce("???").mockResolvedValueOnce('{"foo": "bar"}');
+    const ctx = mk("n'importe quoi");
+    const exec = mkExec();
+    await run(ctx, exec);
+    const sent = texts(ctx.sent).join("\n");
+    expect(sent).not.toContain("{");
+    expect(sent).toContain("reformule");
+    expect(exec).not.toHaveBeenCalled();
   });
 
   it("IA down → même message honnête que le chat DM actuel", async () => {

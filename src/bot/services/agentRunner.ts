@@ -58,7 +58,9 @@ import {
   sanitizeAgentArgs,
   keepHeadAndTail,
   deterministicNextEpisodeDecision,
-  messageSuggestsMultiIntent
+  messageSuggestsMultiIntent,
+  extractToolCallLeak,
+  looksLikeRawJson
 } from "./agentBrain.js";
 import { sendAgentTextOrVoice } from "./agentVoice.js";
 import { resolveLiveSocket } from "../liveSocket.js";
@@ -303,6 +305,12 @@ export async function handleAgentMessage(
     const quoteBlock = info.quotedTextExcerpt
       ? `## Message cité\nL'utilisateur répond à ce message : « ${info.quotedTextExcerpt} » — si sa demande s'y rapporte, utilise ce contenu (lien, titre…).`
       : null;
+    // 9.18vvvv (terrain 25/10, Jaadugar) : sans la date du jour, le modèle a
+    // lu « annoncé pour juillet 2026 » et conclu « pas encore sorti » alors
+    // que la série était EN COURS de diffusion (11 épisodes au catalogue,
+    // nous sommes en octobre 2026). Aucun raisonnement de date n'est
+    // possible sans cette ligne.
+    const dateBlock = `## Date\nNous sommes le ${new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}.`;
     const persona =
       getPersonaPrompt("dm", info.botName) +
       (memoryBlock ? `\n\n${memoryBlock}` : "") +
@@ -311,7 +319,8 @@ export async function handleAgentMessage(
       (obsBlock ? `\n\n${obsBlock}` : "") +
       (mediaBlock ? `\n\n${mediaBlock}` : "") +
       (quoteBlock ? `\n\n${quoteBlock}` : "") +
-      (voiceBlock ? `\n\n${voiceBlock}` : "");
+      (voiceBlock ? `\n\n${voiceBlock}` : "") +
+      `\n\n${dateBlock}`;
     const agentSystem = `${persona}\n\n${buildAgentKnowledge(info.prefix)}`;
 
     let decision = det as ReturnType<typeof parseAgentDecision>;
@@ -347,6 +356,27 @@ export async function handleAgentMessage(
       const raw = await withAIConcurrency(() =>
         generateTextWithFallback(text, persona, "gemini-3.7-flash")
       );
+      // 9.18vvvv (terrain 25/10) : le modèle peut rester en mode tool-call et
+      // répondre par un JSON brut ({"query": ...}) — JAMAIS affiché tel quel
+      // (échec visible). Intention reconnaissable → on exécute la recherche
+      // voulue, annonce honnête en tête ; sinon message honnête sans JSON.
+      const leak = extractToolCallLeak(raw);
+      if (leak) {
+        const searchCmd = getCommand("search");
+        if (searchCmd) {
+          await sendText(`🔎 Je cherche : ${leak.query}`);
+          const out = await exec(searchCmd.name, [leak.query], "agent");
+          setLastObservation(info.senderJid, searchCmd.name, out.texts);
+          recordExchange(info.senderJid, text, out.texts[0] ?? "");
+          return true;
+        }
+      }
+      if (looksLikeRawJson(raw)) {
+        const honest = "🤖 J'ai mal formaté ma réponse — reformule ta demande, je réessaie proprement.";
+        await sendText(honest, { voice: true, force: !!info.voiceNote });
+        recordExchange(info.senderJid, text, honest);
+        return true;
+      }
       await sendText(raw, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B) : voix appelle voix
       recordExchange(info.senderJid, text, raw);
       compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});

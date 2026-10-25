@@ -12,6 +12,8 @@ import {
   keepHeadAndTail,
   parseAgentDecision,
   parseAgentFix,
+  extractToolCallLeak,
+  looksLikeRawJson,
   replySuggestsOtherCatalog,
   toggleCatalogFlag,
   peekPendingConfirmation,
@@ -349,5 +351,33 @@ describe("9.18cc (P8) — messageSuggestsMultiIntent (pur)", () => {
     expect(messageSuggestsMultiIntent("télécharge l'épisode 1. la chanson du générique aussi")).toBe(true); // « aussi » = liaison
     expect(messageSuggestsMultiIntent("l'épisode 1 la chanson")).toBe(false);
     expect(messageSuggestsMultiIntent("")).toBe(false);
+  });
+});
+
+describe("9.18vvvv — anti-fuite tool-call (terrain 25/10 : JSON brut affiché)", () => {
+  it("looksLikeRawJson : objets et tableaux oui, prose non", () => {
+    expect(looksLikeRawJson('{"query": "x"}')).toBe(true);
+    expect(looksLikeRawJson('  [1, 2]  ')).toBe(true);
+    expect(looksLikeRawJson("Tape `.gce a bio` 🙂")).toBe(false);
+    expect(looksLikeRawJson("{ moitié de JSON")).toBe(false);
+    expect(looksLikeRawJson("")).toBe(false);
+  });
+
+  it("extrait la query d'une fuite reconnaissable (cas terrain exact)", () => {
+    const leak = extractToolCallLeak('{"query": "The Witch of Mongolia anime titre correct", "recency_days": 365}');
+    expect(leak).toEqual({ query: "The Witch of Mongolia anime titre correct" });
+  });
+
+  it("contrat de décision (action) → pas une fuite ; prose → null ; JSON cassé → null", () => {
+    expect(extractToolCallLeak('{"action": "execute", "command": "search", "args": "x"}')).toBeNull();
+    expect(extractToolCallLeak("Réponse en prose normale.")).toBeNull();
+    expect(extractToolCallLeak('{"query": }')).toBeNull();
+    expect(extractToolCallLeak('{"foo": "bar"}')).toBeNull();
+    expect(extractToolCallLeak('["array"]')).toBeNull();
+  });
+
+  it("query tronquée à 200 caractères (garde-fou)", () => {
+    const leak = extractToolCallLeak(JSON.stringify({ query: "x".repeat(500) }));
+    expect(leak!.query.length).toBe(200);
   });
 });

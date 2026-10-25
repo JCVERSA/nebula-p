@@ -537,3 +537,37 @@ export function parseAgentFix(raw: string): AgentFix | null {
   }
   return { say, offer };
 }
+
+/**
+ * 9.18vvvv (terrain 25/10) : un tool-call BRUT a fui dans le chat —
+ * « peux tu researcher le bon titre stp » → l'utilisateur a reçu
+ * {"query": "The Witch of Mongolia anime titre correct", "recency_days": 365}
+ * tel quel. Arrive quand le modèle, malgré le prompt de guidage classique
+ * du chemin de dégradation, répond encore en JSON d'outil au lieu de prose.
+ * Ces deux helpers permettent de ne JAMAIS afficher un JSON brut.
+ */
+export function looksLikeRawJson(raw: string): boolean {
+  const t = (raw || "").trim();
+  return (t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"));
+}
+
+/**
+ * Extrait l'intention de recherche d'une fuite de tool-call reconnaissable
+ * (objet JSON sans « action » — le contrat de décision — mais avec une
+ * « query » exploitable). Null pour de la prose normale ou un JSON sans
+ * intention claire : l'appelant affiche alors un message honnête.
+ */
+export function extractToolCallLeak(raw: string): { query: string } | null {
+  if (!looksLikeRawJson(raw)) return null;
+  try {
+    const obj = JSON.parse((raw || "").trim());
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+    if (typeof obj.action === "string") return null; // contrat de décision → pas une fuite
+    if (typeof obj.query === "string" && obj.query.trim()) {
+      return { query: obj.query.trim().slice(0, 200) };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

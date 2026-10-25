@@ -195,7 +195,8 @@ describe("9.18ttt — l'agent ne refuse plus sur une date du web, et suit le tit
     const k = buildAgentKnowledge(".");
     expect(k).toContain("EXÉCUTE quand même");
     expect(k).toContain("seul le catalogue décide");
-    expect(k).toContain("Jamais de refus en boucle fondé sur une date du web");
+    expect(k).toContain("Refus fondé sur une date du web : INTERDIT, même une fois");
+    expect(k).toContain("compare à la date du jour");
   });
 
   it("sans titre, l'anime dont on PARLE dans le chat prime sur l'historique", () => {
