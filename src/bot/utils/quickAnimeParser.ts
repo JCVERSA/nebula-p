@@ -23,6 +23,8 @@ export interface QuickDownloadParams {
   language?: "VF" | "VOSTFR";
   /** Catalog flag (`as` / `va`) — first token only (refonte 2026-09-21). */
   source?: AnimeSourceId;
+  /** 9.18uuuu : true = le conseil « 5 à la fois » a déjà été confirmé par « go ». */
+  skipBatchAdvice?: boolean;
   isQuickCommand: boolean;
 }
 

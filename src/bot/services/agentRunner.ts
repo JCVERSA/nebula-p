@@ -62,6 +62,14 @@ import {
 } from "./agentBrain.js";
 import { sendAgentTextOrVoice } from "./agentVoice.js";
 import { resolveLiveSocket } from "../liveSocket.js";
+// 9.18uuuu — outil interne Nova `img` : recherche d'images web universelle.
+import {
+  findImageCandidates,
+  downloadImageCandidate,
+  IMAGE_SEND_LIMIT,
+  type ImageCandidate,
+} from "./imageFinder.js";
+import { checkWebQuota, consumeWebQuota } from "../webQuota.js";
 import {
   parsePreferenceDeclaration,
   getChatPreference,
@@ -380,6 +388,91 @@ export async function handleAgentMessage(
         await sendText(current.text, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B)
         recordExchange(info.senderJid, text, current.text);
         compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
+        return true;
+      }
+
+      // ── 9.18uuuu — outil interne Nova : `img` (recherche d'images web) ──
+      // Pas une commande utilisateur : absent du registre et du menu
+      // (curation owner 8.59/8.73), intercepté AVANT le lookup. UNIVERSAL
+      // (décision owner 25/10) : Wikipédia d'abord (photo officielle des
+      // sujets connus), puis images web Tavily — toute source, Pinterest
+      // compris quand c'est pertinent. Un échec ne tue jamais le tour :
+      // repli honnête « donne un lien → .dl ».
+      if (current.command === "img") {
+        const imgQuery = current.args.trim();
+        if (!imgQuery) {
+          await sendText("📸 Donne-moi un sujet à chercher — ex. `img Jungkook`.");
+          recordExchange(info.senderJid, text, "img : usage");
+          return true;
+        }
+        if (!info.isOwner && !checkAgentBudget(info.actorJid)) {
+          await sendText("⏳ Tu as déjà demandé beaucoup d'actions cette heure — réessaie dans un instant.");
+          return true;
+        }
+        const webQuota = checkWebQuota(info.actorJid);
+        if (!webQuota.allowed) {
+          await sendText(`📅 *Limite web du jour atteinte* (${webQuota.limit}/jour) — réessaie demain.`);
+          return true;
+        }
+        const imgSignature = `img|${imgQuery.toLowerCase()}`;
+        if (executedSignatures.has(imgSignature)) {
+          await sendText("_Je m'arrête là — réponds directement au message du bot ci-dessus._");
+          return true;
+        }
+        executedSignatures.add(imgSignature);
+        if (current.say) await sendText(current.say);
+        if (!info.isOwner) recordAgentExecution(info.actorJid);
+        recordAudit(`wa:${info.actorNumber}`, "agent.exec", "img", "image-search");
+        try {
+          const { candidates, engines } = await findImageCandidates(imgQuery);
+          const target = resolveLiveSocket(sock);
+          const picked = candidates.slice(0, IMAGE_SEND_LIMIT);
+          const settled = await Promise.allSettled(
+            picked.map(async (c) => ({ c, dl: await downloadImageCandidate(c.url) })),
+          );
+          const ready = settled
+            .filter((r): r is PromiseFulfilledResult<{ c: ImageCandidate; dl: { buffer: Buffer; ext: string } | null }> =>
+              r.status === "fulfilled")
+            .map((r) => r.value)
+            .filter((v) => v.dl)
+            .map((v) => ({ c: v.c, dl: v.dl! }));
+          let sent = 0;
+          for (const entry of ready) {
+            try {
+              await target.sendMessage(
+                info.senderJid,
+                {
+                  image: entry.dl!.buffer,
+                  caption: `📸 ${imgQuery} — ${entry.c.attribution} (${sent + 1}/${ready.length})`,
+                },
+                { quoted: msg },
+              );
+              sent++;
+            } catch {
+              /* une image ratée n'arrête jamais les autres */
+            }
+          }
+          let summary: string;
+          if (sent > 0) {
+            consumeWebQuota(info.actorJid);
+            summary = `${sent} image(s) envoyée(s) pour « ${imgQuery} »${engines.length ? ` via ${engines.join(" + ")}` : ""}`;
+            if (sent < picked.length) summary += ` — ${picked.length - sent} introuvable(s)`;
+            setLastObservation(info.senderJid, "img", [summary]);
+          } else if (picked.length > 0) {
+            summary = `⚠️ Les ${picked.length} image(s) trouvée(s) pour « ${imgQuery} » n'ont pas pu être téléchargées — réessaie, ou envoie-moi un lien direct et \`${info.prefix}dl\` le téléchargera.`;
+            await sendText(summary);
+            setLastObservation(info.senderJid, "img", [summary]);
+          } else {
+            summary = `❌ Aucune image trouvée pour « ${imgQuery} » — précise ta recherche, ou envoie-moi un lien direct et \`${info.prefix}dl\` le téléchargera.`;
+            await sendText(summary);
+            setLastObservation(info.senderJid, "img", [summary]);
+          }
+          recordExchange(info.senderJid, text, summary);
+        } catch (err: any) {
+          await sendText(
+            `⚠️ La recherche d'images a échoué${err?.message ? ` (${err.message})` : ""} — réessaie, ou envoie-moi un lien direct et \`${info.prefix}dl\` le téléchargera.`,
+          );
+        }
         return true;
       }
 

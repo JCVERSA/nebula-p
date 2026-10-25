@@ -140,6 +140,16 @@ export interface AnimeSession {
   forceCompress?: boolean;
   pipelineStartedAt?: number; // quick-flow total latency diagnostics
   pendingQuickParams?: QuickDownloadParams;
+  /** 9.18uuuu (retour owner 25/10) : gros lot d'épisodes en attente de
+   *  confirmation — « go » force le lot, « non » annule (fail-closed 8.95).
+   *  quick = re-invocation du pipeline rapide avec les mêmes paramètres. */
+  pendingBatchConfirm?: {
+    indices: number[];
+    quick?: { chosen: { title: string; subtitle?: string; url: string }; quickParams: QuickDownloadParams };
+  };
+  /** 9.18uuuu : indices confirmés par « go » — consommés par le handler
+   *  épisodes (écran interactif) pour continuer le flux sans re-saisir. */
+  confirmedBatchIndices?: number[];
   /** 8.95 : question « continuer en <langue> ? » en attente (langue demandée
    *  absente des deux catalogues, pipeline rapide — cf. .a oui / .a non). */
   pendingLanguageConfirm?: {
@@ -197,6 +207,38 @@ export function getLastVaSearch(sender: string): { query: string; results: Sourc
 // Resource ceilings for batch work triggered by untrusted WhatsApp users.
 const MAX_BATCH_EPISODES = Math.max(1, Number(process.env.NEBULA_NOVABOX_MAX_EPISODES || 12));
 const MAX_BATCH_TOTAL_MB = Math.max(1, Number(process.env.NEBULA_NOVABOX_MAX_BATCH_MB || 2048));
+// 9.18uuuu (retour owner 25/10) : au-delà de ce seuil, un lot d'épisodes
+// risque des ÉCHECS PARTIELS (« seulement certains vont marcher ») — on
+// conseille « 5 à la fois » AVANT de lancer, avec un « go » pour forcer.
+const BATCH_ADVICE_THRESHOLD = Math.max(1, Number(process.env.NEBULA_NOVABOX_BATCH_ADVICE || 5));
+
+/** 9.18uuuu : mots qui forcent le gros lot après le conseil (pur — testé). */
+export function isBatchConfirmAffirmative(word: string): boolean {
+  return /^(?:go+|ok|oui|tout|force|vas-?y|allume)$/i.test(word.trim());
+}
+
+/** 9.18uuuu : mots qui annulent le gros lot (pur — testé). */
+export function isBatchConfirmNegative(word: string): boolean {
+  return /^(?:non|no|annule[rz]?|stop|cancel)$/i.test(word.trim());
+}
+
+/** 9.18uuuu : conseil « 5 à la fois » (retour owner 25/10 — pur, testé). */
+export function buildBatchAdviceMessage(count: number): string {
+  return (
+    `⚠️ *Gros lot : ${count} épisodes d'un coup.*\n\n` +
+    `Plus le lot est gros, plus certains téléchargements risquent d'échouer (ou que seulement une partie aboutisse).\n\n` +
+    `✅ *Le plus fiable : 5 épisodes à la fois* — ex. \`1-5\`, puis \`6-10\`, puis la suite.\n\n` +
+    `👉 Réponds *go* pour lancer les ${count} quand même, ou *non* pour annuler.`
+  );
+}
+
+/** 9.18uuuu : limite dure (message du backstop > plafond — pur, testé). */
+export function buildBatchLimitMessage(count: number, max: number): string {
+  return (
+    `⚠️ *Trop d'épisodes d'un coup (${count}).*\n\n` +
+    `La limite est de *${max} épisodes par demande* — découpe en plusieurs fois (ex. épisodes 1 à 5, puis 6 à 10 : c'est encore plus fiable).`
+  );
+}
 
 /**
  * 8.81 (retour terrain Cyberpunk) : besoin disque ESTIMÉ d'un batch —
@@ -795,6 +837,7 @@ async function executeQuickDownloadPipeline(
   session.animeTitle = chosenAnime.title;
   session.animeUrl = chosenAnime.url;
   session.pendingLanguageConfirm = undefined; // 8.95 : toute relance annule la question
+  session.pendingBatchConfirm = undefined; // 9.18uuuu : idem pour le conseil batch
   
   await context.react("⏳");
   const seasonStr = quickParams.seasonNumber ? `Saison ${quickParams.seasonNumber}` : "Saison 1";
@@ -923,6 +966,20 @@ async function executeQuickDownloadPipeline(
     if (resolvedIndices.length === 0) {
       clearUserSession(context.sender);
       return context.reply(`❌ *Épisode(s) invalide(s):* Veuillez choisir entre 1 et ${totalEpisodes}.`);
+    }
+
+    // 9.18uuuu (retour owner 25/10) : gros lot → conseil « 5 à la fois »
+    // AVANT de lancer (retour terrain : 12 d'un coup = échecs partiels).
+    // Fail-closed : seul un « go » explicite relance avec skipBatchAdvice.
+    if (resolvedIndices.length > MAX_BATCH_EPISODES) {
+      return context.reply(buildBatchLimitMessage(resolvedIndices.length, MAX_BATCH_EPISODES));
+    }
+    if (!quickParams.skipBatchAdvice && resolvedIndices.length > BATCH_ADVICE_THRESHOLD) {
+      session.pendingBatchConfirm = {
+        indices: resolvedIndices,
+        quick: { chosen: chosenAnime, quickParams },
+      };
+      return context.reply(buildBatchAdviceMessage(resolvedIndices.length));
     }
 
     session.selectedEpisodeIndices = resolvedIndices;
@@ -1445,6 +1502,32 @@ const animeCommand: BotCommand = {
       return context.reply(`❓ *Continuer en ${session.pendingLanguageConfirm!.language} ?*\nRéponds *oui* (ou \`.a oui\`) pour continuer, *non* pour annuler.`);
     }
 
+    // 9.18uuuu (retour owner 25/10) : gros lot d'épisodes en attente du
+    // conseil « 5 à la fois » — « go » force le lot, « non » annule, toute
+    // autre entrée suit le flux normal (nouvelle sélection, autre action).
+    // Fail-closed sur le modèle 8.95 : sans « go » explicite, rien ne part.
+    if (sessions.has(sender) && sessions.get(sender)!.pendingBatchConfirm) {
+      const session = sessions.get(sender)!;
+      refreshSessionTimer(session);
+      const pending = session.pendingBatchConfirm!;
+      if (isBatchConfirmAffirmative(firstArg || "")) {
+        session.pendingBatchConfirm = undefined;
+        if (pending.quick) {
+          return await executeQuickDownloadPipeline(
+            sock, msg, context, session, pending.quick.chosen,
+            { ...pending.quick.quickParams, skipBatchAdvice: true }, true
+          );
+        }
+        session.confirmedBatchIndices = pending.indices;
+        isStepAction = true; // « go » doit entrer dans le handler épisodes
+      } else if (isBatchConfirmNegative(firstArg || "")) {
+        session.pendingBatchConfirm = undefined;
+        return context.reply("👌 *Gros lot annulé.* Envoie une sélection plus petite (ex. `1-5`).");
+      }
+      // autre réponse → flux normal : une nouvelle sélection valide
+      // remplacera la question (le stash est effacé dans le handler).
+    }
+
     // Step-by-step handler if there's an active session and the user is responding to the step
     if (sessions.has(sender) && (isStepAction || args.length === 0)) {
       const session = sessions.get(sender)!;
@@ -1736,7 +1819,15 @@ const animeCommand: BotCommand = {
       if (session.step === "episode") {
         const fullArgStr = args.join(" ").trim();
         const totalEpisodes = Math.max(...Object.values(session.episodes || {}).map(arr => arr.length));
-        const selectedIndices: number[] = [];
+        let selectedIndices: number[] = [];
+
+        // 9.18uuuu : « go » a confirmé le gros lot stashé → on le consomme
+        // tel quel (le conseil « 5 à la fois » a déjà été donné et forcé).
+        if (session.confirmedBatchIndices && session.confirmedBatchIndices.length > 0) {
+          selectedIndices = session.confirmedBatchIndices;
+          session.confirmedBatchIndices = undefined;
+          session.pendingBatchConfirm = undefined;
+        } else {
 
         // Episode watcher (audit S4): `.a watch` / `.a unwatch [titre]` / `.a watchlist`
         if (firstArg === "watch" || firstArg === "unwatch" || firstArg === "watchlist") {
@@ -1772,6 +1863,8 @@ const animeCommand: BotCommand = {
           }
         }
 
+        }
+
         if (selectedIndices.length === 0) {
           return context.reply(
             `❌ *Invalid Episode Selection:* Please choose valid episode number(s) between *1* and *${totalEpisodes}*.\n` +
@@ -1781,6 +1874,17 @@ const animeCommand: BotCommand = {
             `• Range: \`.a 1-5\``
           );
         }
+
+        // 9.18uuuu (retour owner 25/10) : gros lot → conseil « 5 à la fois »
+        // avec confirmation fail-closed ; > plafond = limite dure.
+        if (selectedIndices.length > MAX_BATCH_EPISODES) {
+          return context.reply(buildBatchLimitMessage(selectedIndices.length, MAX_BATCH_EPISODES));
+        }
+        if (selectedIndices.length > BATCH_ADVICE_THRESHOLD) {
+          session.pendingBatchConfirm = { indices: selectedIndices };
+          return context.reply(buildBatchAdviceMessage(selectedIndices.length));
+        }
+        session.pendingBatchConfirm = undefined; // toute nouvelle sélection remplace la question
 
         session.selectedEpisodeIndices = selectedIndices;
         session.selectedEpisodeIndex = selectedIndices[0]; // Reference for initial stream inspection
@@ -2790,10 +2894,8 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
   if (indices.length > 1 || session.isSeasonZipDownload) {
     if (indices.length > MAX_BATCH_EPISODES) {
       await context.react("⚠️");
-      return context.reply(
-        `⚠️ *Trop d\u2019épisodes d\u2019un coup (${indices.length}).*\n\n` +
-        `La limite est de *${MAX_BATCH_EPISODES} épisodes par demande* — découpe en plusieurs fois (ex. épisodes 1 à ${MAX_BATCH_EPISODES}, puis la suite).`
-      );
+      // 9.18uuuu : message unifié (conseil 5 à la fois inclus).
+      return context.reply(buildBatchLimitMessage(indices.length, MAX_BATCH_EPISODES));
     }
     await context.react("⏳");
     const batchAnchor = await context.reply(
@@ -2802,7 +2904,10 @@ async function sendFinalEpisode(sock: any, msg: any, context: BotCommandContext,
       `🗣️ *Language:* ${lang}\n` +
       `📅 *Season:* ${session.selectedSeason?.name}\n` +
       `⚙️ *Resolution:* ${resolution}\n` +
-      `📦 *Episodes to Process:* ${indices.length} episodes\n\n` +
+      `📦 *Episodes to Process:* ${indices.length} episodes\n` +
+      // 9.18uuuu : trace honnête quand un gros lot a été forcé par « go ».
+      (indices.length > BATCH_ADVICE_THRESHOLD ? `⚠️ _Gros lot — plus fiable : 5 épisodes à la fois._\n` : ``) +
+      `\n` +
       `⏳ _Preparing direct episode links... Please wait a moment._`
     );
 
