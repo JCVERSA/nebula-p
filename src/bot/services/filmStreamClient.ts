@@ -71,11 +71,14 @@ export function extractFilmId(filmUrl: string): string | null {
   return m ? m[1] : null;
 }
 
-/** Normalise une langue du site vers VF/VOSTFR (pur — testé). */
+/** Normalise une langue du site vers VF/VOSTFR (pur — testé).
+ * 9.18xxxx (terrain 30/10) : l'API réelle utilise des clés minuscules —
+ * vostfr / vff (VF France) / vfq (VF Québec) / default (joueur générique,
+ * rattaché VOSTFR par prudence). L'ancien format majuscule reste admis. */
 export function normalizeFilmLanguage(raw: string): "VF" | "VOSTFR" | null {
-  const l = (raw || "").trim().toUpperCase();
-  if (l === "TRUEFRENCH" || l === "FRENCH" || l === "VF") return "VF";
-  if (l === "VOSTFR" || l === "VOST") return "VOSTFR";
+  const l = (raw || "").trim().toLowerCase();
+  if (l === "vff" || l === "vfq" || l === "french" || l === "truefrench" || l === "vf") return "VF";
+  if (l === "vostfr" || l === "vost" || l === "default") return "VOSTFR";
   return null;
 }
 
@@ -102,8 +105,12 @@ export function parseFilmSearchHtml(html: string, origin: string): FilmSearchRes
 }
 
 /**
- * Parse la réponse de l'API joueurs (pur — testé sur fixture du terrain) :
- * { players: { ViDZY: { VOSTFR: url, FRENCH: url, TRUEFRENCH: url }, … } }
+ * Parse la réponse de l'API joueurs (pur — testé sur fixture RÉELLE du
+ * terrain 30/10) : { players: { vidzy: { default, vostfr, vff, vfq },
+ * uqload: {…}, dood/voe/filmoon: { relais kokoflix }, premium: {…} } }.
+ * Les clés de langue sont MINUSCULES (vff = VF France, vfq = VF Québec,
+ * default = joueur générique traité VOSTFR) — l'ancien format
+ * FRENCH/TRUEFRENCH reste accepté.
  */
 export function parseFilmPlayersApi(data: any): FilmPlayer[] {
   const players = data?.players;
@@ -177,6 +184,61 @@ export async function getFilmDetail(
   const players = parseFilmPlayersApi(apiRes.data);
   if (players.length === 0) return { kind: "error", reason: "aucun-joueur" };
   return { kind: "film", players };
+}
+
+/** Hosts relais des players films (redirigent vers le vrai embed). */
+const FILM_RELAY_HOST_RE = /(^|\.)kokoflix\.lol$/i;
+
+/** True si l'URL est un relais player du catalogue films (pur — testé). */
+export function isFilmRelayUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return FILM_RELAY_HOST_RE.test(u.hostname) || /_go\.php$/i.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 9.18xxxx (terrain 30/10) : dood/voe/filmoon sont servis via un relais
+ * (kokoflix.lol/<ville>_go.php?id=…) qui exige le Referer du catalogue et
+ * mène au vrai embed. On suit la redirection HTTP, puis les redirections
+ * JS/meta/iframe de la page. Échec → URL d'origine (l'appelant saute ce
+ * miroir honnêtement). Les embeds DIRECTS (vidzy, uqload) ne passent pas
+ * ici — le moteur partagé les résout déjà.
+ */
+export async function resolveFilmPlayerUrl(url: string): Promise<string> {
+  if (!isFilmRelayUrl(url)) return url;
+  try {
+    const origin = filmStreamOrigin();
+    const res = await axios.get(url, {
+      headers: { ...filmStreamHeaders(origin), Accept: "text/html,application/xhtml+xml,*/*;q=0.8" },
+      timeout: 12_000,
+      maxRedirects: 5,
+      validateStatus: () => true,
+      ...animeProxyOptions(),
+    });
+    if (res.status !== 200 || typeof res.data !== "string") return url;
+    // 1. Redirection HTTP déjà suivie par axios → l'URL finale est le player.
+    const finalUrl: unknown = (res.request as any)?.res?.responseUrl;
+    if (typeof finalUrl === "string" && /^https?:\/\//i.test(finalUrl) && finalUrl !== url && !isFilmRelayUrl(finalUrl)) {
+      return finalUrl;
+    }
+    // 2. Redirection JS / meta refresh / iframe vers le vrai embed.
+    const html: string = res.data;
+    const patterns = [
+      /(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']/i,
+      /http-equiv=["']?refresh["']?[^>]*content=["']?\d+;\s*url=([^"'>]+)/i,
+      /<iframe[^>]+src=["']([^"']+)["']/i,
+    ];
+    for (const re of patterns) {
+      const m = html.match(re);
+      if (m?.[1] && /^https?:\/\//i.test(m[1]) && !isFilmRelayUrl(m[1])) return m[1];
+    }
+    return url;
+  } catch {
+    return url;
+  }
 }
 
 /** Miroirs d'une langue, triés par priorité du moteur partagé (pur). */

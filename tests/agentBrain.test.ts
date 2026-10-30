@@ -51,8 +51,13 @@ describe("8.93 — parseAgentDecision (contrat JSON strict)", () => {
     expect(parseAgentDecision('{"action":"reply","text":""}')).toBeNull();
   });
 
-  it("rejette commande invalide (préfixe, vide, caractères)", () => {
-    expect(parseAgentDecision('{"action":"execute","command":".gce","args":"x"}')).toBeNull();
+  it("rejette commande invalide (vide, caractères) — le préfixe est toléré depuis 9.18xxxx", () => {
+    // 9.18xxxx (terrain 25/10) : les tool-calls fuient avec le préfixe utilisateur
+    // (".ytv") — il est désormais STRIPPÉ au parsing. Vide/espaces restent rejetés.
+    expect(parseAgentDecision('{"action":"execute","command":".gce","args":"x"}')).toMatchObject({
+      action: "execute",
+      command: "gce",
+    });
     expect(parseAgentDecision('{"action":"execute","command":"","args":"x"}')).toBeNull();
     expect(parseAgentDecision('{"action":"execute","command":"gc e","args":"x"}')).toBeNull();
   });
@@ -351,6 +356,24 @@ describe("9.18cc (P8) — messageSuggestsMultiIntent (pur)", () => {
     expect(messageSuggestsMultiIntent("télécharge l'épisode 1. la chanson du générique aussi")).toBe(true); // « aussi » = liaison
     expect(messageSuggestsMultiIntent("l'épisode 1 la chanson")).toBe(false);
     expect(messageSuggestsMultiIntent("")).toBe(false);
+  });
+});
+
+describe("9.18xxxx — tolérance tool-call {cmd, args} (terrain 25/10 : fuite .ytv/.a)", () => {
+  it("un tool-call fuité devient une décision execute valide (préfixe stripped)", () => {
+    const d = parseAgentDecision('{"cmd": ".ytv", "args": "https://youtu.be/x 720p"}');
+    expect(d).toMatchObject({ action: "execute", command: "ytv", args: "https://youtu.be/x 720p" });
+  });
+
+  it("cmd sans préfixe et command classique restent admis", () => {
+    expect(parseAgentDecision('{"cmd": "search", "args": "actus"}')).toMatchObject({ action: "execute", command: "search" });
+    expect(parseAgentDecision('{"command": ".a", "args": "naruto s1"}')).toMatchObject({ action: "execute", command: "a" });
+  });
+
+  it("action explicite prime toujours ; cmd invalide → null", () => {
+    expect(parseAgentDecision('{"action": "reply", "text": "ok", "cmd": ".ytv"}')).toMatchObject({ action: "reply", text: "ok" });
+    expect(parseAgentDecision('{"cmd": "pas une commande !!"}')).toBeNull();
+    expect(parseAgentDecision('{"cmd": ""}')).toBeNull();
   });
 });
 

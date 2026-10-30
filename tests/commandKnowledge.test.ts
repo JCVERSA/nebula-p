@@ -191,6 +191,13 @@ describe("9.18sss — l'agent comprend `.a vostfr` seul (bascule d'écran)", () 
 });
 
 describe("9.18ttt — l'agent ne refuse plus sur une date du web, et suit le titre de la conversation", () => {
+  it("9.18xxxx : « go »/« non » après l'avertissement Gros lot → .a go / .a non (routage agent)", () => {
+    const k = buildAgentKnowledge(".");
+    expect(k).toContain("« Gros lot : N épisodes »");
+    expect(k).toContain("« go » → .a go");
+    expect(k).toContain("« non » → .a non");
+  });
+
   it("web ≠ catalogue : « pas encore sorti » → essayer quand même .a avec le titre exact", () => {
     const k = buildAgentKnowledge(".");
     expect(k).toContain("EXÉCUTE quand même");

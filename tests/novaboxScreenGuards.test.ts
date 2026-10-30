@@ -81,7 +81,7 @@ describe("9.18tttt — .a e<N> sur l'écran sélection = guidance honnête, PAS 
 
 describe("9.18uuuu — photo/image sans lien : outil interne Nova img (recherche universelle)", () => {
   it("la connaissance IA route « envoie-moi une photo de X » vers img (jamais de génération)", () => {
-    expect(knowledge).toContain("« envoie-moi une photo/image de X »");
+    expect(knowledge).toContain("« une photo/image de X » (même « de Pinterest »)");
     expect(knowledge).toContain("img X");
     expect(knowledge).toContain("outil interne, jamais de génération");
   });

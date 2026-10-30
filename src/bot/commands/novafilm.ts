@@ -18,6 +18,8 @@ import {
   getFilmDetail,
   filmMirrorsForLanguage,
   filmAvailableLanguages,
+  resolveFilmPlayerUrl,
+  isFilmRelayUrl,
   type FilmSearchResult,
   type FilmPlayer,
 } from "../services/filmStreamClient.js";
@@ -135,8 +137,13 @@ async function resolveFilmQuality(
     });
   }
 
-  const best = await resolveBestMirrorStream(mirrors, "480P");
-  if (!best || !best.url) {
+  // 9.18xxxx (terrain 30/10) : les relais players (kokoflix…) exigent le
+  // Referer du catalogue et mènent au vrai embed — résolus en PARALLÈLE.
+  // Les embeds directs (vidzy, uqload) passent tels quels et restent
+  // prioritaires dans le tri du moteur partagé.
+  const resolved = await Promise.all(mirrors.map((u) => resolveFilmPlayerUrl(u)));
+  const best = await resolveBestMirrorStream(resolved, "480P");
+  if (!best || !best.url || isFilmRelayUrl(best.url)) {
     throw Object.assign(new Error("no-mirror"), { hint: "Impossible de résoudre le lecteur de ce film — réessaie dans un instant." });
   }
 

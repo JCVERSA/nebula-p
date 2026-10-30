@@ -25,6 +25,8 @@ import {
   filmAvailableLanguages,
   getFilmDetail,
   filmSearch,
+  isFilmRelayUrl,
+  resolveFilmPlayerUrl,
 } from "../src/bot/services/filmStreamClient.js";
 import axios from "axios";
 import { getCommand, initRegistry } from "../src/bot/commandRegistry.js";
@@ -39,14 +41,20 @@ const SEARCH_HTML = `
 <div class='pas-un-resultat'></div>
 `;
 
-// Fixture RÉELLE (fiche Insidious 2026 : ViDZY/Dood/Voe/Filmoon × 3 langues).
+// Fixture RÉELLE — réponse VERBATIM de film_api.php captée en direct le
+// 30/10 (fiche Insidious 2026) : clés de langue MINUSCULES (default / vostfr /
+// vff / vfq) et players dood/voe/filmoon servis via le relais kokoflix.lol.
+// C'est le format exact qui a cassé la V1 (« aucun-joueur ») : la V1 attendait
+// FRENCH/TRUEFRENCH majuscules (ancien format documenté par les scrapers).
 const PLAYERS_API = {
   players: {
-    ViDZY: { VOSTFR: "https://vidzy.live/e/abc123", FRENCH: "https://vidzy.live/e/abc124", TRUEFRENCH: "https://vidzy.live/e/abc125" },
-    Dood: { VOSTFR: "https://doods.pro/e/dood123", FRENCH: "https://doods.pro/e/dood124" },
-    Voe: { VOSTFR: "https://voe.sx/e/voe123", FRENCH: "https://voe.sx/e/voe124", TRUEFRENCH: "https://voe.sx/e/voe125" },
-    Filmoon: { VOSTFR: "https://filemoon.to/e/fm123" },
-    Bogus: { LANGUE_INCONNUE: "https://example.com/x", FRENCH: "pas-une-url" },
+    premium: { default: "https://fsvid.lol/embed-q6iu6tk3e2p7.html" },
+    vidzy: { default: "https://vidzy.cc/embed-fq17f9p8xiwd.html", vostfr: "https://vidzy.org/embed-9zds0xzd8qfs.html", vff: "https://vidzy.org/embed-xcann0vdymps.html", vfq: "https://vidzy.org/embed-nc4i5ehli77o.html" },
+    uqload: { default: "https://uqload.vc/embed-9urzvakte99o.html", vostfr: "https://uqload.vc/embed-f22kwrwpfwh2.html", vff: "https://uqload.vc/embed-9urzvakte99o.html", vfq: "https://uqload.vc/embed-d7leu27l16ke.html" },
+    dood: { default: "https://kokoflix.lol/tokyo_go.php?id=dmcBHiG1tK4EykoY8hDaF", vostfr: "https://kokoflix.lol/tokyo_go.php?id=WqgXsAS60Ie1xM2JtVRLp", vff: "https://kokoflix.lol/tokyo_go.php?id=dmcBHiG1tK4EykoY8hDaF", vfq: "https://kokoflix.lol/tokyo_go.php?id=rdZ1LvpXqeW4oix8ft3zh" },
+    voe: { default: "https://kokoflix.lol/osaka_go.php?id=04vsnkYj2zfBMVeQaUKdP", vostfr: "https://kokoflix.lol/osaka_go.php?id=sYOrtm75qXRxPCdZLAk9n", vff: "https://kokoflix.lol/osaka_go.php?id=04vsnkYj2zfBMVeQaUKdP", vfq: "https://kokoflix.lol/osaka_go.php?id=ELl7vfyWXeDuHB0ITYK5F" },
+    filmoon: { default: "https://kokoflix.lol/grandline_go.php?id=3dPClpiajXUvDVW0f5nHJ", vostfr: "https://kokoflix.lol/grandline_go.php?id=69vd5ebf7k3aT8ILWZA4E", vff: "https://kokoflix.lol/grandline_go.php?id=3dPClpiajXUvDVW0f5nHJ", vfq: "https://kokoflix.lol/grandline_go.php?id=fuJALITCwKWDanpQEdyv0" },
+    bogus: { langue_inconnue: "https://example.com/x", vff: "pas-une-url" },
   },
 };
 
@@ -76,29 +84,35 @@ describe("filmStreamClient — parsing (fixtures du terrain)", () => {
     expect(extractFilmId("https://french-stream.net/sans-id.html")).toBeNull();
   });
 
-  it("normalizeFilmLanguage : TRUEFRENCH/FRENCH → VF, VOSTFR → VOSTFR, inconnu → null", () => {
+  it("normalizeFilmLanguage : clés réelles minuscules (vff/vfq/default) + anciennes majuscules", () => {
+    expect(normalizeFilmLanguage("vff")).toBe("VF");
+    expect(normalizeFilmLanguage("vfq")).toBe("VF");
     expect(normalizeFilmLanguage("TRUEFRENCH")).toBe("VF");
     expect(normalizeFilmLanguage("french")).toBe("VF");
+    expect(normalizeFilmLanguage("vostfr")).toBe("VOSTFR");
     expect(normalizeFilmLanguage("VOSTFR")).toBe("VOSTFR");
+    expect(normalizeFilmLanguage("default")).toBe("VOSTFR");
     expect(normalizeFilmLanguage("vo")).toBeNull();
   });
 
-  it("parseFilmPlayersApi : 10 joueurs valides, langues normalisées, invalide ignoré", () => {
+  it("parseFilmPlayersApi : 21 joueurs valides (VF 10 / VOSTFR 11), invalide ignoré", () => {
     const out = parseFilmPlayersApi(PLAYERS_API);
-    expect(out).toHaveLength(9);
-    expect(out.filter((p) => p.language === "VF")).toHaveLength(5);
-    expect(out.filter((p) => p.language === "VOSTFR")).toHaveLength(4);
-    expect(out.some((p) => p.url === "https://doods.pro/e/dood124")).toBe(true);
+    expect(out).toHaveLength(21);
+    expect(out.filter((p) => p.language === "VF")).toHaveLength(10);
+    expect(out.filter((p) => p.language === "VOSTFR")).toHaveLength(11);
+    expect(out.some((p) => p.url === "https://kokoflix.lol/tokyo_go.php?id=rdZ1LvpXqeW4oix8ft3zh")).toBe(true);
+    expect(out.some((p) => p.name === "premium")).toBe(true);
     expect(out.every((p) => /^https?:\/\//.test(p.url))).toBe(true);
   });
 
-  it("filmMirrorsForLanguage + filmAvailableLanguages", () => {
+  it("filmMirrorsForLanguage + filmAvailableLanguages (embeds directs et relais mélangés)", () => {
     const players = parseFilmPlayersApi(PLAYERS_API);
     const vf = filmMirrorsForLanguage(players, "VF");
-    expect(vf).toContain("https://vidzy.live/e/abc125");
-    expect(vf.every((u) => !/doods/.test(u) || u === "https://doods.pro/e/dood124")).toBe(true);
+    expect(vf).toHaveLength(10);
+    expect(vf).toContain("https://vidzy.org/embed-xcann0vdymps.html");
+    expect(vf.some((u) => isFilmRelayUrl(u))).toBe(true); // relais dood/voe/filmoon
     expect(filmAvailableLanguages(players)).toEqual(["VF", "VOSTFR"]);
-    expect(filmMirrorsForLanguage(players, "VOSTFR")).toHaveLength(4);
+    expect(filmMirrorsForLanguage(players, "VOSTFR")).toHaveLength(11);
   });
 });
 
@@ -114,7 +128,7 @@ describe("filmStreamClient — réseau (axios mocké)", () => {
     mGet.mockResolvedValueOnce({ status: 200, data: PLAYERS_API });
     const out = await getFilmDetail("https://french-stream.net/15135028-insidious-l-invasion-du-lointain.html");
     expect(out.kind).toBe("film");
-    if (out.kind === "film") expect(out.players.length).toBe(9);
+    if (out.kind === "film") expect(out.players.length).toBe(21);
     expect(mGet).toHaveBeenLastCalledWith(
       "https://french-stream.net/engine/ajax/film_api.php?id=15135028",
       expect.anything()
@@ -146,6 +160,43 @@ describe("filmStreamClient — réseau (axios mocké)", () => {
     mGet.mockResolvedValueOnce({ status: 200, data: PLAYERS_API });
     await getFilmDetail("https://french-stream.one/42-film.html");
     expect(mGet).toHaveBeenLastCalledWith("https://french-stream.one/engine/ajax/film_api.php?id=42", expect.anything());
+  });
+});
+
+describe("9.18xxxx — relais players kokoflix (résolution avec Referer catalogue)", () => {
+  it("isFilmRelayUrl : kokoflix et *_go.php oui, embeds directs non, URL invalide non", () => {
+    expect(isFilmRelayUrl("https://kokoflix.lol/tokyo_go.php?id=x")).toBe(true);
+    expect(isFilmRelayUrl("https://autre-hote.exemple/_go.php?id=x")).toBe(true);
+    expect(isFilmRelayUrl("https://vidzy.org/embed-x.html")).toBe(false);
+    expect(isFilmRelayUrl("pas une url")).toBe(false);
+  });
+
+  it("un embed direct passe tel quel (aucun appel réseau)", async () => {
+    const out = await resolveFilmPlayerUrl("https://vidzy.org/embed-x.html");
+    expect(out).toBe("https://vidzy.org/embed-x.html");
+    expect(mGet).not.toHaveBeenCalled();
+  });
+
+  it("relais : redirection HTTP suivie → l'URL finale du vrai player (Referer catalogue envoyé)", async () => {
+    mGet.mockResolvedValueOnce({ status: 200, data: "", request: { res: { responseUrl: "https://doods.pro/e/real1" } } });
+    const out = await resolveFilmPlayerUrl("https://kokoflix.lol/tokyo_go.php?id=x");
+    expect(out).toBe("https://doods.pro/e/real1");
+    expect(mGet.mock.calls[0]?.[1]?.headers?.Referer).toBe("https://french-stream.net/");
+  });
+
+  it("relais : redirection JS dans la page → le vrai embed", async () => {
+    mGet.mockResolvedValueOnce({ status: 200, data: `<html><script>window.location='https://voe.sx/e/real2'</script></html>` });
+    const out = await resolveFilmPlayerUrl("https://kokoflix.lol/osaka_go.php?id=y");
+    expect(out).toBe("https://voe.sx/e/real2");
+  });
+
+  it("relais en échec (500, page vide, réseau) → URL d'origine conservée (miroir skippé honnêtement)", async () => {
+    mGet.mockResolvedValueOnce({ status: 500, data: "" });
+    expect(await resolveFilmPlayerUrl("https://kokoflix.lol/x_go.php?id=a")).toBe("https://kokoflix.lol/x_go.php?id=a");
+    mGet.mockResolvedValueOnce({ status: 200, data: "" });
+    expect(await resolveFilmPlayerUrl("https://kokoflix.lol/x_go.php?id=b")).toBe("https://kokoflix.lol/x_go.php?id=b");
+    mGet.mockRejectedValueOnce(new Error("timeout"));
+    expect(await resolveFilmPlayerUrl("https://kokoflix.lol/x_go.php?id=c")).toBe("https://kokoflix.lol/x_go.php?id=c");
   });
 });
 
@@ -200,6 +251,12 @@ describe("9.18wwww — commande .novafilm (registre + source)", () => {
     expect(src).toContain("TEMPORARY HIGH-SPEED DOWNLOAD LINK");
     expect(src).toContain("registerSlimOffer");
     expect(src).toContain("slimOfferLine");
+  });
+
+  it("les relais players sont résolus en parallèle avant le moteur + garde anti-relais", () => {
+    const src = fs.readFileSync("src/bot/commands/novafilm.ts", "utf-8");
+    expect(src).toContain("resolveFilmPlayerUrl(u)");
+    expect(src).toContain("isFilmRelayUrl(best.url)");
   });
 
   it("gardes : plafond taille, quota temporaire, SSRF, série refusée honnêtement", () => {

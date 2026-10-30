@@ -42,9 +42,15 @@ export function parseAgentDecision(raw: string): AgentDecision | null {
     return null;
   }
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
-  const action = String(obj.action || "").toLowerCase();
+  // 9.18xxxx (terrain 25/10) : certains tours émettent un tool-call
+  // {"cmd": ".ytv", "args": "…"} au lieu du contrat {"action":"execute",…} —
+  // le JSON brut s'affichait alors dans le chat. Tolérance de FORMAT
+  // uniquement : la validation aval (registre + alias, denylist, guardrail
+  // d'args, confirmation si lourd) reste IDENTIQUE, zéro confiance.
+  const rawCmd = typeof obj.cmd === "string" ? obj.cmd : typeof obj.command === "string" ? obj.command : null;
+  const action = String(obj.action || (rawCmd ? "execute" : "")).toLowerCase();
   if (action === "execute") {
-    const command = String(obj.command || "").trim().toLowerCase();
+    const command = (rawCmd || "").trim().toLowerCase().replace(/^[^a-z0-9]+/, "");
     if (!/^[a-z0-9]+$/.test(command)) return null;
     const args = typeof obj.args === "string" ? obj.args.trim().slice(0, 400) : "";
     const say = typeof obj.say === "string" && obj.say.trim() ? obj.say.trim().slice(0, 300) : undefined;
