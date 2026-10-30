@@ -4,7 +4,7 @@ import path from "path";
 import crypto from "crypto";
 import axios from "axios";
 import { BotCommand, BotCommandContext } from "../types.js";
-import { resolveBestMirrorStream } from "../services/animeStreamExtractor.js";
+import { resolveBestMirrorStream, extractMultiHostStream, pickOptimalStream } from "../services/animeStreamExtractor.js";
 import { downloadHlsAppLevel } from "../services/hlsDownloader.js";
 import { registerTempDownload, getLinkTtlMinutes, wouldExceedTempQuota } from "../tempDownloadManager.js";
 import { probeVideoInfo } from "../services/mediaToolkit.js";
@@ -20,6 +20,7 @@ import {
   filmAvailableLanguages,
   resolveFilmPlayerUrl,
   isFilmRelayUrl,
+  filmStreamOrigin,
   type FilmSearchResult,
   type FilmPlayer,
 } from "../services/filmStreamClient.js";
@@ -58,6 +59,8 @@ interface FilmSession {
   variants: FilmVariant[];
   hostName: string;
   searchResults: FilmSearchResult[];
+  /** 9.18yyyy : embeds résolus de la langue active (repli si le miroir élu échoue). */
+  resolvedMirrors: string[];
   timer?: NodeJS.Timeout;
 }
 
@@ -142,13 +145,18 @@ async function resolveFilmQuality(
   // Les embeds directs (vidzy, uqload) passent tels quels et restent
   // prioritaires dans le tri du moteur partagé.
   const resolved = await Promise.all(mirrors.map((u) => resolveFilmPlayerUrl(u)));
-  const best = await resolveBestMirrorStream(resolved, "480P");
+  // 9.18yyyy : le Referer du catalogue est passé en indice au moteur partagé
+  // (fsvid 403 et embeds « restreints » famille uqload sans Referer autorisé)
+  // et TOUS les embeds résolus restent en session — si le miroir élu s'avère
+  // être un leurre ou en panne au téléchargement, le repli est transparent.
+  const best = await resolveBestMirrorStream(resolved, "480P", { refererHint: `${filmStreamOrigin()}/` });
   if (!best || !best.url || isFilmRelayUrl(best.url)) {
     throw Object.assign(new Error("no-mirror"), { hint: "Impossible de résoudre le lecteur de ce film — réessaie dans un instant." });
   }
 
   session.language = language;
   session.hostName = best.hostName;
+  session.resolvedMirrors = Array.from(new Set(resolved.filter((u) => !!u)));
 
   const tracks = (best.availableTracks || []).filter((t) => !!t.url);
   if (tracks.length > 0) {
@@ -176,6 +184,40 @@ async function resolveFilmQuality(
   }
   session.step = "quality";
   await context.reply(buildQualityScreen(session));
+}
+
+/** Hostname nu d'un embed (comparaison pour exclure le miroir déjà essayé). */
+function filmMirrorHost(u: string): string {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+/** 9.18yyyy — garde anti-leurre FINALE : un « film » de moins de 1 Mo ou une
+ * page HTML sauvée en .mp4 n'est JAMAIS un vrai film (terrain 30/10 : leurre
+ * vidzy de 0.4 MB livré tel quel). On rejette, l'appelant replie sur un
+ * autre miroir au lieu de servir un fichier cassé. */
+const FILM_MIN_BYTES = 1024 * 1024;
+
+export function looksLikeRealMediaFile(filePath: string): boolean {
+  try {
+    const stats = fs.statSync(filePath);
+    if (stats.size < FILM_MIN_BYTES) return false;
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const buf = Buffer.alloc(256);
+      const read = fs.readSync(fd, buf, 0, 256, 0);
+      const head = buf.subarray(0, read).toString("latin1");
+      if (/<(!doctype|html|head|body|\?xml)/i.test(head)) return false;
+      return true;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
 }
 
 /** Télécharge un MP4 direct avec plafond dur (jamais de disque sans garde). */
@@ -290,6 +332,12 @@ const novafilmCommand: BotCommand = {
           const title = session.title;
           const language = session.language;
           const hostName = session.hostName;
+          const wantedRes = variant.label;
+          // 9.18yyyy : les autres embeds de la langue restent disponibles —
+          // miroirs du MÊME host exclus (déjà essayés par le moteur partagé).
+          const fallbackMirrorUrls = Array.from(new Set(session.resolvedMirrors || [])).filter(
+            (u) => !!u && filmMirrorHost(u) !== hostName
+          );
           clearFilmSession(sender); // le téléchargement ne dépend plus de la session
 
           if ((variant.estimatedSizeMB || 0) > filmMaxMB()) {
@@ -309,17 +357,54 @@ const novafilmCommand: BotCommand = {
           );
 
           const localPath = path.join(os.tmpdir(), `novafilm_${crypto.randomBytes(8).toString("hex")}.mp4`);
+          let usedLabel = variant.label;
+          let usedHost = hostName;
+
+          const downloadVariant = async (v: FilmVariant): Promise<boolean> => {
+            if (v.type === "hls") {
+              return downloadHlsAppLevel(v.url, localPath, v.headers, 600000);
+            }
+            return downloadDirectMp4(v.url, v.headers, localPath, filmMaxMB() * 1024 * 1024);
+          };
+
+          // 9.18yyyy — essai du miroir élu, puis repli TRANSPARENT sur les
+          // autres embeds de la langue : un leurre ou une panne ne doit
+          // JAMAIS se voir côté utilisateur (garde : ≥ 1 Mo et pas d'HTML).
           let ok = false;
           try {
-            if (variant.type === "hls") {
-              ok = await downloadHlsAppLevel(variant.url, localPath, variant.headers, 600000);
-            } else {
-              ok = await downloadDirectMp4(variant.url, variant.headers, localPath, filmMaxMB() * 1024 * 1024);
-            }
+            ok = await downloadVariant(variant);
           } catch {
             ok = false;
           }
-          if (!ok || !fs.existsSync(localPath) || fs.statSync(localPath).size === 0) {
+          if (!ok || !looksLikeRealMediaFile(localPath)) {
+            for (const mirrorUrl of fallbackMirrorUrls) {
+              const alt = await extractMultiHostStream(mirrorUrl, { refererHint: `${filmStreamOrigin()}/` });
+              if (!alt || !alt.url || isFilmRelayUrl(alt.url)) continue;
+              const altTracks = (alt.availableTracks || []).filter((t) => !!t.url);
+              const altPick = altTracks.length > 0 ? pickOptimalStream(altTracks, wantedRes) : null;
+              const altVariant: FilmVariant = {
+                label: altPick ? altPick.resolution : alt.originalResolution || "Auto",
+                url: altPick ? altPick.url : alt.url,
+                type: altPick ? altPick.type : alt.type,
+                headers: (altPick && altPick.headers) || alt.headers,
+                estimatedSizeMB: altPick?.fileSizeBytes
+                  ? Math.max(1, Math.round(altPick.fileSizeBytes / (1024 * 1024)))
+                  : alt.estimatedSizeMB,
+              };
+              try {
+                const altOk = await downloadVariant(altVariant);
+                if (altOk && looksLikeRealMediaFile(localPath)) {
+                  ok = true;
+                  usedLabel = altVariant.label;
+                  usedHost = alt.hostName || usedHost;
+                  break;
+                }
+              } catch {
+                // miroir suivant — aucune erreur visible
+              }
+            }
+          }
+          if (!ok || !looksLikeRealMediaFile(localPath)) {
             if (fs.existsSync(localPath)) {
               try {
                 fs.unlinkSync(localPath);
@@ -333,7 +418,7 @@ const novafilmCommand: BotCommand = {
           // ── Livraison (chemin éprouvé Novabox) ─────────────────────────
           const stats = fs.statSync(localPath);
           const fileSizeMB = Number((stats.size / 1e6).toFixed(1));
-          const resClean = variant.label.replace(/[^0-9a-zA-Z]/g, "") || "FILM";
+          const resClean = usedLabel.replace(/[^0-9a-zA-Z]/g, "") || "FILM";
           const filename = sanitizeFilename(`${title.replace(/\s+/g, "_")}_${language}_${resClean}_FILM`) + ".mp4";
 
           try {
@@ -349,7 +434,7 @@ const novafilmCommand: BotCommand = {
                 filename,
                 bytes: stats.size,
                 targetMB: slimEffectiveTargetMB(stats.size, probed.durationSec || 0, slimTargetMB()),
-                meta: { title, lang: language, resolution: variant.label, player: hostName },
+                meta: { title, lang: language, resolution: usedLabel, player: usedHost },
               });
               slimOfferText =
                 "\n\n" + slimOfferLine(offer.bytes, offer.targetMB, slimEtaMinutes(offer.bytes, "aggressive"));
@@ -359,9 +444,9 @@ const novafilmCommand: BotCommand = {
               `📥 *NEBULA NOVAFILM DOWNLOAD* 📥\n\n` +
               `🎬 *Film:* ${title}\n` +
               `🗣️ *Language:* ${language}\n` +
-              `⚙️ *Resolution:* ${variant.label}\n` +
+              `⚙️ *Resolution:* ${usedLabel}\n` +
               `📦 *Size:* ${fileSizeMB} MB\n` +
-              `📺 *Player Source:* ${hostName}\n` +
+              `📺 *Player Source:* ${usedHost}\n` +
               `📄 *Filename:* \`${filename}\`\n\n` +
               `🚀 *Direct High-Speed Download (Browser/PC):*\n🔗 ${link}\n` +
               `⏳ _Valid ${getLinkTtlMinutes()} min after each download (max 2 h)_` +
@@ -383,7 +468,7 @@ const novafilmCommand: BotCommand = {
                   `⏳ *Link Validity:* ${getLinkTtlMinutes()} min after each download (max 2 h)\n` +
                   `🎬 *Film:* ${title}\n` +
                   `🗣️ *Language:* ${language}\n` +
-                  `⚙️ *Quality:* ${variant.label}\n` +
+                  `⚙️ *Quality:* ${usedLabel}\n` +
                   `📄 *File:* \`${filename}\`\n\n` +
                   `🔗 *Secure Download Link:*\n${link}\n\n` +
                   `💡 _Click the link to download directly at full speed or stream in your browser._\n\n` +
@@ -443,6 +528,7 @@ const novafilmCommand: BotCommand = {
       variants: [],
       hostName: "",
       searchResults: results.slice(0, 8),
+      resolvedMirrors: [],
     };
     sessions.set(sender, session);
     refreshFilmTimer(sender);

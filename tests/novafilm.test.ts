@@ -1,5 +1,5 @@
 import fs from "fs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * 9.18wwww — Novaboxb (films) : client du catalogue, extracteur veev/doods,
@@ -197,6 +197,191 @@ describe("9.18xxxx — relais players kokoflix (résolution avec Referer catalog
     expect(await resolveFilmPlayerUrl("https://kokoflix.lol/x_go.php?id=b")).toBe("https://kokoflix.lol/x_go.php?id=b");
     mGet.mockRejectedValueOnce(new Error("timeout"));
     expect(await resolveFilmPlayerUrl("https://kokoflix.lol/x_go.php?id=c")).toBe("https://kokoflix.lol/x_go.php?id=c");
+  });
+});
+
+// ─── 9.18yyyy — famille XUpload (vidzy/uqload) : décodage + anti-leurre ─────
+// Terrain 30/10 23:16 : `.f 1` → fichier de 0.4 MB — la playlist LEURRE du
+// lecteur vidzy servie comme film. Fix : décodage XUpload (base64 → reverse
+// → XOR graine-hôte + BC), validation de vie de CHAQUE candidat (pas HTML,
+// playlist #EXTM3U, ≥ 1 Mo en direct), repli transparent sur les autres
+// miroirs. Blobs construits par l'encodeur symétrique (zéro réseau).
+
+describe("9.18yyyy — famille XUpload (vidzy) : décodage blob + anti-leurre", () => {
+  const MASTER_URL =
+    "https://v6.vidzy.cc/hls2/01/00064/xcann0vdymps_o/master.m3u8?t=YdpGESGL&s=1793399216&e=14400&f=323156";
+  const SEED_VIDZY_CC = 42; // 'v'+'i'+'d'+'z'+'y'+'.'+'c'+'c' = 810 & 255
+  const BC_MEASURED = 97; // CSS « 1in + 98px » → (96 + 98) / 2
+
+  /** Encodeur symétrique de decodeXUploadBlob (le décodeur inverse les octets). */
+  function encodeXUpload(url: string, seed: number, bc: number): string {
+    const p = Buffer.from(url, "utf8");
+    const x = Buffer.alloc(p.length);
+    for (let k = 0; k < p.length; k++) x[k] = p[k] ^ ((0x3d + k * 89 + seed + bc) & 255);
+    return Buffer.from(x.reverse()).toString("base64");
+  }
+
+  afterEach(() => {
+    mGet.mockReset();
+  });
+
+  it("xuploadHostSeed : checksums réels (vidzy.cc=42, vidzy.org=172)", async () => {
+    const { xuploadHostSeed } = await import("../src/bot/services/animeStreamExtractor.js");
+    expect(xuploadHostSeed("vidzy.cc")).toBe(42);
+    expect(xuploadHostSeed("vidzy.org")).toBe(172);
+    expect(xuploadHostSeed("")).toBe(0);
+  });
+
+  it("decodeXUploadBlob : aller-retour ; mauvaise clé (BC) ne rend jamais l'URL", async () => {
+    const { decodeXUploadBlob } = await import("../src/bot/services/animeStreamExtractor.js");
+    const blob = encodeXUpload(MASTER_URL, SEED_VIDZY_CC, BC_MEASURED);
+    expect(decodeXUploadBlob(blob, SEED_VIDZY_CC, BC_MEASURED)).toBe(MASTER_URL);
+    // mauvais BC : bruit — jamais l'URL attendue
+    expect(decodeXUploadBlob(blob, SEED_VIDZY_CC, BC_MEASURED + 1)).not.toBe(MASTER_URL);
+    expect(decodeXUploadBlob("!!!pas-base64!!!", SEED_VIDZY_CC, 0)).toBeNull();
+  });
+
+  it("extractXUploadStreamUrls : BC mesuré ET brute-force ; blob AVANT sources claires ; uqload plain", async () => {
+    const { extractXUploadStreamUrls } = await import("../src/bot/services/animeStreamExtractor.js");
+    const blob = encodeXUpload(MASTER_URL, SEED_VIDZY_CC, BC_MEASURED);
+    const withHint = `<html><style>.m{width:calc(1in + 98px)}</style><script>if(el.offsetWidth){sources:[{src:(function(s){return s})("${blob}")}]}</script></html>`;
+    // BC lu depuis le CSS
+    expect(extractXUploadStreamUrls(withHint, "vidzy.cc")).toEqual([MASTER_URL]);
+    // Sans l'indice CSS : brute-force 0..255 — la graine hôte suffit
+    const noHint = `<html><script>if(el.offsetWidth){sources:[{src:(function(s){return s})("${blob}")}]}</script></html>`;
+    expect(extractXUploadStreamUrls(noHint, "vidzy.cc")).toEqual([MASTER_URL]);
+    // Autre hôte servi : graine différente MAIS le brute-force BC (0..255)
+    // couvre toutes les sommes additives (graine + BC) mod 256 — l'URL est
+    // retrouvée quand même (robustesse aux rotations de domaine vidzy).
+    expect(extractXUploadStreamUrls(noHint, "vidzy.org")).toEqual([MASTER_URL]);
+    // Blob décodé classé AVANT une source claire (le leurre pub reste 2e) —
+    // le marqueur offsetWidth active le brute-force BC (gabarit actuel).
+    const both = `<html><script>if(el.offsetWidth){sources:[{file:"https://pub.example/promo.mp4"}];(function(s){})("${blob}")}</script></html>`;
+    expect(extractXUploadStreamUrls(both, "vidzy.cc")[0]).toBe(MASTER_URL);
+    expect(extractXUploadStreamUrls(both, "vidzy.cc")[1]).toBe("https://pub.example/promo.mp4");
+    // Ancien gabarit (aucune mesure navigateur) : clé = graine seule (bc=0)
+    const legacyUrl = "https://v6.vidzy.cc/hls2/old/template-legacy/master.m3u8?t=abc123";
+    const legacyBlob = encodeXUpload(legacyUrl, SEED_VIDZY_CC, 0);
+    const legacy = `<html><script>sources:[{src:(function(s){return s})("${legacyBlob}")}]</script></html>`;
+    expect(extractXUploadStreamUrls(legacy, "vidzy.cc")).toEqual([legacyUrl]);
+    // uqload : source claire jwplayer
+    const uq = `<html><script>jwplayer("v").setup({sources:[{file:"https://uqload.vc/abc.mp4"}]})</script></html>`;
+    expect(extractXUploadStreamUrls(uq, "uqload.vc")).toContain("https://uqload.vc/abc.mp4");
+  });
+
+  it("extractXUploadFamilyStream : Referer catalogue refusé (403) → origine → blob décodé → m3u8 validée + tracks réelles", async () => {
+    const { extractXUploadFamilyStream } = await import("../src/bot/services/animeStreamExtractor.js");
+    const blob = encodeXUpload(MASTER_URL, SEED_VIDZY_CC, BC_MEASURED);
+    const pageHtml = `<html><style>.m{width:calc(1in + 98px)}</style><script>if(el.offsetWidth){sources:[{src:(function(s){return s})("${blob}")}]}</script></html>`;
+    const MASTER = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=854x480\nv480.m3u8\n";
+
+    mGet.mockImplementation(async (url: any, cfg: any) => {
+      const u = String(url);
+      const referer = cfg?.headers?.Referer || "";
+      if (u.includes("vidzy.cc/embed")) {
+        if (referer === "https://french-stream.net/") return { status: 403, data: "" }; // Referer catalogue refusé
+        return { status: 200, data: pageHtml, request: { res: { responseUrl: "https://vidzy.cc/embed-x.html" } } };
+      }
+      if (u.includes("master.m3u8")) {
+        return { status: 200, headers: { "content-type": "application/vnd.apple.mpegurl" }, data: MASTER };
+      }
+      if (u.includes("v480.m3u8")) {
+        return { status: 200, headers: {}, data: "#EXTM3U\n#EXTINF:600.0,\nseg1.ts\n" };
+      }
+      return { status: 404, data: "" };
+    });
+
+    const res = await extractXUploadFamilyStream("https://vidzy.cc/embed-x.html", {
+      refererHint: "https://french-stream.net/",
+    });
+
+    expect(res).not.toBeNull();
+    expect(res!.url).toBe(MASTER_URL);
+    expect(res!.type).toBe("hls");
+    expect(res!.hostName).toBe("vidzy.cc");
+    expect(res!.headers.Referer).toBe("https://vidzy.cc/");
+    expect(res!.availableTracks?.length).toBeGreaterThan(0);
+    expect(res!.availableTracks![0].url).toContain("v480.m3u8");
+    expect(res!.availableTracks![0].fileSizeBytes).toBeGreaterThan(0);
+    // Le Referer catalogue a bien été essayé EN PREMIER
+    expect(mGet.mock.calls[0]?.[1]?.headers?.Referer).toBe("https://french-stream.net/");
+  });
+
+  it("anti-leurre (régression terrain 0.4 MB) : source claire type pub < 1 Mo REJETÉE → null ; mp4 plausible accepté", async () => {
+    const { extractXUploadFamilyStream } = await import("../src/bot/services/animeStreamExtractor.js");
+    const decoyHtml = `<html><script>jwplayer("v").setup({sources:[{file:"https://pub.example/promo.mp4"}]})</script></html>`;
+
+    mGet.mockImplementation(async (url: any) => {
+      const u = String(url);
+      if (u.includes("uqload.vc/embed")) return { status: 200, data: decoyHtml };
+      if (u.includes("promo.mp4")) {
+        return { status: 200, headers: { "content-type": "video/mp4", "content-length": "420000" } };
+      }
+      return { status: 404, data: "" };
+    });
+    expect(await extractXUploadFamilyStream("https://uqload.vc/embed-1.html")).toBeNull();
+
+    // Un vrai fichier (content-range total 323 Mo) passe, avec taille honnête
+    mGet.mockReset();
+    mGet.mockImplementation(async (url: any) => {
+      const u = String(url);
+      if (u.includes("uqload.vc/embed")) return { status: 200, data: decoyHtml };
+      if (u.includes("promo.mp4")) {
+        return { status: 206, headers: { "content-type": "video/mp4", "content-range": "bytes 0-2047/339078000" } };
+      }
+      return { status: 404, data: "" };
+    });
+    const res = await extractXUploadFamilyStream("https://uqload.vc/embed-1.html");
+    expect(res).not.toBeNull();
+    expect(res!.type).toBe("direct_mp4");
+    expect(res!.url).toBe("https://pub.example/promo.mp4");
+    expect(res!.estimatedSizeMB).toBe(323);
+  });
+
+  it("resolveBestMirrorStream : plus RIEN d'extractible → URL vide (fini le pseudo-hls = page embed)", async () => {
+    const { resolveBestMirrorStream } = await import("../src/bot/services/animeStreamExtractor.js");
+    mGet.mockImplementation(async () => ({ status: 500, data: "" }));
+    const res = await resolveBestMirrorStream(["https://vidzy.cc/embed-x.html"], "480P");
+    expect(res.url).toBe("");
+    expect(res.hostName).toBe("");
+  });
+
+  it("garde finale looksLikeRealMediaFile : ≥ 1 Mo non-HTML, sinon rejet (fichiers réels)", async () => {
+    const os = await import("os");
+    const pathMod = await import("path");
+    const { looksLikeRealMediaFile } = await import("../src/bot/commands/novafilm.js");
+    const tmp = (name: string) => pathMod.join(os.tmpdir(), `novafilm-guard-${process.pid}-${name}`);
+
+    const big = Buffer.alloc(12 * 1024 * 1024, 0x47); // flux TS binaire
+    fs.writeFileSync(tmp("big.mp4"), big);
+    expect(looksLikeRealMediaFile(tmp("big.mp4"))).toBe(true);
+
+    fs.writeFileSync(tmp("tiny.mp4"), Buffer.alloc(400 * 1024, 0x47)); // leurre 0.4 MB
+    expect(looksLikeRealMediaFile(tmp("tiny.mp4"))).toBe(false);
+
+    const htmlPage = Buffer.concat([Buffer.from("<!DOCTYPE html><html><body>leurre</body>"), Buffer.alloc(2 * 1024 * 1024, 0x61)]);
+    fs.writeFileSync(tmp("html.mp4"), htmlPage);
+    expect(looksLikeRealMediaFile(tmp("html.mp4"))).toBe(false);
+
+    expect(looksLikeRealMediaFile(tmp("inexistant.mp4"))).toBe(false);
+    for (const n of ["big.mp4", "tiny.mp4", "html.mp4"]) {
+      try {
+        fs.unlinkSync(tmp(n));
+      } catch {}
+    }
+  });
+
+  it("repli miroirs câblé dans .f (refererHint, boucle de secours, garde, session)", () => {
+    const src = fs.readFileSync("src/bot/commands/novafilm.ts", "utf-8");
+    expect(src).toContain('resolveBestMirrorStream(resolved, "480P", { refererHint');
+    expect(src).toContain("extractMultiHostStream(mirrorUrl, { refererHint");
+    expect(src).toContain("pickOptimalStream(altTracks, wantedRes)");
+    expect(src).toContain("looksLikeRealMediaFile(localPath)");
+    expect(src).toContain("FILM_MIN_BYTES");
+    expect(src).toContain("session.resolvedMirrors");
+    const engine = fs.readFileSync("src/bot/services/animeStreamExtractor.ts", "utf-8");
+    expect(engine).toContain("await extractXUploadFamilyStream(playerUrl, options)");
+    expect(engine).toContain("9.18yyyy — repli HONNETE");
   });
 });
 
