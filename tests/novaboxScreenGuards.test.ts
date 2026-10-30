@@ -80,15 +80,19 @@ describe("9.18tttt — .a e<N> sur l'écran sélection = guidance honnête, PAS 
 });
 
 describe("9.18uuuu — photo/image sans lien : outil interne Nova img (recherche universelle)", () => {
-  it("la connaissance IA route « envoie-moi une photo de X » vers img (jamais de génération)", () => {
+  it("la connaissance IA route « envoie-moi une photo de X » vers img — EXECUTION, jamais en texte (terrain 31/10)", () => {
     expect(knowledge).toContain("« une photo/image de X » (même « de Pinterest »)");
     expect(knowledge).toContain("img X");
-    expect(knowledge).toContain("outil interne, jamais de génération");
+    // 9.18zzzz : l'agent avait ÉCRIT « .img attack on titan » dans le chat au
+    // lieu d'exécuter — la règle impose désormais la décision execute.
+    expect(knowledge).toContain("décision execute");
+    expect(knowledge).toContain("JAMAIS la commande en texte");
+    expect(knowledge).toContain("pas de génération");
   });
 
   it(".dl reste le chemin pour un LIEN direct ; img couvre le sans-lien (6 images web)", () => {
     expect(knowledge).toContain("photo/image SANS lien → outil interne");
-    expect(knowledge).toContain("jusqu'à 6 images web universelles");
+    expect(knowledge).toContain("(6 images web)");
     expect(knowledge).toContain("= lien FB/X/Pinterest/Reddit");
   });
 });

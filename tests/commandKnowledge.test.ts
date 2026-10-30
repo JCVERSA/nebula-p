@@ -63,7 +63,7 @@ describe("commandKnowledge — fiche .a (statique)", () => {
   expect(k).toContain("CIBLE DANS LES ARGS");
   expect(k).toContain("INTERNATIONAUX");
     expect(k).toContain("Détecte l'intention");
-    expect(k).toContain("Ne promets jamais une capacité qui n'existe pas");
+    expect(k).toContain("Ne promets jamais une capacité inexistante");
     expect(k).toContain("Que sais-tu faire ?");
   });
 

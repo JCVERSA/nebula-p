@@ -356,6 +356,13 @@ const XUPLOAD_FALLBACK_REFERERS = ["https://lecteurvideo.com/"];
 export interface MirrorResolveOptions {
   /** Referer du catalogue appelant — essaye en PREMIER (french-stream pour .f). */
   refererHint?: string;
+  /**
+   * 9.18zzzz — durée de repli (secondes) quand la playlist variante est
+   * illisible : le 1440 par défaut (24 min, heuristique ANIME) sous-estimait
+   * 6× la taille d'un film (terrain 31/10 : 240 MB affichés, 1666 réels).
+   * Les films passent ~6600 (110 min).
+   */
+  fallbackDurationSec?: number;
 }
 
 interface StreamCandidateVerdict {
@@ -485,7 +492,7 @@ export async function extractXUploadFamilyStream(
       let tracks: StreamQualityTrack[] = [];
       if (isHls) {
         try {
-          tracks = await fetchHlsTracksAndSizes(candidate, `${playerOrigin}/`, playerOrigin);
+          tracks = await fetchHlsTracksAndSizes(candidate, `${playerOrigin}/`, playerOrigin, options.fallbackDurationSec ?? 1440);
         } catch {
           // tracks optionnels — l'URL nue reste utilisable
         }
@@ -1158,7 +1165,8 @@ async function resolvePlaylistDurationSeconds(
 export async function fetchHlsTracksAndSizes(
   masterUrl: string,
   refererUrl: string,
-  originUrl?: string
+  originUrl?: string,
+  fallbackDurationSec: number = 1440
 ): Promise<StreamQualityTrack[]> {
   const tracks: StreamQualityTrack[] = [];
   const reqHeaders: Record<string, string> = {
@@ -1193,7 +1201,7 @@ export async function fetchHlsTracksAndSizes(
           // Real size estimate: fetch this variant's playlist, sum its segment
           // durations (#EXTINF) and compute bandwidth * duration / 8. Falls
           // back to the 24-minute anime heuristic when the CDN refuses us.
-          const durationSeconds = (await resolvePlaylistDurationSeconds(streamUrl, reqHeaders)) ?? 1440;
+          const durationSeconds = (await resolvePlaylistDurationSeconds(streamUrl, reqHeaders)) ?? fallbackDurationSec;
           const fileSizeBytes = Math.round((bandwidth * durationSeconds) / 8);
 
           let label = "480P";

@@ -573,7 +573,14 @@ export async function downloadHlsAppLevel(
   outputPath: string,
   headers: Record<string, string>,
   timeoutMs: number = 240000,
-  progressCallback?: (progress: number, detail?: { bytesDone: number; segmentsDone: number; segmentsTotal: number }) => void
+  progressCallback?: (progress: number, detail?: { bytesDone: number; segmentsDone: number; segmentsTotal: number }) => void,
+  /**
+   * 9.18zzzz — plafond dur d'octets réseau (films). Un manifeste dont la
+   * taille a été sous-estimée ne doit JAMAIS remplir le disque : la règle
+   * terrain « un téléchargement ne tue jamais le bot » prime. undefined =
+   * pas de plafond (comportement historique animés).
+   */
+  maxTotalBytes?: number
 ): Promise<boolean> {
   const tempDir = path.join(os.tmpdir(), `cat_catch_${crypto.randomBytes(8).toString("hex")}`);
   try {
@@ -760,6 +767,15 @@ export async function downloadHlsAppLevel(
           if (buffer && buffer.length > 0) {
             success = true;
             downloadedBytes += buffer.length; // 9.18dddd P1 : octets réseau réels
+            // 9.18zzzz : plafond dur — on abandonne CE téléchargement (le
+            // repli miroir/qualité appartient à l'appelant), jamais le bot.
+            if (maxTotalBytes && downloadedBytes > maxTotalBytes) {
+              console.error(
+                `[CAT_CATCH_DOWNLOAD] Byte cap exceeded: ${downloadedBytes} > ${maxTotalBytes} bytes after segment ${segment.index} — aborting.`
+              );
+              hasFailed = true;
+              return false;
+            }
           }
         } catch (err: any) {
           if (process.env.DEBUG_MEDIA === "true") {

@@ -23,6 +23,10 @@ import { recordCommandUse } from "./userDirectory.js";
 import { authorizeCommand, resolveRole } from "./accessControl.js";
 import { getGroupPolicy } from "./groupAccessStore.js";
 import { recordAudit } from "./auditTrail.js";
+// 9.18zzzz — outil interne `img` accessible en préfixe (voir plus bas) :
+// mêmes garde-fous que le chemin agent (quota web, limite d'envois).
+import { findImageCandidates, downloadImageCandidate, IMAGE_SEND_LIMIT, type ImageCandidate } from "./services/imageFinder.js";
+import { checkWebQuota, consumeWebQuota } from "./webQuota.js";
 import { extractQuotedMediaContent } from "./utils/quotedMedia.js";
 import { replySuggestsOtherCatalog } from "./services/agentBrain.js";
 // 9.8 : les écrans interactifs des commandes PREFIX (.a tapé directement)
@@ -77,6 +81,16 @@ export async function dispatchBotCommand(
 ): Promise<AgentCommandOutcome> {
   const { senderJid, senderName, messageContent, prefix } = info;
   const outcome: AgentCommandOutcome = { ok: false, denied: false, hadError: false, lastText: "", vfFallbackHint: false, texts: [] };
+
+  // 9.18zzzz — outil interne `img` tapé en PRÉFIXE (terrain 31/10 : l'agent
+  // a un jour écrit « .img attack on titan » dans le chat, l'utilisateur l'a
+  // copié → « commande inconnue / .instagram »). L'outil reste hors registre
+  // et hors menu (curation owner 8.59/8.73) mais un humain qui le tape
+  // explicitement veut une image : on route vers la même recherche que
+  // l'agent, avec les mêmes quota et replis honnêtes.
+  if (source === "prefix" && commandName === "img") {
+    return await dispatchInternalImageTool(sock, msg, info, args);
+  }
 
   const command = getCommand(commandName);
   if (!command) {
@@ -313,6 +327,81 @@ export async function dispatchBotCommand(
   // se rapporte. Le chemin agent re-posera la même entrée : idempotent.
   if (outcome.texts.length > 0) {
     setLastObservation(senderJid, commandName, outcome.texts);
+  }
+  return outcome;
+}
+
+/**
+ * 9.18zzzz — outil interne `img` en chemin PRÉFIXE : recherche d'images web
+ * universelle (Wikipédia puis Tavily — même moteur que l'agent 9.18uuuu),
+ * quota web partagé, replis honnêtes (aucune erreur crue).
+ */
+async function dispatchInternalImageTool(
+  sock: any,
+  msg: any,
+  info: DispatchInfo,
+  args: string[]
+): Promise<AgentCommandOutcome> {
+  const outcome: AgentCommandOutcome = { ok: true, denied: false, hadError: false, lastText: "", vfFallbackHint: false, texts: [] };
+  const sendText = async (t: string) => {
+    outcome.lastText = t;
+    outcome.hadError = outcome.hadError || replyLooksLikeError(t);
+    if (outcome.texts.length < 6) outcome.texts.push(t);
+    try {
+      await sock.sendMessage(info.senderJid, { text: t }, { quoted: msg });
+    } catch {}
+  };
+
+  const query = args.join(" ").trim();
+  if (!query) {
+    await sendText(`📸 Donne-moi un sujet à chercher — ex. \`${info.prefix}img ciel étoilé\`, ou demande simplement « envoie-moi une photo de X ».`);
+    return outcome;
+  }
+  const webQuota = checkWebQuota(info.actorJid);
+  if (!webQuota.allowed) {
+    await sendText(`📅 *Limite web du jour atteinte* (${webQuota.limit}/jour) — réessaie demain.`);
+    return outcome;
+  }
+
+  recordAudit(`wa:${info.senderNumber}`, "agent.exec", "img", "image-search");
+  try {
+    const { candidates, engines } = await findImageCandidates(query);
+    const picked = candidates.slice(0, IMAGE_SEND_LIMIT);
+    const settled = await Promise.allSettled(
+      picked.map(async (c: ImageCandidate) => ({ c, dl: await downloadImageCandidate(c.url) })),
+    );
+    const ready = settled
+      .filter((r): r is PromiseFulfilledResult<{ c: ImageCandidate; dl: { buffer: Buffer; ext: string } | null }> => r.status === "fulfilled")
+      .map((r) => r.value)
+      .filter((v) => v.dl)
+      .map((v) => ({ c: v.c, dl: v.dl! }));
+
+    let sent = 0;
+    for (const entry of ready) {
+      try {
+        await sock.sendMessage(
+          info.senderJid,
+          { image: entry.dl.buffer, caption: `📸 ${query} — ${entry.c.attribution} (${sent + 1}/${ready.length})` },
+          { quoted: msg },
+        );
+        sent++;
+      } catch {
+        /* une image ratée n'arrête jamais les autres */
+      }
+    }
+
+    if (sent > 0) {
+      consumeWebQuota(info.actorJid);
+      const via = engines.length ? ` via ${engines.join(" + ")}` : "";
+      const missed = sent < picked.length ? ` — ${picked.length - sent} introuvable(s)` : "";
+      await sendText(`📸 ${sent} image(s) envoyée(s) pour « ${query} »${via}${missed}.`);
+    } else if (picked.length > 0) {
+      await sendText(`⚠️ Les ${picked.length} image(s) trouvée(s) pour « ${query} » n'ont pas pu être téléchargées — réessaie, ou envoie-moi un lien direct et \`${info.prefix}dl\` le téléchargera.`);
+    } else {
+      await sendText(`❌ Aucune image trouvée pour « ${query} » — précise ta recherche, ou demande simplement à Nova « envoie-moi une photo de X ».`);
+    }
+  } catch {
+    await sendText("⚠️ La recherche d'images a échoué — réessaie dans un instant.");
   }
   return outcome;
 }

@@ -64,6 +64,13 @@ interface FilmSession {
   timer?: NodeJS.Timeout;
 }
 
+/**
+ * 9.18zzzz — durée de repli pour estimer la taille d'un FILM quand la
+ * playlist variante est illisible : 110 min (le 24 min anime par défaut
+ * sous-estimait 6× — terrain 31/10 : 240 MB affichés pour 1666 réels).
+ */
+const FILM_DURATION_FALLBACK_SEC = 6600;
+
 /** Garde SSRF (même esprit que Novabox) : jamais d'URL privée/localhost. */
 async function isPublicFetchTarget(rawUrl: string, label: string): Promise<boolean> {
   try {
@@ -149,7 +156,10 @@ async function resolveFilmQuality(
   // (fsvid 403 et embeds « restreints » famille uqload sans Referer autorisé)
   // et TOUS les embeds résolus restent en session — si le miroir élu s'avère
   // être un leurre ou en panne au téléchargement, le repli est transparent.
-  const best = await resolveBestMirrorStream(resolved, "480P", { refererHint: `${filmStreamOrigin()}/` });
+  const best = await resolveBestMirrorStream(resolved, "480P", {
+    refererHint: `${filmStreamOrigin()}/`,
+    fallbackDurationSec: FILM_DURATION_FALLBACK_SEC,
+  });
   if (!best || !best.url || isFilmRelayUrl(best.url)) {
     throw Object.assign(new Error("no-mirror"), { hint: "Impossible de résoudre le lecteur de ce film — réessaie dans un instant." });
   }
@@ -362,7 +372,8 @@ const novafilmCommand: BotCommand = {
 
           const downloadVariant = async (v: FilmVariant): Promise<boolean> => {
             if (v.type === "hls") {
-              return downloadHlsAppLevel(v.url, localPath, v.headers, 600000);
+              // 9.18zzzz : plafond dur — un HLS mal estimé ne remplit jamais le disque.
+              return downloadHlsAppLevel(v.url, localPath, v.headers, 600000, undefined, filmMaxMB() * 1024 * 1024);
             }
             return downloadDirectMp4(v.url, v.headers, localPath, filmMaxMB() * 1024 * 1024);
           };
@@ -378,7 +389,10 @@ const novafilmCommand: BotCommand = {
           }
           if (!ok || !looksLikeRealMediaFile(localPath)) {
             for (const mirrorUrl of fallbackMirrorUrls) {
-              const alt = await extractMultiHostStream(mirrorUrl, { refererHint: `${filmStreamOrigin()}/` });
+              const alt = await extractMultiHostStream(mirrorUrl, {
+                refererHint: `${filmStreamOrigin()}/`,
+                fallbackDurationSec: FILM_DURATION_FALLBACK_SEC,
+              });
               if (!alt || !alt.url || isFilmRelayUrl(alt.url)) continue;
               const altTracks = (alt.availableTracks || []).filter((t) => !!t.url);
               const altPick = altTracks.length > 0 ? pickOptimalStream(altTracks, wantedRes) : null;
@@ -391,6 +405,10 @@ const novafilmCommand: BotCommand = {
                   ? Math.max(1, Math.round(altPick.fileSizeBytes / (1024 * 1024)))
                   : alt.estimatedSizeMB,
               };
+              // 9.18zzzz : mêmes gardes que le chemin principal — un miroir
+              // de repli trop lourd ou hors quota est skippé, pas essayé.
+              if ((altVariant.estimatedSizeMB || 0) > filmMaxMB()) continue;
+              if (altVariant.estimatedSizeMB && wouldExceedTempQuota(altVariant.estimatedSizeMB * 1024 * 1024)) continue;
               try {
                 const altOk = await downloadVariant(altVariant);
                 if (altOk && looksLikeRealMediaFile(localPath)) {

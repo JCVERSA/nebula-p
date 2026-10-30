@@ -373,8 +373,8 @@ describe("9.18yyyy — famille XUpload (vidzy) : décodage blob + anti-leurre", 
 
   it("repli miroirs câblé dans .f (refererHint, boucle de secours, garde, session)", () => {
     const src = fs.readFileSync("src/bot/commands/novafilm.ts", "utf-8");
-    expect(src).toContain('resolveBestMirrorStream(resolved, "480P", { refererHint');
-    expect(src).toContain("extractMultiHostStream(mirrorUrl, { refererHint");
+    expect(src).toContain('resolveBestMirrorStream(resolved, "480P", {');
+    expect(src).toContain("extractMultiHostStream(mirrorUrl, {");
     expect(src).toContain("pickOptimalStream(altTracks, wantedRes)");
     expect(src).toContain("looksLikeRealMediaFile(localPath)");
     expect(src).toContain("FILM_MIN_BYTES");
@@ -410,6 +410,62 @@ describe("9.18wwww — extracteur veev/doods (moteur partagé)", () => {
     const src = fs.readFileSync("src/bot/services/animeStreamExtractor.ts", "utf-8");
     expect(src).toContain("await extractVeevFamilyStream(playerUrl)");
     expect(src).toContain('l.includes("doods") || l.includes("veev")');
+  });
+});
+
+// ─── 9.18zzzz — tailles honnêtes + plafond dur (terrain 31/10 00:05) ────────
+// 240 MB affichés, 1666 MB livrés : la durée de repli 24 min (heuristique
+// ANIME) sous-estimait 6× un film de 2 h. + un HLS de 1,6 GB téléchargé
+// sans plafond d'octets (risque disque sur le VPS 953 Mo).
+
+describe("9.18zzzz — durée de repli film (estimation de taille honnête)", () => {
+  it("fetchHlsTracksAndSizes : playlist variante illisible → 6600 s (film), pas 1440 s (anime)", async () => {
+    const { fetchHlsTracksAndSizes } = await import("../src/bot/services/animeStreamExtractor.js");
+    const MASTER = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000000,RESOLUTION=854x480\nv480.m3u8\n";
+    mGet.mockImplementation(async (url: any) => {
+      if (String(url).includes("master.m3u8")) {
+        return { status: 200, headers: {}, data: MASTER };
+      }
+      // playlist variante illisible (403/404/réseau) → durée inconnue
+      throw new Error("forbidden");
+    });
+    const filmTracks = await fetchHlsTracksAndSizes("https://x.cc/master.m3u8", "https://x.cc/", "https://x.cc", 6600);
+    expect(filmTracks.length).toBeGreaterThan(0);
+    expect(filmTracks[0]!.fileSizeBytes).toBe(Math.round((1000000 * 6600) / 8)); // 825 MB
+    const animeTracks = await fetchHlsTracksAndSizes("https://x.cc/master.m3u8", "https://x.cc/", "https://x.cc");
+    expect(animeTracks[0]!.fileSizeBytes).toBe(Math.round((1000000 * 1440) / 8)); // 180 MB
+  });
+
+  it("novafilm passe la durée film au moteur (écran + repli) et le plafond dur au HLS", () => {
+    const src = fs.readFileSync("src/bot/commands/novafilm.ts", "utf-8");
+    expect(src).toContain("FILM_DURATION_FALLBACK_SEC = 6600");
+    expect(src).toContain("fallbackDurationSec: FILM_DURATION_FALLBACK_SEC");
+    // plafond dur HLS (un téléchargement ne tue jamais le bot)
+    expect(src).toContain("downloadHlsAppLevel(v.url, localPath, v.headers, 600000, undefined, filmMaxMB() * 1024 * 1024)");
+    // repli miroir : mêmes gardes que le chemin principal
+    expect(src).toContain("(altVariant.estimatedSizeMB || 0) > filmMaxMB()");
+    expect(src).toContain("altVariant.estimatedSizeMB && wouldExceedTempQuota");
+  });
+
+  it("hlsDownloader : cap maxTotalBytes câblé dans le pool de segments", () => {
+    const src = fs.readFileSync("src/bot/services/hlsDownloader.ts", "utf-8");
+    expect(src).toContain("maxTotalBytes?: number");
+    expect(src).toContain("if (maxTotalBytes && downloadedBytes > maxTotalBytes)");
+    expect(src).toContain("Byte cap exceeded");
+  });
+
+  it("commandDispatch : .img en préfixe routé vers l'outil interne (test dédié commandDispatchImg)", () => {
+    const src = fs.readFileSync("src/bot/commandDispatch.ts", "utf-8");
+    expect(src).toContain('commandName === "img"');
+    expect(src).toContain("dispatchInternalImageTool");
+  });
+
+  it("connaissance : img = décision execute, JAMAIS la commande en texte (terrain 31/10 23:59)", async () => {
+    const { buildCommandKnowledge } = await import("../src/bot/commandKnowledge.js");
+    const k = buildCommandKnowledge(".");
+    expect(k).toContain("décision execute");
+    expect(k).toContain("JAMAIS la commande en texte");
+    expect(k.length).toBeLessThan(4500);
   });
 });
 

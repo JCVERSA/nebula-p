@@ -136,7 +136,7 @@ describe("9.18o — audit agent : contradictions du prompt réconciliées", () =
 
   it("A3 : « Décide » est cadré à ytv/ytm, l'anime reste TOUJOURS à l'utilisateur", () => {
     expect(ck).not.toContain("Choix laissé ? Décide.");
-    expect(ck).toContain("anime : préférences utilisateur");
+    expect(ck).toContain("anime : préférences");
     expect(ck).toContain("vont TOUJOURS à l'utilisateur");
   });
 });
