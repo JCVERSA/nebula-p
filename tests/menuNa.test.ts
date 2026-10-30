@@ -17,6 +17,7 @@ const DISPLAY_KEY_FOR: Record<string, string> = {
   song: "ytm",
   ytlink: "yts",
   anime: "a",
+  novafilm: "f",
   w: "w",
   sticker: "s",
   viewonce: "vv",

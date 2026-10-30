@@ -88,6 +88,8 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "poll", aliases: ["sondage", "vote"] },
   // 9.18oooo : quick wins R&D — .dla (audio seul d'un lien).
   { name: "dla", aliases: [] },
+  // 9.18wwww : Novaboxb — films (décision owner 25/10, French-Stream).
+  { name: "novafilm", aliases: ["f", "film", "films"] },
 ];
 
 describe("inventaire définitif des commandes (8.59)", () => {

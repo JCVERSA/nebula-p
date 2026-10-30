@@ -185,6 +185,7 @@ export function hostPriority(url: string): number {
   if (l.includes("smoothpre") || l.includes("dramiyos") || l.includes("movearnpre") || l.includes("ovaltinecdn")) return 6;
   if (l.includes("uqload") || l.includes("vidzy") || l.includes("luluvdo") || l.includes("lulustream")) return 7;
   if (l.includes("oneupload") || l.includes("filemoon") || l.includes("bysesukior") || l.includes("mivalyo") || l.includes("dingtezuni")) return 8;
+  if (l.includes("doods") || l.includes("veev") || l.includes("kinoger") || l.includes("poophq")) return 7;
   if (l.includes("voe")) return 9;
   return 10;
 }
@@ -608,6 +609,13 @@ export async function extractMultiHostStream(playerUrl: string): Promise<Extract
       // Fallback: plain page scan (some mirrors expose m3u8 directly)
       const fmPage = await probeGenericPlayerPage(playerUrl, "Filemoon");
       if (fmPage) return fmPage;
+    }
+
+    // 0b-bis. 9.18wwww — famille veev/doods (players du catalogue films) :
+    // tokens LZW dans la page + player_api (voir extractVeevFamilyStream).
+    if (/(?:veev|kinoger|poophq|doods)\.(?:to|pw|com)/i.test(playerUrl)) {
+      const veevStream = await extractVeevFamilyStream(playerUrl);
+      if (veevStream) return veevStream;
     }
 
     // 0c. voe / voembed — rotating domains, payload hidden in an
@@ -1464,5 +1472,132 @@ export async function executeDirectOrFfmpegDownload(
   } catch (err: any) {
     console.warn("[STREAM_EXTRACTOR] Download error:", err.message);
     return false;
+  }
+}
+
+// ============================================================================
+// 9.18wwww — famille veev/doods (players FILMS du catalogue Novaboxb).
+// ============================================================================
+// Portage fidèle de l'extracteur de référence (cloudstream Coflix → AutoFlix,
+// licence ouverte) : les pages veev/doods embarquent des tokens LZW-compressés
+// (fc / _vvto), un appel player_api rend le code chiffré (file.dv[0].s) que
+// l'on décode par le même LZW puis une chaîne de règles issue du token.
+// Particularité héritée de la référence : l'id média est partagé entre les
+// domaines de la famille — la page et l'API sont toujours interrogées sur
+// veev.to, quel que soit le domaine d'origine du lien.
+
+/** Décode un token LZW de la famille veev (pur — testé). */
+export function veevLzwDecode(etext: string): string {
+  const lut = new Map<number, string>();
+  for (let i = 0; i < 256; i++) lut.set(i, String.fromCharCode(i));
+  let n = 256;
+  if (!etext) return "";
+  let c = etext[0];
+  const result: string[] = [c];
+  for (const char of etext.slice(1)) {
+    const code = char.charCodeAt(0);
+    const entry = lut.has(code) ? lut.get(code)! : c + c[0];
+    result.push(entry);
+    lut.set(n, c + entry[0]);
+    n++;
+    c = entry;
+  }
+  return result.join("");
+}
+
+/** Extrait la rangée de règles du token décompressé (pur — testé). */
+export function veevParseRules(ch: string): number[] {
+  const chars = (ch || "").split("");
+  let i = 0;
+  const nextInt = (): number => {
+    if (i >= chars.length) return 0;
+    const t = chars[i++];
+    return /\d/.test(t) ? parseInt(t, 10) : 0;
+  };
+  const count = nextInt();
+  if (count === 0) return [];
+  const row: number[] = [];
+  for (let k = 0; k < count; k++) row.push(nextInt());
+  return row.reverse();
+}
+
+/** Applique les règles (reverse + hex) au code final (pur — testé). */
+export function veevDecodeFinal(encoded: string, rules: number[]): string {
+  let text = encoded;
+  for (const r of rules) {
+    if (r === 1) text = text.split("").reverse().join("");
+    if (/^[0-9a-fA-F]+$/.test(text) && text.length % 2 === 0) {
+      // Fidèle à la référence : un hex non décodable en UTF-8 reste tel quel.
+      const buf = Buffer.from(text, "hex");
+      const dec = buf.toString("utf8");
+      if (Buffer.from(dec, "utf8").equals(buf)) text = dec;
+    }
+    text = text.replace(/dXRmOA==/g, "");
+  }
+  return text;
+}
+
+/** URL d'API player_api de la famille veev (pur — testé). */
+export function buildVeevApiUrl(mediaId: string, ch: string): string {
+  return `https://veev.to/dl?op=player_api&cmd=gi&file_code=${mediaId}&r=https://veev.to&ch=${encodeURIComponent(ch)}&ie=1`;
+}
+
+/** Résout un player veev/doods en flux direct (HLS ou MP4). */
+export async function extractVeevFamilyStream(playerUrl: string): Promise<ExtractedStreamResult | null> {
+  try {
+    const idMatch = (playerUrl || "").match(/(?:(?:\/\/|\.)|(?:^https?:\/\/))(?:veev|kinoger|poophq|doods)\.(?:to|pw|com)\/[ed]\/([0-9A-Za-z]+)/i);
+    if (!idMatch) return null;
+    const mediaId = idMatch[1];
+
+    const pageResp = await axios.get(`https://veev.to/e/${mediaId}`, {
+      headers: { "User-Agent": DEFAULT_USER_AGENT, Referer: "https://veev.to/" },
+      timeout: 10000,
+      validateStatus: () => true,
+      ...animeProxyOptions(),
+    });
+    if (pageResp.status !== 200 || typeof pageResp.data !== "string") return null;
+    const html: string = pageResp.data;
+
+    const tokenRe = /[.\s'](?:fc|_vvto\[[^\]]*)(?:['\]]*)?\s*[:=]\s*['"]([^'"]+)/g;
+    const found: string[] = [...html.matchAll(tokenRe)].map((m) => m[1]);
+    if (found.length === 0) return null;
+
+    for (const f of [...found].reverse()) {
+      const ch = veevLzwDecode(f);
+      if (ch === f) continue; // le décodage n'a rien changé : pas un token
+
+      const apiResp = await axios.get(buildVeevApiUrl(mediaId, ch), {
+        headers: { "User-Agent": DEFAULT_USER_AGENT, Referer: "https://veev.to/" },
+        timeout: 10000,
+        validateStatus: () => true,
+        ...animeProxyOptions(),
+      });
+      const file = apiResp.data?.file;
+      if (!file || file.file_status !== "OK" || !Array.isArray(file.dv) || file.dv.length === 0) continue;
+      const dvString = file.dv[0]?.s;
+      if (typeof dvString !== "string" || !dvString) continue;
+
+      const finalLink = veevDecodeFinal(veevLzwDecode(dvString), veevParseRules(ch));
+      if (!/^https?:\/\//i.test(finalLink)) continue;
+
+      const isHls = /\.m3u8/i.test(finalLink);
+      let tracks: StreamQualityTrack[] = [];
+      if (isHls) {
+        try {
+          tracks = await fetchHlsTracksAndSizes(finalLink, "https://veev.to/", "https://veev.to");
+        } catch {}
+      }
+      return {
+        hostName: "Dood",
+        url: finalLink,
+        type: isHls ? "hls" : "direct_mp4",
+        headers: { "User-Agent": DEFAULT_USER_AGENT, Referer: "https://veev.to/" },
+        availableTracks: tracks,
+      };
+    }
+    return null;
+  } catch (err: any) {
+    if (process.env.DEBUG_MEDIA) console.debug(`[STREAM_EXTRACTOR] veev/doods probe error (${playerUrl}):`, err.message);
+    return null;
   }
 }

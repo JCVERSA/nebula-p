@@ -65,6 +65,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["slim", "Allège la dernière vidéo lourde livrée (~190 Mo, même résolution)"],
       ["w", "Veille des nouveaux épisodes"],
       ["trace", "Identifie l’anime d’une image (réponds à l’image)"],
+      ["f", "Films VF / VOSTFR (novafilm)"],
     ],
   },
   {
