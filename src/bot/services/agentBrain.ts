@@ -372,10 +372,20 @@ export interface NextEpisodeContext {
 const NEXT_EP_PHRASE_RE =
   /(?:^|\s)(?:épisode|episode|ép|ep)\s+(?:suivant|suivante|suivants|suivantes|d\s*(?:après|apres))(?:\s|$)|(?:^|\s)prochain(?:e|s)?\s+(?:épisode|episode|ép|ep)(?:\s|$)|(?:^|\s)next\s+episode(?:\s|$)/i;
 
+/**
+ * 9.18eeee (A2) — intentions de CONTINUATION nues : « la suite », « continue »,
+ * « encore un » juste après une livraison (le contexte anime est exigé par la
+ * fonction, comme toujours). Le point d'interrogation les exclut : « tu peux
+ * continuer ? » est une question → chemin IA (fail-open, on ne devine pas).
+ */
+const NEXT_EP_CONTINUATION_RE =
+  /(?:^|\s)(?:la\s+suite|continue|continues|continuer|continuez|encore\s+(?:un|une))(?:\s|$)/i;
+
 /** Vocabulaire de l'intention : ne porte aucune information autre que l'intention. */
 const NEXT_EP_VOCAB = new Set([
   "épisode", "episode", "ép", "ep", "suivant", "suivante", "suivants", "suivantes",
-  "prochain", "prochaine", "prochains", "prochaines", "d", "après", "apres", "next"
+  "prochain", "prochaine", "prochains", "prochaines", "d", "après", "apres", "next",
+  "suite", "continue", "continues", "continuer", "continuez"
 ]);
 
 /** Mots creux (politesse, articles, verbes de demande) tolérés autour de l'intention. */
@@ -420,7 +430,11 @@ export function deterministicNextEpisodeDecision(
   if (nextEp > 500) return null; // historique aberrant → pas de décision locale
 
   const norm = text.toLowerCase().replace(/[\u2019\u2018\u0060\u00B4]/g, "'").replace(/\s+/g, " ").trim();
-  if (!NEXT_EP_PHRASE_RE.test(norm.replace(/'/g, " "))) return null;
+  const normSpaced = norm.replace(/'/g, " ");
+  const baseIntent = NEXT_EP_PHRASE_RE.test(normSpaced);
+  // 9.18eeee (A2) : continuation nue (« la suite », « continue », « encore un »).
+  const continuationIntent = !baseIntent && !norm.includes("?") && NEXT_EP_CONTINUATION_RE.test(normSpaced);
+  if (!baseIntent && !continuationIntent) return null;
 
   // Le message ne doit RIEN désigner d'autre : ni titre, ni numéro, ni
   // qualité — chaque token restant doit être de l'intention ou un mot creux.
@@ -571,6 +585,21 @@ export function looksLikeRawJson(raw: string): boolean {
  * sans préfixe) est une fuite du mode tool-call : l'intention était
  * l'exécution. Null pour toute autre prose — on ne devine JAMAIS.
  */
+/**
+ * 9.18eeee (A3) — « renvoie le lien » : intention de REJOUER la dernière
+ * livraison à lien du chat (zéro token IA, zéro re-téléchargement).
+ * Pur : reconnaissance stricte (verbe de renvoi/perte + « lien », ou « le
+ * lien » nu) — toute autre phraséologie retourne false, chemin IA normal.
+ */
+export function looksLikeLinkResendRequest(text: string): boolean {
+  const t = (text || "").trim();
+  if (!t || t.length > 120 || /[\n\r]/.test(t)) return false;
+  if (/\b(?:renvoi(?:e|es)?|redonnes?|repartages?|retrouve\w*|perdu|égaré(?:e)?)\b.{0,40}\blien\b/i.test(t)) {
+    return true;
+  }
+  return /^(?:le|du|ce)\s+lien\b/i.test(t);
+}
+
 export function extractCommandLineLeak(text: string, prefix: string): { command: string; args: string } | null {
   const t = (text || "").trim();
   if (!t || t.length > 200 || /[\n\r]/.test(t)) return null;

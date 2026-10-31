@@ -37,6 +37,7 @@ import {
 import { buildAgentKnowledge } from "../commandKnowledge.js";
 import { effectiveDefaultSource } from "./animeSources.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory, getAnimeChoice } from "./animeChoices.js";
+import { getLastDelivery } from "./lastDelivery.js";
 import { recordAgentTurn } from "./agentMetrics.js";
 import { setLastObservation, outputLooksInteractive, observationContext } from "./agentObservation.js";
 import { suggestClosestCommand } from "../commandRegistry.js";
@@ -58,6 +59,7 @@ import {
   sanitizeAgentArgs,
   keepHeadAndTail,
   deterministicNextEpisodeDecision,
+  looksLikeLinkResendRequest,
   messageSuggestsMultiIntent,
   extractToolCallLeak,
   extractCommandLineLeak,
@@ -252,6 +254,22 @@ export async function handleAgentMessage(
   if (!isAIConfigured()) return false;
 
   // ── 3. Quota IA — même règle que le chat DM actuel ──────────────────────
+  // 9.18eeee (A3) — « renvoie le lien » DÉTERMINISTE : la dernière livraison
+  // à lien de ce chat est rejouée telle quelle — zéro token IA, zéro quota,
+  // zéro re-téléchargement (enregistrée par le dispatch à CHAQUE reply à
+  // lien). Rien de récent → chemin normal, on ne devine pas.
+  if (looksLikeLinkResendRequest(text)) {
+    const last = getLastDelivery(info.senderJid);
+    if (last) {
+      recordAudit(`wa:${info.actorNumber}`, "agent.deterministic", "resend-link", "last-delivery");
+      await sendText(`🔗 Le dernier lien envoyé ici :
+
+${last.text}`);
+      recordExchange(info.senderJid, text, "dernier lien renvoyé (déterministe)");
+      return true;
+    }
+  }
+
   const quota = checkAIQuota(info.actorJid);
   if (!quota.allowed) {
     await sendText(`⚠️ ${quota.error}`);
@@ -312,17 +330,31 @@ export async function handleAgentMessage(
     // nous sommes en octobre 2026). Aucun raisonnement de date n'est
     // possible sans cette ligne.
     const dateBlock = `## Date\nNous sommes le ${new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date())}.`;
-    const persona =
-      getPersonaPrompt("dm", info.botName) +
-      (memoryBlock ? `\n\n${memoryBlock}` : "") +
-      (choiceBlock ? `\n\n${choiceBlock}` : "") +
-      (prefBlock ? `\n\n${prefBlock}` : "") +
-      (obsBlock ? `\n\n${obsBlock}` : "") +
-      (mediaBlock ? `\n\n${mediaBlock}` : "") +
-      (quoteBlock ? `\n\n${quoteBlock}` : "") +
-      (voiceBlock ? `\n\n${voiceBlock}` : "") +
-      `\n\n${dateBlock}`;
-    const agentSystem = `${persona}\n\n${buildAgentKnowledge(info.prefix)}`;
+    // 9.18eeee (A4) — préfixe STABLE pour le context caching implicite :
+    // persona + fiche de commandes (inchangés d'un tour à l'autre, et entre
+    // chats) en TÊTE, blocs dynamiques (mémoire, écrans, média, date…) en
+    // QUEUE. L'ordre précédent intercalait la mémoire ENTRE les deux — le
+    // préfixe commun aux requêtes cassait au premier bloc dynamique : aucun
+    // cache possible, tout le système était refacturé à chaque tour.
+    const dynamicBlocks = [
+      memoryBlock,
+      choiceBlock,
+      prefBlock,
+      obsBlock,
+      mediaBlock,
+      quoteBlock,
+      voiceBlock,
+      dateBlock
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const personaCore = getPersonaPrompt("dm", info.botName);
+    // Chemin dégradé : guidage classique SANS la fiche de commandes
+    // (comportement d'avant l'agent, inchangé).
+    const persona = personaCore + (dynamicBlocks ? `\n\n${dynamicBlocks}` : "");
+    // Chemin agent : préfixe stable (persona + fiche) puis blocs dynamiques.
+    const agentSystem =
+      personaCore + `\n\n${buildAgentKnowledge(info.prefix)}` + (dynamicBlocks ? `\n\n${dynamicBlocks}` : "");
 
     let decision = det as ReturnType<typeof parseAgentDecision>;
     let rawLatencyMs = 0;
@@ -337,6 +369,24 @@ export async function handleAgentMessage(
         );
         rawLatencyMs = Date.now() - tStart;
         decision = parseAgentDecision(raw);
+        if (!decision) {
+          // 9.18eeee (A1) — retry GUIDÉ : la réponse n'est pas au contrat.
+          // UNE relance avec le rappel du format AVANT le chemin dégradé —
+          // le dégradé coûte AUSSI un appel IA, pour un résultat bien moins
+          // bon (prompt différent, sans boucle d'observation ni guardrails
+          // de décision). Coût identique, issue bien meilleure.
+          const tRetry = Date.now();
+          const retryRaw = await withAIConcurrency(() =>
+            generateTextWithFallback(
+              text,
+              `${agentSystem}\n\n## RAPPEL DE FORMAT — ta réponse précédente n'était pas au contrat\nRéponds UNIQUEMENT par un objet JSON valide : {"action":"execute","command":"<nom>","args":"<args>"} ou {"action":"ask","text":"…"} ou {"action":"reply","text":"…"}. Aucun texte avant ni après le JSON.`,
+              "gemini-3.7-flash",
+              { jsonMode: true }
+            )
+          );
+          rawLatencyMs += Date.now() - tRetry;
+          decision = parseAgentDecision(retryRaw);
+        }
       } catch {
         recordAgentTurn({
           ts: Date.now(), action: "error", engine: getPrimaryAIEngine(),

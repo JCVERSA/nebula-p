@@ -101,6 +101,7 @@ export const MENU_SECTIONS: MenuSection[] = [
       ["getpp", "Photo de profil"],
       ["whois", "Profil d'un membre du groupe"],
       ["purge", "Purge de l'espace disque (owner)"],
+      ["agtrace", "Trace une décision de Nova sans l'exécuter (owner)"],
       ["remind", "Rappel programmé (ex: .remind 18h texte)"],
       ["lyrics", "Paroles d'une chanson (seul après .ytm, ou .lyrics <titre>)"],
     ],

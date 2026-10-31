@@ -41,6 +41,8 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "whois", aliases: ["profile", "profil", "wi", "userinfo", "ui"] },
   // 8.88 : ajouté sur décision owner explicite (.purge / .p, owner-only)
   { name: "purge", aliases: ["p"] },
+  // 9.18eeee (A6) : trace de décision agent (owner, dry-run)
+  { name: "agtrace", aliases: [] },
   // 8.93 : agent IA (beta, privé) — .agent/.ag
   { name: "agent", aliases: ["ag"] },
   { name: "search", aliases: ["recherche", "websearch"] },

@@ -14,6 +14,7 @@ import {
   parseAgentFix,
   extractToolCallLeak,
   extractCommandLineLeak,
+  looksLikeLinkResendRequest,
   looksLikeRawJson,
   replySuggestsOtherCatalog,
   toggleCatalogFlag,
@@ -325,8 +326,12 @@ describe("9.18x (P1) — « épisode suivant » déterministe (zéro token)", ()
     expect(deterministicNextEpisodeDecision("l'épisode suivant en 720p", LAST)).toBeNull();
   });
 
-  it("« la suite » seule → null (ambigu : saison suivante possible)", () => {
-    expect(deterministicNextEpisodeDecision("la suite", LAST)).toBeNull();
+  it("« la saison suivante » → null (mot « saison » hors vocabulaire → IA) ; « suivant » nu et « le 2e » aussi", () => {
+    // 9.18eeee (A2) : « la suite » est DÉSORMAIS déterministe (l'intention la
+    // plus courante après un épisode) — l'ambiguïté « saison suivante » reste
+    // protégée : le mot « saison » n'est pas dans le vocabulaire → chemin IA.
+    expect(deterministicNextEpisodeDecision("la suite", LAST)?.action).toBe("execute");
+    expect(deterministicNextEpisodeDecision("la saison suivante", LAST)).toBeNull();
     expect(deterministicNextEpisodeDecision("suivant", LAST)).toBeNull();
     expect(deterministicNextEpisodeDecision("le 2e", LAST)).toBeNull();
   });
@@ -357,6 +362,50 @@ describe("9.18cc (P8) — messageSuggestsMultiIntent (pur)", () => {
     expect(messageSuggestsMultiIntent("télécharge l'épisode 1. la chanson du générique aussi")).toBe(true); // « aussi » = liaison
     expect(messageSuggestsMultiIntent("l'épisode 1 la chanson")).toBe(false);
     expect(messageSuggestsMultiIntent("")).toBe(false);
+  });
+});
+
+describe("9.18eeee (A2) — continuation nue déterministe : « la suite », « continue », « encore un »", () => {
+  const LAST = { title: "mushoku tensei", source: "va", seasonName: "Saison 1", quality: "480P", lastEpisode: 5 };
+  const argsOf = (t: string) => {
+    const d = deterministicNextEpisodeDecision(t, LAST as NextEpisodeContext);
+    return d && d.action === "execute" ? d.args : null;
+  };
+
+  it("« la suite », « continue », « encore un épisode » → épisode suivant, zéro token", () => {
+    expect(argsOf("la suite")).toBe("va mushoku tensei s1 e6 480p");
+    expect(argsOf("la suite stp")).toContain("e6");
+    expect(argsOf("continue")).toContain("e6");
+    expect(argsOf("tu peux continuer")).toContain("e6");
+    expect(argsOf("encore un épisode")).toContain("e6");
+    expect(argsOf("encore un stp")).toContain("e6");
+  });
+
+  it("fail-open préservé : question, titre mentionné, gratitude, hors sujet", () => {
+    expect(argsOf("tu peux continuer ?")).toBeNull(); // question ≠ instruction
+    expect(argsOf("la suite de one piece")).toBeNull(); // titre désigné → IA
+    expect(argsOf("encore merci")).toBeNull(); // gratitude → IA
+    expect(argsOf("la suite de la chanson")).toBeNull(); // pas un anime
+    expect(argsOf("continue à m'expliquer le théorème de Pythagore")).toBeNull();
+  });
+});
+
+describe("9.18eeee (A3) — « renvoie le lien » : reconnaissance stricte (pur)", () => {
+  it("variantes de renvoi/perte + « le lien » nu → vrai", () => {
+    expect(looksLikeLinkResendRequest("renvoie le lien")).toBe(true);
+    expect(looksLikeLinkResendRequest("renvoie-moi le lien stp")).toBe(true);
+    expect(looksLikeLinkResendRequest("redonne le lien")).toBe(true);
+    expect(looksLikeLinkResendRequest("j'ai perdu le lien")).toBe(true);
+    expect(looksLikeLinkResendRequest("le lien s'il te plaît")).toBe(true);
+    expect(looksLikeLinkResendRequest("peux-tu me retrouver le lien du film")).toBe(true);
+  });
+
+  it("tout le reste → faux (chemin IA normal, on ne devine pas)", () => {
+    expect(looksLikeLinkResendRequest("un lien pour youtube")).toBe(false);
+    expect(looksLikeLinkResendRequest("renvoie le message")).toBe(false);
+    expect(looksLikeLinkResendRequest("")).toBe(false);
+    expect(looksLikeLinkResendRequest(`renvoie le lien\n${"x".repeat(150)}`)).toBe(false); // multiligne/long
+    expect(looksLikeLinkResendRequest("le li")).toBe(false);
   });
 });
 

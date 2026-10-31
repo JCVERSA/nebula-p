@@ -37,7 +37,7 @@ Qualité en une ligne — écris-la DIRECTEMENT (recommandé) : \`480p\` · \`72
 Catalogues : \`${p}a <titre>\` = catalogue par défaut, VF d'abord puis entrées VOSTFR étiquetées à la suite (un numéro VOSTFR charge cette version) · VOSTFR → \`${p}a <titre> vostfr\` (même catalogue) · \`${p}a as <titre>\` = l'autre catalogue, en dépannage · \`${p}a jt <titre>\` = 3e catalogue VOSTFR (alias jeta)
 Titres : catalogues = titres INTERNATIONAUX (anglais/romaji) — traduis (« attack des titans » → \`attack on titan\`). Échec FR → réessaie en international.
 
-À savoir : maximum 12 épisodes par demande ; 1 épisode = lien direct, plusieurs = page HTML « Tout télécharger » ; liens valables ~30 min d'inactivité (2 h max) ; chaque téléchargement relance le délai ; session expirée → relancer \`${p}a <titre>\` ; \`${p}w <titre>\` pose une veille : notification dès qu'un nouvel épisode sort.`;
+À savoir : max 12 épisodes/demande ; 1 épisode = lien direct, plusieurs = page HTML « Tout télécharger » ; liens ~30 min d'inactivité (2 h max) ; chaque téléchargement relance le délai ; session expirée → \`${p}a <titre>\` ; \`${p}w <titre>\` pose une veille : notification dès qu'un épisode sort.`;
 
 /** Règles de guidage (l'IA est proactive mais honnête sur ses limites). */
 const GUIDANCE_RULES = (p: string) => `# Tes commandes

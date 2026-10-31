@@ -18,6 +18,8 @@ import base64Command from "./commands/base64.js";
 import getppCommand from "./commands/getpp.js";
 import whoisCommand from "./commands/whois.js";
 import purgeCommand from "./commands/purge.js";
+// 9.18eeee (A6) : trace de décision agent (owner, dry-run)
+import agtraceCommand from "./commands/agtrace.js";
 import agentCommand from "./commands/agent.js";
 import stickerCommand from "./commands/sticker.js";
 import takeCommand from "./commands/take.js";
@@ -144,6 +146,7 @@ function getBuiltinCommands(): BotCommand[] {
     whoisCommand,
     traceCommand,
     purgeCommand,
+    agtraceCommand,
     agentCommand,
     stickerCommand,
     takeCommand,

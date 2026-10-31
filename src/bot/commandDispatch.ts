@@ -27,6 +27,8 @@ import { recordAudit } from "./auditTrail.js";
 // mêmes garde-fous que le chemin agent (quota web, limite d'envois).
 import { findImageCandidates, downloadImageCandidate, IMAGE_SEND_LIMIT, type ImageCandidate } from "./services/imageFinder.js";
 import { checkWebQuota, consumeWebQuota } from "./webQuota.js";
+// 9.18eeee (A3) : mémoire de la dernière livraison à lien (« renvoie le lien »).
+import { recordLastDelivery } from "./services/lastDelivery.js";
 import { extractQuotedMediaContent } from "./utils/quotedMedia.js";
 import { replySuggestsOtherCatalog } from "./services/agentBrain.js";
 // 9.8 : les écrans interactifs des commandes PREFIX (.a tapé directement)
@@ -113,6 +115,12 @@ export async function dispatchBotCommand(
   // Build dynamic reply and react handlers
   const replyHandler = async (textStr: string, mediaUrl?: string) => {
     try {
+      // 9.18eeee (A3) : chaque reply contenant un lien de téléchargement
+      // temporaire devient la « dernière livraison » du chat — l'agent la
+      // rejouera sur « renvoie le lien » sans rien re-télécharger.
+      if (!mediaUrl && textStr.includes("/api/media/download/")) {
+        recordLastDelivery(senderJid, textStr.slice(0, 1500));
+      }
       if (source === "agent") {
         // 8.94 : le hint « autre catalogue » peut apparaître en MILIEU de flow
         // (avant la liste des résolutions) → vérifier CHAQUE reply, pas juste

@@ -76,6 +76,7 @@ import { generateTextWithFallback, isAIConfigured } from "../src/bot/geminiClien
 import { getCommand } from "../src/bot/commandRegistry.js";
 import { checkAIQuota } from "../src/bot/aiQuota.js";
 import { recordAgentExecution, __resetAgentStateForTests } from "../src/bot/services/agentBrain.js";
+import { recordLastDelivery, __resetLastDeliveryForTests } from "../src/bot/services/lastDelivery.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory, getAnimeChoice } from "../src/bot/services/animeChoices.js";
 import { __resetObservationsForTests } from "../src/bot/services/agentObservation.js";
 import { getChatPreference, setChatPreference, clearChatPreference } from "../src/bot/services/userPreferences.js";
@@ -339,15 +340,18 @@ describe("8.93 — validation locale zéro confiance", () => {
 });
 
 describe("8.93 — dégradation (leçon Laudacode : degrades, never aborts)", () => {
-  it("JSON invalide → relance en mode guidage classique, jamais de silence", async () => {
+  it("JSON invalide → retry guidé puis mode guidage classique, jamais de silence (9.18eeee A1)", async () => {
+    // 9.18eeee (A1) : un parse échoué déclenche d'abord UNE relance guidée
+    // (rappel du contrat), PUIS le dégradé si elle échoue aussi — 3 appels.
     mAI
       .mockResolvedValueOnce("Désolé je ne comprends pas le format JSON demandé.")
+      .mockResolvedValueOnce("toujours pas du JSON")
       .mockResolvedValueOnce("Tape `.gce a bio 2023 2` pour avoir tes annales 🙂");
     const ctx = mk("les annales de bio");
     const exec = mkExec();
     const handled = await run(ctx, exec);
     expect(handled).toBe(true);
-    expect(mAI).toHaveBeenCalledTimes(2);
+    expect(mAI).toHaveBeenCalledTimes(3);
     expect(exec).not.toHaveBeenCalled();
     expect(texts(ctx.sent)[0]).toContain("Tape");
   });
@@ -357,7 +361,8 @@ describe("8.93 — dégradation (leçon Laudacode : degrades, never aborts)", ()
     // a reçu {"query": "...", "recency_days": 365} tel quel. Le modèle reste
     // en mode tool-call même sur le prompt de guidage classique.
     const leak = '{"query": "The Witch of Mongolia anime titre correct", "recency_days": 365}';
-    mAI.mockResolvedValueOnce("pas un JSON de décision").mockResolvedValueOnce(leak);
+    // 9.18eeee (A1) : initial + retry guidé ratés, PUIS le dégradé rend le leak.
+    mAI.mockResolvedValueOnce("pas un JSON de décision").mockResolvedValueOnce("pas mieux").mockResolvedValueOnce(leak);
     const ctx = mk("peux tu researcher le bon titre stp");
     const exec = mkExec({ texts: ["🔍 Résultats…"] });
     await run(ctx, exec);
@@ -368,7 +373,7 @@ describe("8.93 — dégradation (leçon Laudacode : degrades, never aborts)", ()
   });
 
   it("9.18vvvv : JSON fuité SANS intention exploitable → message honnête, jamais de JSON brut", async () => {
-    mAI.mockResolvedValueOnce("???").mockResolvedValueOnce('{"foo": "bar"}');
+    mAI.mockResolvedValueOnce("???").mockResolvedValueOnce("toujours rien").mockResolvedValueOnce('{"foo": "bar"}');
     const ctx = mk("n'importe quoi");
     const exec = mkExec();
     await run(ctx, exec);
@@ -985,5 +990,63 @@ describe("9.18bbbb — filet « commande écrite au lieu d'exécutée » (terrai
     expect(src).toContain("extractCommandLineLeak(raw, info.prefix)");
     expect(src).toContain("isHeavyAgentCommand(lightCmd,");
     expect(src).toContain("je l'exécuterai proprement");
+  });
+});
+
+describe("9.18eeee — améliorations agent (A1 retry, A3 resend, A4 préfixe stable)", () => {
+  it("A1 : réponse hors contrat → UNE relance guidée qui répare (2 appels IA, pas de dégradé)", async () => {
+    mAI
+      .mockResolvedValueOnce("désolé je ne comprends pas ce que tu veux") // hors contrat
+      .mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "Voilà !" })); // relance guidée
+    const ctx = mk("mets-moi une musique");
+    await run(ctx, mkExec());
+    expect(mAI).toHaveBeenCalledTimes(2);
+    expect(ctx.sent.some((p: any) => p.text === "Voilà !")).toBe(true);
+  });
+
+  it("A1 : deux échecs → chemin dégradé (comportement conservé, 3 appels bornés)", async () => {
+    mAI
+      .mockResolvedValueOnce("n'importe quoi")
+      .mockResolvedValueOnce("toujours pas du json")
+      .mockResolvedValueOnce("voici une réponse en prose"); // dégradé
+    const ctx = mk("mets-moi une musique");
+    await run(ctx, mkExec());
+    expect(mAI).toHaveBeenCalledTimes(3); // 1 initial + 1 retry guidé + 1 dégradé, JAMAIS plus
+  });
+
+  it("A3 : « renvoie le lien » → dernière livraison rejouée, ZÉRO appel IA", async () => {
+    __resetLastDeliveryForTests();
+    recordLastDelivery(JID, "📥 Film livré\nhttps://dash.example/api/media/download/xyz");
+    const ctx = mk("renvoie le lien stp");
+    await run(ctx, mkExec());
+    expect(mAI).not.toHaveBeenCalled();
+    expect(ctx.sent.some((p: any) => String(p.text || "").includes("/api/media/download/xyz"))).toBe(true);
+  });
+
+  it("A3 : rien de récent → chemin IA normal (fail-open)", async () => {
+    __resetLastDeliveryForTests();
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "quel lien ?" }));
+    const ctx = mk("renvoie le lien");
+    await run(ctx, mkExec());
+    expect(mAI).toHaveBeenCalledTimes(1);
+  });
+
+  it("A4 : préfixe stable — la fiche de commandes AVANT les blocs dynamiques (caching)", async () => {
+    mAI.mockResolvedValueOnce(JSON.stringify({ action: "reply", text: "ok" }));
+    const ctx = mk("salut");
+    await run(ctx, mkExec());
+    const sysPrompt = mAI.mock.calls[0][1] as string;
+    // (persona et fiche sont mockées ici : PERSONA / KNOWLEDGE)
+    expect(sysPrompt.indexOf("KNOWLEDGE")).toBeGreaterThanOrEqual(0);
+    expect(sysPrompt.indexOf("KNOWLEDGE")).toBeLessThan(sysPrompt.indexOf("## Date"));
+    // le chemin reste complet : les blocs dynamiques sont bien présents
+    expect(sysPrompt).toContain("## Date");
+  });
+
+  it("A6 : câblage agtrace (registre + dry-run sans exécution)", async () => {
+    const src = fs.readFileSync("src/bot/commands/agtrace.ts", "utf-8");
+    expect(src).toContain("RIEN n'a été exécuté");
+    expect(src).toContain("parseAgentDecision");
+    expect(src).not.toContain("dispatchBotCommand"); // jamais d'exécution réelle
   });
 });
