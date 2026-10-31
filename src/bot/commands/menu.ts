@@ -1,6 +1,5 @@
-import os from "os";
 import { BotCommand } from "../types.js";
-import { effectiveTimezone, getConfig } from "../config.js";
+import { getConfig } from "../config.js";
 
 /**
  * `.menu` — portage du style du bot Na (commands/general/menu.js, owner
@@ -139,12 +138,6 @@ function formatUptime(ms: number): string {
   return `${d}d ${h}h ${m}m ${sc}s`;
 }
 
-function getRam(): string {
-  const total = os.totalmem();
-  const used = total - os.freemem();
-  return `${(used / 1024 ** 3).toFixed(2)} GB / ${(total / 1024 ** 3).toFixed(2)} GB`;
-}
-
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // ── Commande ────────────────────────────────────────────────────────────────
@@ -161,32 +154,21 @@ const menuCommand: BotCommand = {
       const config = getConfig();
       const p = config.prefix || ".";
       const bn = config.botName || "Nebula Bot";
-      const tz = effectiveTimezone(); // 9.18hhh : NEBULA_TZ > config > UTC — aucun pays codé dur
       await context.react("🌌");
 
       // Le registre est la seule source de vérité (curation 8.59).
       const commands: BotCommand[] = (global as any).botCommands || [];
 
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true, timeZone: tz });
-      const dateStr = now.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: tz });
       const uptime = formatUptime(process.uptime() * 1000);
-      const ram = getRam();
-      const senderName = context.senderName || context.sender.split("@")[0];
 
-      // MSG 1 — CARTE D'EN-TÊTE
+      // MSG 1 — CARTE D'EN-TÊTE (9.18ffff : stats ESSENTIELLES — la carte
+      // complète à 10 lignes remplissait le chat pour rien).
       const header =
         `╭══〘〘 \`${bn}\` 〙〙═⊷\n` +
-        `│↠🤖 ᴍᴏᴅᴇ: public\n` +
         `│↠✒️ ᴘʀᴇғɪx: [ ${p} ]\n` +
-        `│↠👤 ᴜsᴇʀ: ${senderName}\n` +
         `│↠🧩 ᴄᴍᴅs: *${commands.length}*\n` +
         `│↠🚀 ᴠᴇʀsɪᴏɴ: ${APP_VERSION}\n` +
         `│↠⏱️ ᴜᴘᴛɪᴍᴇ: ${uptime}\n` +
-        `│↠⏰ ᴛɪᴍᴇ: ${timeStr}\n` +
-        `│↠📅 ᴅᴀᴛᴇ: ${dateStr}\n` +
-        `│↠🌍 ᴛɪᴍᴇ ᴢᴏɴᴇ: ${tz}\n` +
-        `│↠💾 ʀᴀᴍ: ${ram}\n` +
         `╰═══════════════════════⊷`;
 
       // Sections rendues à partir du registre : une entrée dont la commande
@@ -197,50 +179,18 @@ const menuCommand: BotCommand = {
         for (const a of cmd.aliases || []) known.add(a.toLowerCase());
       }
 
-      // 9.18oooo (quick win) — .menu <mot-clé> : filtre les sections. 50
-      // commandes = menu long ; un mot-clé ne renvoie que les entrées qui
-      // correspondent (nom, description ou titre de section, sans accents).
-      const filterArg = (context.args || []).join(" ").trim();
-      if (filterArg) {
-        const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-        const needle = norm(filterArg);
-        const hits: string[] = [];
-        for (const s of MENU_SECTIONS) {
-          const lines: string[] = [];
-          for (const [key, desc] of s.entries) {
-            if (!known.has(key.toLowerCase())) continue; // honnêteté : commande inconnue ignorée
-            if (norm(key).includes(needle) || norm(desc || "").includes(needle) || norm(s.title).includes(needle)) {
-              lines.push(c(p, key, desc));
-            }
-          }
-          if (lines.length) hits.push(section(s.emoji, s.title, lines));
-        }
-        if (hits.length === 0) {
-          return void (await context.reply(
-            `🔍 Aucune commande ne correspond à « ${filterArg} ».\n\`${p}menu\` sans filtre pour tout afficher.`,
-          ));
-        }
-        await sock.sendMessage(
-          msg.key.remoteJid!,
-          { text: `╭─「 🔎 *MENU · ${filterArg.toUpperCase().slice(0, 30)}* 」\n\n${hits.join("\n\n")}\n\n> 🌌 *${bn}* │ _\`${p}menu\` pour tout afficher_` },
-          { quoted: msg },
-        );
-        console.log(`[Menu] Filtered "${filterArg}" (${hits.length} section(s)) in ${Date.now() - startTime}ms`);
-        return;
-      }
-
-      const rendered: string[] = [];
-      for (const s of MENU_SECTIONS) {
+      // ── Rendu d'une section (descriptions complètes, boîtes Na) ──────────
+      const renderSection = (sec: MenuSection): string | null => {
         const lines: string[] = [];
-        for (const [key, desc] of s.entries) {
+        for (const [key, desc] of sec.entries) {
           if (!known.has(key.toLowerCase())) {
             console.warn(`[Menu] Entrée ignorée (commande absente du registre): ${key}`);
             continue;
           }
           lines.push(c(p, key, desc));
         }
-        if (lines.length) rendered.push(section(s.emoji, s.title, lines));
-      }
+        return lines.length ? section(sec.emoji, sec.title, lines) : null;
+      };
 
       // Footer (contacts owner — configurables via .env, 9.18hhh : le repo
       // public reste neutre, chaque déploiement affiche SES contacts).
@@ -257,33 +207,93 @@ const menuCommand: BotCommand = {
       const contactBlock = ownerLines.length
         ? `╭══════════════════════════════╮\n` + ownerLines.join("") + `╰══════════════════════════════╯\n`
         : "";
-      const footer = `\n${contactBlock}> 🌌 *${bn}* │ _Prefix: ${p}_`;
+      const footerHints =
+        `\n${contactBlock}> 🌌 *${bn}* │ _\`${p}menu <n°>\` catégorie · \`${p}menu all\` · \`${p}menu <mot>\` · \`${p}help <cmd>\`_`;
 
-      // Découpe en messages successifs (comme Na, ~2 sections par message).
-      const messages: string[] = [];
-      let idx = 0;
-      for (const count of SECTIONS_PER_MESSAGE) {
-        const chunk = rendered.slice(idx, idx + count);
-        if (!chunk.length) continue;
-        messages.push(chunk.join("\n\n"));
-        idx += count;
-      }
-      if (idx < rendered.length) {
-        messages.push(rendered.slice(idx).join("\n\n"));
-      }
-      if (messages.length) {
-        messages[messages.length - 1] += footer;
+      const filterArg = (context.args || []).join(" ").trim();
+
+      // ── 9.18ffff — `.menu <n°>` : UNE catégorie (interactif, zéro flood).
+      if (/^\d+$/.test(filterArg)) {
+        const n = parseInt(filterArg, 10);
+        const idx = n - 1;
+        const sec = idx >= 0 && idx < MENU_SECTIONS.length ? renderSection(MENU_SECTIONS[idx]) : null;
+        if (!sec) {
+          return void (await context.reply(
+            `❓ *Catégorie inconnue* — réponds \`${p}menu 1\` à \`${p}menu ${MENU_SECTIONS.length}\`, ou \`${p}menu\` pour la carte.`,
+          ));
+        }
+        await sock.sendMessage(msg.key.remoteJid!, { text: `${sec}\n${footerHints}` }, { quoted: msg });
+        console.log(`[Menu] Catégorie ${n} en ${Date.now() - startTime}ms`);
+        return;
       }
 
-      // Envoi : carte (reply + mention), puis les messages de sections.
-      await sock.sendMessage(msg.key.remoteJid!, { text: header, mentions: [context.sender] }, { quoted: msg });
-
-      console.log(`[Menu] Generated in ${Date.now() - startTime}ms`);
-
-      for (const m of messages) {
-        await delay(600);
-        await sock.sendMessage(msg.key.remoteJid!, { text: m });
+      // ── 9.18ffff — `.menu all` : affichage COMPLET (comportement historique).
+      if (filterArg.toLowerCase() === "all") {
+        const rendered = MENU_SECTIONS.map(renderSection).filter((x): x is string => !!x);
+        const messages: string[] = [];
+        let idx = 0;
+        for (const count of SECTIONS_PER_MESSAGE) {
+          const chunk = rendered.slice(idx, idx + count);
+          if (!chunk.length) continue;
+          messages.push(chunk.join("\n\n"));
+          idx += count;
+        }
+        if (idx < rendered.length) messages.push(rendered.slice(idx).join("\n\n"));
+        if (messages.length) messages[messages.length - 1] += footerHints;
+        await sock.sendMessage(msg.key.remoteJid!, { text: header, mentions: [context.sender] }, { quoted: msg });
+        for (const m of messages) {
+          await delay(600);
+          await sock.sendMessage(msg.key.remoteJid!, { text: m });
+        }
+        console.log(`[Menu] Complet (${rendered.length} sections) en ${Date.now() - startTime}ms`);
+        return;
       }
+
+      // ── 9.18oooo — `.menu <mot-clé>` : filtre les sections (inchangé). ────
+      if (filterArg) {
+        const norm = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        const needle = norm(filterArg);
+        const hits: string[] = [];
+        for (const s of MENU_SECTIONS) {
+          const lines: string[] = [];
+          for (const [key, desc] of s.entries) {
+            if (!known.has(key.toLowerCase())) continue; // honnêteté : commande inconnue ignorée
+            if (norm(key).includes(needle) || norm(desc || "").includes(needle) || norm(s.title).includes(needle)) {
+              lines.push(c(p, key, desc));
+            }
+          }
+          if (lines.length) hits.push(section(s.emoji, s.title, lines));
+        }
+        if (hits.length === 0) {
+          return void (await context.reply(
+            `🔍 Aucune commande ne correspond à « ${filterArg} ».\n\`${p}menu\` pour la carte, \`${p}menu all\` pour tout afficher.`,
+          ));
+        }
+        await sock.sendMessage(
+          msg.key.remoteJid!,
+          { text: `╭─「 🔎 *MENU · ${filterArg.toUpperCase().slice(0, 30)}* 」\n\n${hits.join("\n\n")}\n\n${footerHints}` },
+          { quoted: msg },
+        );
+        console.log(`[Menu] Filtered "${filterArg}" (${hits.length} section(s)) in ${Date.now() - startTime}ms`);
+        return;
+      }
+
+      // ── 9.18ffff — DÉFAUT : carte COMPACTE interactive (1 seul message).
+      // Décision owner 31/10 : le menu complet (4 messages ~54 commandes)
+      // remplissait le chat — la carte liste les catégories numérotées avec
+      // 3 commandes phares, le détail se prend À LA DEMANDE.
+      const indexLines: string[] = [];
+      MENU_SECTIONS.forEach((s, i) => {
+        const examples = s.entries
+          .filter(([key]) => known.has(key.toLowerCase()))
+          .slice(0, 3)
+          .map(([key]) => `${p}${key}`);
+        if (!examples.length) return;
+        indexLines.push(`${i + 1}. ${s.emoji} *${s.title}* — ${examples.join(", ")}…`);
+      });
+      const compact = `${header}\n\n${section("🗂️", "CATÉGORIES", indexLines)}${footerHints}`;
+      await sock.sendMessage(msg.key.remoteJid!, { text: compact, mentions: [context.sender] }, { quoted: msg });
+      console.log(`[Menu] Carte compacte (${indexLines.length} catégories) en ${Date.now() - startTime}ms`);
     } catch (error: any) {
       console.error("[Menu] Error:", error?.message || error);
       await context.reply("😕 Le menu n'a pas pu s'afficher.\n🔄 Réessaie dans un instant.");
