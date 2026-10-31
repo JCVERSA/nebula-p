@@ -166,6 +166,27 @@ export async function dispatchBotCommand(
       }
     } catch (e: any) {
       addLog(`Error sending message: ${e.message}`);
+      // 9.18bbbb — terrain 27/10 (.ping muet, .sweb sans réponse) : un envoi
+      // perdu sur un socket mourant ne doit plus être un échec visible. UN
+      // seul retry après une courte pause — le socket est RE-résolu (une
+      // reconnexion a pu le remplacer entre-temps). Uniquement pour les
+      // pannes de connexion : pas de retry aveugle (risque de doublon).
+      const errText = String(e?.message || "");
+      if (/connection|closed|reset|timed?\s*out|econn|socket|null|fetch failed/i.test(errText)) {
+        try {
+          await new Promise((r) => setTimeout(r, 1200));
+          const retryTarget = resolveLiveSocket(sock);
+          const payload = mediaUrl
+            ? mediaUrl.startsWith("data:")
+              ? { image: bufferFromDataUri(mediaUrl), caption: textStr }
+              : { image: { url: mediaUrl }, caption: textStr }
+            : { text: textStr };
+          await retryTarget.sendMessage(senderJid, payload, { quoted: msg });
+          addLog(`[Dispatch] Réponse renvoyée après retry (socket récupéré).`);
+        } catch (retryErr: any) {
+          addLog(`Error sending message (retry): ${retryErr?.message}`);
+        }
+      }
     }
   };
 

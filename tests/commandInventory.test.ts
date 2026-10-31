@@ -46,10 +46,12 @@ const EXPECTED_INVENTORY: Array<{ name: string; aliases: string[] }> = [
   { name: "search", aliases: ["recherche", "websearch"] },
   { name: "fetch", aliases: ["read", "lire"] },
   { name: "wiki", aliases: ["wikipedia", "encyclopedie"] },
-  { name: "upload", aliases: ["up", "tr", "lu", "opload", "opl", "upl"] },
+  { name: "upload", aliases: ["up", "lu", "opload", "opl", "upl"] },
   // 9.18u : traduction one-shot (décision owner 14/10, analyse repos —
-  // .tr était déjà pris par upload → nom primaire `trad`)
-  { name: "trad", aliases: ["traduis", "tl"] },
+  // nom primaire `trad`). 9.18bbbb : .tr rendu à la TRADUCTION (préfixe
+  // canonique, capté par upload depuis 9.18u — terrain 25/10 : « double
+  // réponse .up après .tr », l'utilisateur voulait traduire).
+  { name: "trad", aliases: ["traduis", "tl", "tr"] },
   // 9.18z : résumé de page web par l'IA (P5 du plan owner — reply à un lien)
   { name: "resume", aliases: ["résume", "sum"] },
   // 9.18bb : rappels programmés (P7 du plan owner — fuseau NEBULA_TZ)
@@ -143,6 +145,9 @@ describe("9.11 — suggestClosestCommand (typo → commande la plus proche)", ()
   it("typo proche → suggestion ; alias exact → canonique ; trop loin → rien", async () => {
     await initRegistry();
     expect(suggestClosestCommand("uv")).toBe("upload");   // .uv → .up (alias de upload)
+  // 9.18bbbb : .tr rendu à la traduction (était capté par upload)
+  expect(getCommand("tr")?.name).toBe("trad");
+  expect(getCommand("up")?.name).toBe("upload");
     expect(suggestClosestCommand("ytv")).toBe("ytvideo"); // alias exact
     expect(suggestClosestCommand("menue")).toBe("menu");
     expect(suggestClosestCommand("a")).toBeNull();        // trop court

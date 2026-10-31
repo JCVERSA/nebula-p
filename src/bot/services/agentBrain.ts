@@ -563,6 +563,29 @@ export function looksLikeRawJson(raw: string): boolean {
  * « query » exploitable). Null pour de la prose normale ou un JSON sans
  * intention claire : l'appelant affiche alors un message honnête.
  */
+/**
+ * 9.18bbbb — filet « commande ÉCRITE au lieu d'exécutée » (terrain 25/10
+ * 20:29 : la réponse affichait « .search Nebula Bot… » brut ; 31/10 23:59 :
+ * « .img attack on titan »). Une réponse qui est EN RÉALITÉ une ligne de
+ * commande (une seule ligne, courte, préfixe + nom, ou l'outil interne img
+ * sans préfixe) est une fuite du mode tool-call : l'intention était
+ * l'exécution. Null pour toute autre prose — on ne devine JAMAIS.
+ */
+export function extractCommandLineLeak(text: string, prefix: string): { command: string; args: string } | null {
+  const t = (text || "").trim();
+  if (!t || t.length > 200 || /[\n\r]/.test(t)) return null;
+  const esc = (prefix || ".").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const withPrefix = t.match(new RegExp(`^${esc}([a-zA-Z0-9]+)(?:\\s+([\\s\\S]+))?$`));
+  if (withPrefix) {
+    return { command: withPrefix[1].toLowerCase(), args: (withPrefix[2] || "").trim() };
+  }
+  // Sans préfixe : uniquement l'outil interne img — une commande du registre
+  // en prose (« search x ») reste une phrase ambiguë, jamais une fuite nette.
+  const bare = t.match(/^img\s+([^\n]{2,})$/i);
+  if (bare) return { command: "img", args: bare[1].trim() };
+  return null;
+}
+
 export function extractToolCallLeak(raw: string): { query: string } | null {
   if (!looksLikeRawJson(raw)) return null;
   try {

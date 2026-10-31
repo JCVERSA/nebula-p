@@ -13,6 +13,7 @@ import {
   parseAgentDecision,
   parseAgentFix,
   extractToolCallLeak,
+  extractCommandLineLeak,
   looksLikeRawJson,
   replySuggestsOtherCatalog,
   toggleCatalogFlag,
@@ -356,6 +357,33 @@ describe("9.18cc (P8) — messageSuggestsMultiIntent (pur)", () => {
     expect(messageSuggestsMultiIntent("télécharge l'épisode 1. la chanson du générique aussi")).toBe(true); // « aussi » = liaison
     expect(messageSuggestsMultiIntent("l'épisode 1 la chanson")).toBe(false);
     expect(messageSuggestsMultiIntent("")).toBe(false);
+  });
+});
+
+describe("9.18bbbb — filet « commande écrite au lieu d'exécutée » (terrain 25/10 : .search / 31/10 : .img)", () => {
+  it("ligne de commande complète → intention execute (préfixe strippé, args préservés)", () => {
+    expect(extractCommandLineLeak(".search Nebula Bot actus", ".")).toEqual({
+      command: "search",
+      args: "Nebula Bot actus",
+    });
+    expect(extractCommandLineLeak("  .ytv https://youtu.be/x 720p  ", ".")).toEqual({
+      command: "ytv",
+      args: "https://youtu.be/x 720p",
+    });
+    expect(extractCommandLineLeak(".a", ".")).toEqual({ command: "a", args: "" });
+    // préfixe non-point échappé correctement
+    expect(extractCommandLineLeak("!trad en Hello", "!")).toEqual({ command: "trad", args: "en Hello" });
+  });
+
+  it("outil interne img sans préfixe reconnu ; prose et multi-lignes rejetées", () => {
+    expect(extractCommandLineLeak("img attack on titan", ".")).toEqual({ command: "img", args: "attack on titan" });
+    expect(extractCommandLineLeak("IMG chat mignon", ".")).toEqual({ command: "img", args: "chat mignon" });
+    // prose (jamais de devine) : null
+    expect(extractCommandLineLeak("Voici la recherche que tu peux lancer : .search x", ".")).toBeNull();
+    expect(extractCommandLineLeak("search actus", ".")).toBeNull();
+    expect(extractCommandLineLeak(".search a\n.deuxième ligne", ".")).toBeNull();
+    expect(extractCommandLineLeak("", ".")).toBeNull();
+    expect(extractCommandLineLeak(`.search ${"x".repeat(250)}`, ".")).toBeNull();
   });
 });
 

@@ -61,6 +61,8 @@ interface FilmSession {
   searchResults: FilmSearchResult[];
   /** 9.18yyyy : embeds résolus de la langue active (repli si le miroir élu échoue). */
   resolvedMirrors: string[];
+  /** 9.18aaaa : durée réelle lue sur la fiche (estimation de taille honnête). */
+  durationSec?: number;
   timer?: NodeJS.Timeout;
 }
 
@@ -158,7 +160,7 @@ async function resolveFilmQuality(
   // être un leurre ou en panne au téléchargement, le repli est transparent.
   const best = await resolveBestMirrorStream(resolved, "480P", {
     refererHint: `${filmStreamOrigin()}/`,
-    fallbackDurationSec: FILM_DURATION_FALLBACK_SEC,
+    fallbackDurationSec: session.durationSec || FILM_DURATION_FALLBACK_SEC,
   });
   if (!best || !best.url || isFilmRelayUrl(best.url)) {
     throw Object.assign(new Error("no-mirror"), { hint: "Impossible de résoudre le lecteur de ce film — réessaie dans un instant." });
@@ -221,6 +223,9 @@ export function looksLikeRealMediaFile(filePath: string): boolean {
       const read = fs.readSync(fd, buf, 0, 256, 0);
       const head = buf.subarray(0, read).toString("latin1");
       if (/<(!doctype|html|head|body|\?xml)/i.test(head)) return false;
+      // 9.18cccc (audit) : une PLAYLIST sauvegardée en .mp4 n'est pas un
+      // film non plus (une media playlist longue peut dépasser 1 Mo).
+      if (head.trimStart().startsWith("#EXTM3U")) return false;
       return true;
     } finally {
       fs.closeSync(fd);
@@ -304,6 +309,7 @@ const novafilmCommand: BotCommand = {
             return context.reply(`❌ *Impossible de charger ce film* (${detail.reason}) — réessaie dans un instant.`);
           }
           session.players = detail.players;
+          session.durationSec = detail.durationSec;
           const available = filmAvailableLanguages(session.players);
           if (available.length === 0) {
             clearFilmSession(sender);
@@ -391,7 +397,7 @@ const novafilmCommand: BotCommand = {
             for (const mirrorUrl of fallbackMirrorUrls) {
               const alt = await extractMultiHostStream(mirrorUrl, {
                 refererHint: `${filmStreamOrigin()}/`,
-                fallbackDurationSec: FILM_DURATION_FALLBACK_SEC,
+                fallbackDurationSec: session.durationSec || FILM_DURATION_FALLBACK_SEC,
               });
               if (!alt || !alt.url || isFilmRelayUrl(alt.url)) continue;
               const altTracks = (alt.availableTracks || []).filter((t) => !!t.url);
@@ -435,7 +441,10 @@ const novafilmCommand: BotCommand = {
 
           // ── Livraison (chemin éprouvé Novabox) ─────────────────────────
           const stats = fs.statSync(localPath);
-          const fileSizeMB = Number((stats.size / 1e6).toFixed(1));
+          // 9.18aaaa : Mo BINAIRES (même unité que l'écran qualité et l'offre
+          // .slim) — avant : 1666.5 MB décimaux puis « 1589 Mo » dans l'offre
+          // slim pour le MÊME fichier (terrain 31/10 00:37).
+          const fileSizeMB = Number((stats.size / 1048576).toFixed(1));
           const resClean = usedLabel.replace(/[^0-9a-zA-Z]/g, "") || "FILM";
           const filename = sanitizeFilename(`${title.replace(/\s+/g, "_")}_${language}_${resClean}_FILM`) + ".mp4";
 

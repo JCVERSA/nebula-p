@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "fs";
 
 /**
  * 8.93 — orchestrateur agent : décision IA → exécution aux droits de
@@ -969,5 +970,20 @@ describe("9.18jj (B) — la voix appelle la voix (note vocale entrante)", () => 
     const ctx = mk("salut");
     await run(ctx, mkExec());
     expect(mSynth).not.toHaveBeenCalled();
+  });
+});
+
+describe("9.18bbbb — filet « commande écrite au lieu d'exécutée » (terrain 25/10 : .search / 31/10 : .img)", () => {
+  it("une décision reply/ask dont le texte est une ligne de commande devient execute (validation aval inchangée)", () => {
+    const src = fs.readFileSync("src/bot/services/agentRunner.ts", "utf-8");
+    expect(src).toContain("extractCommandLineLeak(decision.text, info.prefix)");
+    expect(src).toContain('decision = { action: "execute", command: cmdLeak.command, args: cmdLeak.args }');
+  });
+
+  it("le chemin dégradé exécute les commandes LÉGÈRES fuées en prose, invita honnête sinon", () => {
+    const src = fs.readFileSync("src/bot/services/agentRunner.ts", "utf-8");
+    expect(src).toContain("extractCommandLineLeak(raw, info.prefix)");
+    expect(src).toContain("isHeavyAgentCommand(lightCmd,");
+    expect(src).toContain("je l'exécuterai proprement");
   });
 });

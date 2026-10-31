@@ -103,6 +103,59 @@ const safeHostCache = new Map<string, { ok: boolean; at: number }>();
  * Returns true when the URL is safe for the server to fetch:
  * http/https scheme and a host that resolves to no private addresses.
  */
+/**
+ * Hôtes de streaming/hébergement de CONFIANCE (pas de résolution DNS —
+ * fail-fast et zéro dépendance réseau pour les domaines stables).
+ * 9.18cccc (audit) : liste dédupliquée en UNE constante (deux copies
+ * allaient dériver) + écosystème FILMS du catalogue (vidzy.cc, uqload.vc,
+ * doods/dood, voe.sx, relais kokoflix, fsvid — constatés sur l'API réelle
+ * du 30/10). Les domaines tournants restent couverts par la résolution DNS
+ * en aval (fail-closed).
+ */
+const TRUSTED_STREAM_HOSTS = [
+  // Écosystème animés (anime-sama / nakanime)
+  "anime-sama.to",
+  "smoothpre.com",
+  "sibnet.ru",
+  "sendvid.com",
+  "vidmoly.to",
+  "vidmoly.me",
+  "vidmoly.net",
+  "ansembed.net",
+  "vmpx.org",
+  "dramiyos.com",
+  "streampre.com",
+  "smoothstream.com",
+  "embed4me.com",
+  "uqload.is",
+  "minochinos.com",
+  "nakanime.tv",
+  "movearnpre.com",
+  "ovaltinecdn.com",
+  "vidzy.live",
+  "vidzy.org",
+  "luluvdo.com",
+  "lulustream.com",
+  "oneupload.net",
+  "oneupload.to",
+  "mivalyo.com",
+  "dingtezuni.com",
+  "filemoon.sx",
+  "bysesukior.com",
+  "voir-anime.to",
+  "voembed.net",
+  // Écosystème films (catalogue 9.18wwww+ — API réelle du 30/10)
+  "vidzy.cc",
+  "uqload.vc",
+  "uqload.com",
+  "doods.pro",
+  "dood.to",
+  "dood.watch",
+  "voe.sx",
+  "kokoflix.lol",
+  "fsvid.lol"
+];
+
 export async function isSafeDownloadUrl(rawUrl: string): Promise<boolean> {
   let url: URL;
   try {
@@ -125,38 +178,7 @@ export async function isSafeDownloadUrl(rawUrl: string): Promise<boolean> {
   };
   
   // Whitelist known safe video streaming and hosting domains to prevent false-positive DNS/IP blocks.
-  const trustedHosts = [
-    "anime-sama.to",
-    "smoothpre.com",
-    "sibnet.ru",
-    "sendvid.com",
-    "vidmoly.to",
-    "vidmoly.me",
-    "vidmoly.net",
-    "ansembed.net",
-    "vmpx.org",
-    "dramiyos.com",
-    "streampre.com",
-    "smoothstream.com",
-    "embed4me.com",
-    "uqload.is",
-    "minochinos.com",
-    "nakanime.tv",
-    "movearnpre.com",
-    "ovaltinecdn.com",
-    "vidzy.live",
-    "vidzy.org",
-    "luluvdo.com",
-    "lulustream.com",
-    "oneupload.net",
-    "oneupload.to",
-    "mivalyo.com",
-    "dingtezuni.com",
-    "filemoon.sx",
-    "bysesukior.com",
-    "voir-anime.to",
-    "voembed.net"
-  ];
+  const trustedHosts = TRUSTED_STREAM_HOSTS;
   if (trustedHosts.some((h) => hostname === h || hostname.endsWith("." + h))) {
     return remember(true);
   }
@@ -182,38 +204,7 @@ export async function isSafeDownloadUrl(rawUrl: string): Promise<boolean> {
 
 /** Resolves and validates every address of a hostname; fails closed. */
 async function resolvePinnedAddresses(hostname: string): Promise<Array<{ address: string; family: number }>> {
-  const trustedHosts = [
-    "anime-sama.to",
-    "smoothpre.com",
-    "sibnet.ru",
-    "sendvid.com",
-    "vidmoly.to",
-    "vidmoly.me",
-    "vidmoly.net",
-    "ansembed.net",
-    "vmpx.org",
-    "dramiyos.com",
-    "streampre.com",
-    "smoothstream.com",
-    "embed4me.com",
-    "uqload.is",
-    "minochinos.com",
-    "nakanime.tv",
-    "movearnpre.com",
-    "ovaltinecdn.com",
-    "vidzy.live",
-    "vidzy.org",
-    "luluvdo.com",
-    "lulustream.com",
-    "oneupload.net",
-    "oneupload.to",
-    "mivalyo.com",
-    "dingtezuni.com",
-    "filemoon.sx",
-    "bysesukior.com",
-    "voir-anime.to",
-    "voembed.net"
-  ];
+  const trustedHosts = TRUSTED_STREAM_HOSTS;
   const isTrusted = trustedHosts.some((h) => hostname === h || hostname.endsWith("." + h));
 
   if (!isTrusted && (hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal"))) {

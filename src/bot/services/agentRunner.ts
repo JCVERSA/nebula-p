@@ -60,6 +60,7 @@ import {
   deterministicNextEpisodeDecision,
   messageSuggestsMultiIntent,
   extractToolCallLeak,
+  extractCommandLineLeak,
   looksLikeRawJson
 } from "./agentBrain.js";
 import { sendAgentTextOrVoice } from "./agentVoice.js";
@@ -346,6 +347,18 @@ export async function handleAgentMessage(
       }
     }
 
+    // 9.18bbbb (terrain 25/10 20:29) : une « réponse » qui est en réalité
+    // une LIGNE DE COMMANDE (« .search Nebula Bot… ») est une fuite du mode
+    // tool-call — l'intention était l'exécution. Conversion en décision
+    // execute : la validation aval (registre+alias, denylist, guardrail
+    // d'args, lourd = confirmation, budget) reste strictement IDENTIQUE.
+    if (decision && (decision.action === "reply" || decision.action === "ask")) {
+      const cmdLeak = extractCommandLineLeak(decision.text, info.prefix);
+      if (cmdLeak) {
+        decision = { action: "execute", command: cmdLeak.command, args: cmdLeak.args };
+      }
+    }
+
     if (!decision) {
       // ── Dégradation : prompt guidage classique (comportement d'avant
       //    l'agent) — jamais de silence, jamais de JSON cassé chez l'user.
@@ -375,6 +388,23 @@ export async function handleAgentMessage(
         const honest = "🤖 J'ai mal formaté ma réponse — reformule ta demande, je réessaie proprement.";
         await sendText(honest, { voice: true, force: !!info.voiceNote });
         recordExchange(info.senderJid, text, honest);
+        return true;
+      }
+      // 9.18bbbb : prose qui est une ligne de commande (« .search X ») →
+      // exécution directe pour une commande LÉGÈRE connue (même filet que la
+      // fuite JSON ci-dessus) ; sinon invitation honnête à la taper.
+      const cmdLine = extractCommandLineLeak(raw, info.prefix);
+      if (cmdLine) {
+        const lightCmd = getCommand(cmdLine.command);
+        if (lightCmd && !isAgentDeniedCommand(lightCmd.name) && !isHeavyAgentCommand(lightCmd, cmdLine.args ? cmdLine.args.split(/\s+/) : [])) {
+          const out = await exec(lightCmd.name, cmdLine.args ? cmdLine.args.split(/\s+/) : [], "agent");
+          setLastObservation(info.senderJid, lightCmd.name, out.texts);
+          recordExchange(info.senderJid, text, out.texts[0] ?? "");
+          return true;
+        }
+        const honestCmd = `👉 Tape \`${info.prefix}${cmdLine.command}${cmdLine.args ? " " + cmdLine.args : ""}\` directement — je l'exécuterai proprement.`;
+        await sendText(honestCmd, { voice: true, force: !!info.voiceNote });
+        recordExchange(info.senderJid, text, honestCmd);
         return true;
       }
       await sendText(raw, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B) : voix appelle voix

@@ -185,7 +185,7 @@ const USAGE = (p: string) =>
 
 const uploadCommand: BotCommand = {
   name: "upload",
-  aliases: ["up", "tr", "lu", "opload", "opl", "upl"],
+  aliases: ["up", "lu", "opload", "opl", "upl"], // 9.18bbbb : "tr" rendu à la traduction (collision terrain 25/10)
   category: "Tools",
   description: "Générer un lien de téléchargement temporaire (2 h) pour un fichier envoyé ou cité",
   usage: ".up (avec le fichier, ou en reply d'un média)",

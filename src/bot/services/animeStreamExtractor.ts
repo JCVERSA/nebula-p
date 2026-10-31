@@ -312,11 +312,16 @@ export function extractXUploadStreamUrls(html: string, hostname: string, unpacke
   // 1. Blobs XOR : BC mesure navigateur si presente, puis brute-force 0..255.
   const seed = xuploadHostSeed(hostname);
   const combined = texts.join("\n");
+  // 9.18cccc (audit) : caps anti-DoS — une page malveillante ne doit pas
+  // pouvoir imposer un décodage massif (blob géant × 256 clés de brute-force).
   const blobs: string[] = [];
   for (const text of texts) {
     for (const m of text.matchAll(/\}\)\(\s*["']([^"']{50,})["']\s*\)/g)) {
+      if (m[1].length > 4096) continue; // une URL de flux ne fait jamais 4 Ko
       if (!blobs.includes(m[1])) blobs.push(m[1]);
+      if (blobs.length >= 8) break;
     }
+    if (blobs.length >= 8) break;
   }
   if (blobs.length > 0) {
     const bcValues: number[] = [];

@@ -82,7 +82,7 @@ export function quotedTextOf(msg: any): string {
 
 const tradCommand: BotCommand = {
   name: "trad",
-  aliases: ["traduis", "tl"], // "translate" est un alias banni 8.59 (ancienne commande supprimée)
+  aliases: ["traduis", "tl", "tr"], // 9.18bbbb : .tr rendu à la traduction (préfixe canonique — était capté par upload, terrain 25/10) ; "translate" banni 8.59
   category: "Utilities",
   description: "Traduire du texte (ex: .trad en Bonjour — défaut : vers le français ; marche par reply).",
   usage: ".trad <langue?> <texte>",

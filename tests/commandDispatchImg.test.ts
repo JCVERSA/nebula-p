@@ -29,6 +29,7 @@ vi.mock("../src/bot/auditTrail.js", () => ({
 }));
 
 import { dispatchBotCommand } from "../src/bot/commandDispatch.js";
+import { initRegistry } from "../src/bot/commandRegistry.js";
 import { findImageCandidates, downloadImageCandidate } from "../src/bot/services/imageFinder.js";
 import { checkWebQuota, consumeWebQuota } from "../src/bot/webQuota.js";
 
@@ -117,4 +118,31 @@ describe("9.18zzzz — .img en préfixe : outil interne routé (plus de « comma
     expect(texts[0]).toContain("Commande inconnue");
     expect(mFind).not.toHaveBeenCalled();
   });
+});
+
+describe("9.18bbbb — retry d'envoi sur socket mourant (terrain 27/10 : .ping muet, .sweb sans réponse)", () => {
+  it("échec connexion sur le REPLY → UN retry réussit (la réponse n'est plus perdue)", async () => {
+    await initRegistry();
+    const sock = makeSock();
+    sock.sendMessage
+      .mockResolvedValueOnce(true as any) // react 🚀
+      .mockRejectedValueOnce(new Error("Connection Closed")) // reply perdu (socket mourant)
+      .mockResolvedValueOnce(true as any); // retry
+    const out = await dispatchBotCommand(sock, { key: { remoteJid: INFO.senderJid } }, INFO, "ping", [], "prefix");
+    expect(out.ok).toBe(true);
+    // react + reply perdu + retry = 3 appels ; le retry porte bien le TEXTE
+    expect(sock.sendMessage.mock.calls.length).toBe(3);
+    const retryPayload: any = (sock.sendMessage.mock.calls as any[])[2]?.[1];
+    expect(retryPayload?.text).toContain("Nebula Bot - Status");
+  }, 15000);
+
+  it("erreur NON-connexion sur le reply → aucun retry (jamais de doublon)", async () => {
+    await initRegistry();
+    const sock = makeSock();
+    sock.sendMessage
+      .mockResolvedValueOnce(true as any) // react
+      .mockRejectedValueOnce(new Error("invalid payload in message")); // reply, pas une panne de connexion
+    await dispatchBotCommand(sock, { key: { remoteJid: INFO.senderJid } }, INFO, "ping", [], "prefix");
+    expect(sock.sendMessage.mock.calls.length).toBe(2); // react + reply, RIEN d'autre
+  }, 15000);
 });
