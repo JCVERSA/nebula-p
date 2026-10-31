@@ -39,7 +39,7 @@ import { effectiveDefaultSource } from "./animeSources.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory, getAnimeChoice } from "./animeChoices.js";
 import { getLastDelivery } from "./lastDelivery.js";
 import { recordAgentTurn } from "./agentMetrics.js";
-import { setLastObservation, outputLooksInteractive, observationContext } from "./agentObservation.js";
+import { setLastObservation, outputLooksInteractive, observationContext, clearLastObservation } from "./agentObservation.js";
 import { suggestClosestCommand } from "../commandRegistry.js";
 import { getPrimaryAIEngine } from "../geminiClient.js";
 import type { AgentCommandOutcome } from "../commandDispatch.js";
@@ -60,6 +60,7 @@ import {
   keepHeadAndTail,
   deterministicNextEpisodeDecision,
   looksLikeLinkResendRequest,
+  observationMatchesRequest,
   messageSuggestsMultiIntent,
   extractToolCallLeak,
   extractCommandLineLeak,
@@ -307,7 +308,18 @@ ${last.text}`);
     // 9.1 — écran en attente dans ce chat (liste de sélection…) : sans ce
     // contexte, un « le 2e » ou « en VF » en réponse naturelle repartirait
     // d'une page blanche → boucle. TTL 10 min côté agentObservation.
-    const obsBlock = observationContext(info.senderJid);
+    // 9.19a (terrain 31/10 04:07) : un écran en attente qui ne parle PAS du
+    // sujet de la demande est un écran PÉRIMÉ. Cas réel : après une erreur,
+    // la recherche parasite « 1 » avait laissé un écran Ranma en attente ;
+    // « Shiboyugi s1 de ep 7-12 » a été exécuté CONTRE cet écran (`.a 2` →
+    // Ranma 1/2 S3). On retire l'écran du prompt ET on le purge : la demande
+    // repart sur une recherche propre. Une réponse d'écran (« le 2e », « en
+    // VF ») ne porte aucun token discriminant → l'écran reste (fail-open).
+    let obsBlock = observationContext(info.senderJid);
+    if (obsBlock && !observationMatchesRequest(obsBlock, text)) {
+      clearLastObservation(info.senderJid);
+      obsBlock = null;
+    }
     // 9.6b : sans ça, l'agent ne VOIT pas que l'utilisateur a répondu à un
     // média — « un lien pour ça » partait en 4 questions de clarification.
     // Indice compact, injecté UNIQUEMENT quand il y a un média (éco tokens).

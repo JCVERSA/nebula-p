@@ -964,8 +964,20 @@ async function executeQuickDownloadPipeline(
     // 5. Resolve requested episode indices
     const resolvedIndices = resolveRequestedEpisodes(totalEpisodes, quickParams);
     if (resolvedIndices.length === 0) {
-      clearUserSession(context.sender);
-      return context.reply(`❌ *Épisode(s) invalide(s):* Veuillez choisir entre 1 et ${totalEpisodes}.`);
+      // 9.19a (terrain 31/10 04:04) : la saison résolue n'a PAS ces épisodes
+      // (« s1 » = le spécial CLOUDY BEACH à 1 épisode, la série de 11 est en
+      // s2). Avant : erreur sèche « entre 1 et 1 » + session JETÉE → le
+      // « .a 1 » suivant partait en recherche du mot « 1 » (Ranma 1/2…).
+      // Désormais : retour à l'écran des saisons — la liste montre le contenu
+      // réel de chaque entrée, `.a s2` repart immédiatement.
+      session.step = "season";
+      const seasonName = session.selectedSeason?.name || "la saison sélectionnée";
+      const seasonsList = session.seasons.map((s, i) => `*s${i + 1}.* ${s.name}`).join("\n");
+      return context.reply(
+        `❌ *Épisode(s) invalide(s) :* « ${seasonName} » ne contient que ${totalEpisodes} épisode(s) — la demande dépasse cette plage.\n\n` +
+          `*Saisons disponibles :*\n${seasonsList}\n\n` +
+          `👉 Choisis la bonne saison : \`.a s[numéro]\` — puis les épisodes (ex : \`.a 7-11\`).`
+      );
     }
 
     // 9.18uuuu (retour owner 25/10) : gros lot → conseil « 5 à la fois »

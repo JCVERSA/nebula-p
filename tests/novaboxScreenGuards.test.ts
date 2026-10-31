@@ -157,3 +157,28 @@ describe("9.18uuuu — conseil batch « 5 à la fois » (retour owner 25/10)", (
     expect(src).toContain("NEBULA_NOVABOX_MAX_EPISODES || 12");
   });
 });
+
+describe("9.19a — erreur d'épisodes : session CONSERVÉE + écran des saisons (terrain 31/10 04:04 « entre 1 et 1 »)", () => {
+  it("la branche d'erreur ne jette plus la session : retour à l'étape season", () => {
+    const branchIdx = src.indexOf("if (resolvedIndices.length === 0) {");
+    const errIdx = src.indexOf("ne contient que");
+    expect(branchIdx).toBeGreaterThan(-1);
+    expect(errIdx).toBeGreaterThan(branchIdx);
+    const branch = src.slice(branchIdx, errIdx);
+    expect(branch).toContain('session.step = "season";');
+    expect(branch).toContain("s${i + 1}"); // liste des saisons reconstruite
+    expect(branch).not.toContain("clearUserSession"); // 31/10 04:05 : `.a 1` partait en recherche du mot « 1 »
+  });
+
+  it("le message explique la vraie cause et liste les saisons avec leur contenu", () => {
+    const errIdx = src.indexOf("ne contient que");
+    const tail = src.slice(errIdx, errIdx + 700);
+    expect(tail).toContain("Saisons disponibles :");
+    expect(tail).toContain(".a s[numéro]");
+  });
+
+  it("l'erreur honnête d'origine reste identifiable (borne d'épisodes)", () => {
+    expect(src).toContain("Épisode(s) invalide(s)");
+    expect(src).toContain("${totalEpisodes} épisode(s)");
+  });
+});

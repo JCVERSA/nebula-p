@@ -591,6 +591,43 @@ export function looksLikeRawJson(raw: string): boolean {
  * Pur : reconnaissance stricte (verbe de renvoi/perte + « lien », ou « le
  * lien » nu) — toute autre phraséologie retourne false, chemin IA normal.
  */
+/**
+ * 9.19a — pertinence d'un écran en attente face à une NOUVELLE demande.
+ * Terrain 31/10 04:07 : la recherche parasite « 1 » (faite après une erreur)
+ * avait laissé un écran Ranma/Kimetsu en attente ; la demande « Shiboyugi
+ * s1 de ep 7-12 » a été exécutée CONTRE cet écran → sélection de Ranma 1/2.
+ *
+ * Règle : la demande porte-t-elle au moins un token DISCRIMINANT (≥ 4 chars,
+ * ni nombre, ni mot du domaine) ABSENT de l'écran ? Alors l'écran parle
+ * d'autre chose → il est périmé. Aucun token discriminant (« le 2e », « en
+ * VF », « télécharge l'anime ») → c'est une réponse d'écran → il reste utile.
+ */
+const OBS_REQUEST_STOPWORDS = new Set([
+  "anime", "animes", "film", "films", "saison", "saisons", "episode", "episodes",
+  "novabox", "nebula", "bot", "catalogue", "lecteur", "lecteurs", "telecharge",
+  "telecharger", "download", "lance", "lancer", "mets", "mettre", "envoie",
+  "envoyer", "version", "complete", "entier", "entiere", "vostfr", "vfq",
+  "francais", "anglais", "qualite", "qualites", "veux", "veut", "voudrais",
+  "aimerais", "peux", "pourrais", "stp", "svp", "please", "avec", "pour",
+  "dans", "tout", "toute", "toutes", "encore", "fais", "fait", "donne",
+  "donner", "prend", "prendre", "place", "aussi", "puis", "ensuite"
+]);
+
+export function observationMatchesRequest(observation: string, request: string): boolean {
+  const norm = (v: string) =>
+    String(v || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  const tokens = norm(request)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .filter((t) => t.length >= 4 && !/^\d+$/.test(t) && !OBS_REQUEST_STOPWORDS.has(t));
+  if (tokens.length === 0) return true; // réponse d'écran (« le 2e », « en VF ») → l'écran reste utile
+  const obs = norm(observation);
+  return tokens.some((t) => obs.includes(t));
+}
+
 export function looksLikeLinkResendRequest(text: string): boolean {
   const t = (text || "").trim();
   if (!t || t.length > 120 || /[\n\r]/.test(t)) return false;

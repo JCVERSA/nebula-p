@@ -79,6 +79,11 @@ export function setLastObservation(chatJid: string, command: string, texts: stri
   store.set(chatJid, { command, texts: kept, ts: Date.now() });
 }
 
+/** 9.19a — purge un écran périmé (empoisonnement, terrain 31/10 04:07). */
+export function clearLastObservation(chatJid: string): void {
+  store.delete(chatJid);
+}
+
 export function getLastObservation(chatJid: string): AgentObservation | null {
   prune();
   const obs = store.get(chatJid);

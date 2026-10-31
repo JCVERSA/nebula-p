@@ -15,6 +15,7 @@ import {
   extractToolCallLeak,
   extractCommandLineLeak,
   looksLikeLinkResendRequest,
+  observationMatchesRequest,
   looksLikeRawJson,
   replySuggestsOtherCatalog,
   toggleCatalogFlag,
@@ -479,5 +480,44 @@ describe("9.18vvvv — anti-fuite tool-call (terrain 25/10 : JSON brut affiché)
   it("query tronquée à 200 caractères (garde-fou)", () => {
     const leak = extractToolCallLeak(JSON.stringify({ query: "x".repeat(500) }));
     expect(leak!.query.length).toBe(200);
+  });
+});
+
+describe("9.19a — pertinence d'un écran en attente (terrain 31/10 04:07 : Shiboyugi exécuté contre l'écran Ranma)", () => {
+  const STALE = [
+    "👉 Réponds avec : .a <numéro>",
+    "1. Ranma 1/2 S3",
+    "2. Kimetsu no Yaiba VOSTFR",
+  ].join("\n");
+  const FRESH = [
+    "👉 Réponds avec : .a <numéro>",
+    "1. Yu-Gi-Oh! Shiboyugi (VOSTFR)",
+    "2. Yu-Gi-Oh! Shiboyugi VF",
+  ].join("\n");
+
+  it("la demande parle d'un AUTRE anime que l'écran périmé → écran rejeté", () => {
+    expect(observationMatchesRequest(STALE, "Shiboyugi s1 de ep 7-12 en 480")).toBe(false);
+    expect(observationMatchesRequest(STALE, "mets shiboyugi s'il te plaît")).toBe(false);
+    expect(observationMatchesRequest(FRESH, "prends ranma à la place")).toBe(false);
+  });
+
+  it("la demande parle du MÊME anime que l'écran → écran conservé", () => {
+    expect(observationMatchesRequest(FRESH, "Shiboyugi s1 de ep 7-12 en 480")).toBe(true);
+    expect(observationMatchesRequest(STALE, "prends ranma à la place")).toBe(true);
+  });
+
+  it("réponse d'écran sans token discriminant (« le 2e », « en VF ») → conservé (fail-open)", () => {
+    expect(observationMatchesRequest(STALE, "le 2e")).toBe(true);
+    expect(observationMatchesRequest(STALE, "en VF")).toBe(true);
+    expect(observationMatchesRequest(STALE, "2")).toBe(true);
+  });
+
+  it("mots du domaine seuls (télécharge l'anime, la saison 2) → conservé", () => {
+    expect(observationMatchesRequest(STALE, "télécharge l'anime")).toBe(true);
+    expect(observationMatchesRequest(STALE, "la saison 2 en entier")).toBe(true);
+  });
+
+  it("accents et casse neutralisés avant comparaison", () => {
+    expect(observationMatchesRequest(FRESH, "SHIBOYUGI épisodes 7 à 12")).toBe(true);
   });
 });

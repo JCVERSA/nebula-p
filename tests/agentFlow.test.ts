@@ -78,7 +78,7 @@ import { checkAIQuota } from "../src/bot/aiQuota.js";
 import { recordAgentExecution, __resetAgentStateForTests } from "../src/bot/services/agentBrain.js";
 import { recordLastDelivery, __resetLastDeliveryForTests } from "../src/bot/services/lastDelivery.js";
 import { getAnimeChoiceContext, messageSuggestsAnimeHistory, getAnimeChoice } from "../src/bot/services/animeChoices.js";
-import { __resetObservationsForTests } from "../src/bot/services/agentObservation.js";
+import { __resetObservationsForTests, setLastObservation, getLastObservation } from "../src/bot/services/agentObservation.js";
 import { getChatPreference, setChatPreference, clearChatPreference } from "../src/bot/services/userPreferences.js";
 import { isVoiceModeEnabled } from "../src/bot/services/voiceModeStore.js";
 import { synthesizeVoiceNote } from "../src/bot/services/ttsService.js";
@@ -1048,5 +1048,26 @@ describe("9.18eeee — améliorations agent (A1 retry, A3 resend, A4 préfixe st
     expect(src).toContain("RIEN n'a été exécuté");
     expect(src).toContain("parseAgentDecision");
     expect(src).not.toContain("dispatchBotCommand"); // jamais d'exécution réelle
+  });
+});
+
+describe("9.19a — écran PÉRIMÉ purgé (terrain 31/10 04:07 : « Shiboyugi » exécuté contre l'écran Ranma)", () => {
+  it("la demande parle d'un autre anime que l'écran en attente → écran retiré du prompt ET purgé", async () => {
+    // Reste de la recherche parasite « 1 » : un écran Ranma dort dans le chat.
+    setLastObservation(JID, "anime", [
+      "👉 Réponds avec : .a <numéro>",
+      "1. Ranma 1/2 S3",
+      "2. Kimetsu no Yaiba VOSTFR",
+    ]);
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"anime","args":"shiboyugi"}');
+    const exec = mkExec();
+    const ctx = mk("shiboyugi s1 de ep 7-12 en 480");
+    await run(ctx, exec);
+    const systemPrompt = mAI.mock.calls[mAI.mock.calls.length - 1][1];
+    expect(systemPrompt).not.toContain("Écran en attente dans ce chat");
+    expect(getLastObservation(JID)).toBeNull(); // purgé : plus d'empoisonnement au tour suivant
+    expect(exec).toHaveBeenCalledTimes(1);
+    const call = exec.mock.calls[0] as unknown as [string, string[]];
+    expect(call[1]).toEqual(["shiboyugi"]); // recherche propre, pas `.a 2` contre l'écran mort
   });
 });
