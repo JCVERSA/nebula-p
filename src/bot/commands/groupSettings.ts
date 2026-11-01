@@ -1,4 +1,5 @@
 import { BotCommand } from "../types.js";
+import { knownNameOf } from "../services/socialMemory.js";
 import { groupJidOf } from "../utils/groupTargets.js";
 import { resolveLiveSocket } from "../liveSocket.js";
 
@@ -109,12 +110,19 @@ const groupinfoCommand: BotCommand = {
       const owner = meta.owner || members.find(m => m.admin === "superadmin")?.id || null;
       const desc = String(meta.desc || meta.description || "").trim();
       const created = meta.creation ? new Date(Number(meta.creation) * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : null;
+      // 9.19k (terrain 01/11 07:55 « Done moi leur nom » ×3) : nommer les
+      // admins et le créateur quand le bot les connaît (mémoire sociale +
+      // répertoire — identité, pas contenu de conversation) ; sinon repli
+      // mention @numéro inchangé.
+      const resolvedAdmins = admins.map((m) => knownNameOf(m.id));
+      const adminNames = Array.from(new Set(resolvedAdmins.filter(Boolean))).slice(0, 6);
+      const unknownAdmins = resolvedAdmins.filter((n) => !n).length;
       const lines = [
         `👥 *${String(meta.subject || "Groupe").slice(0, 80)}*`,
         desc ? `\n📝 ${desc.slice(0, 300)}${desc.length > 300 ? "…" : ""}` : "",
         `\n\n👤 *Membres :* ${members.length || meta.size || "?"}`,
-        `🛡️ *Admins :* ${admins.length}`,
-        owner ? `👑 *Créé par :* @${String(owner).split("@")[0]}` : "",
+        `🛡️ *Admins :* ${admins.length}${adminNames.length ? ` — ${adminNames.join(", ")}` : ""}${unknownAdmins ? ` (+${unknownAdmins} pas encore connu${unknownAdmins > 1 ? "s" : ""} par leur nom)` : ""}`,
+        owner ? `👑 *Créé par :* ${knownNameOf(String(owner)) || `@${String(owner).split("@")[0]}`}` : "",
         created ? `\n📅 *Créé le :* ${created}` : "",
       ].filter(Boolean);
       await context.reply(lines.join(""));

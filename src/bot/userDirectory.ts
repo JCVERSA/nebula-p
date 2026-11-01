@@ -318,6 +318,18 @@ export function getUserAILimit(jid: string): number | null {
   return typeof v === "number" && v > 0 ? v : null;
 }
 
+/**
+ * 9.19k — nom connu d'un jid (répertoire bot-wide : quiconque a déjà écrit
+ * au bot, dans N'IMPORTE QUEL chat). C'est de l'IDENTITÉ, pas du contenu de
+ * conversation — l'étanchéité par chat (9.19j) protège les échanges, pas
+ * les prénoms. Renvoie "" quand le bot n'a jamais vu cette personne parler.
+ */
+export function getKnownUserName(jid: string): string {
+  loadStore();
+  const u = store.users[safeKey(jid)];
+  return u?.name ? String(u.name).slice(0, 60) : "";
+}
+
 export function listUsers(): KnownUser[] {
   return Object.values(store.users).sort((a, b) => b.lastSeen - a.lastSeen);
 }

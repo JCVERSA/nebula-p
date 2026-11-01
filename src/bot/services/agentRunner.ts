@@ -108,6 +108,8 @@ export interface AgentMessageInfo {
   chatName?: string | null;
   senderIsAdmin?: boolean;
   senderIsCreator?: boolean;
+  /** 9.19k — personnes mentionnées dans le message (hors le bot). */
+  mentionedJids?: string[];
 }
 
 export type AgentExecutor = (
@@ -423,7 +425,8 @@ ${last.text}`);
       isGroup: info.isGroup === true,
       chatName: info.chatName || undefined,
       senderIsAdmin: info.senderIsAdmin === true,
-      senderIsCreator: info.senderIsCreator === true
+      senderIsCreator: info.senderIsCreator === true,
+      mentionedJids: info.mentionedJids
     });
     const dynamicBlocks = [
       memoryBlock,

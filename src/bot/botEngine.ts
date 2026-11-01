@@ -1133,8 +1133,25 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         // titre — audit B4). Calculés une fois, utilisés en DM ET en groupe.
         let mediaHint = describeMessageMedia(messageContent);
         let quotedTextExcerpt: string | null = null;
+        // 9.19k — mentions d'AUTRES personnes que le bot (« Qui es @X ? ») :
+        // le modèle voit le nom affiché dans le texte, mais pas à qui il
+        // correspond — le bloc social lui donne le rôle de la personne.
+        let mentionedOthers: string[] = [];
         {
           const ctxInfo = messageContent?.extendedTextMessage?.contextInfo;
+          {
+            const num = (j: unknown) => String(j ?? "").split(":")[0].split("@")[0].replace(/\D/g, "");
+            const meNum = num(sock?.user?.id);
+            const meLidNum = num((sock as any)?.user?.lid);
+            const mentionedRaw: any[] = Array.isArray(ctxInfo?.mentionedJid) ? ctxInfo.mentionedJid : [];
+            mentionedOthers = mentionedRaw
+              .map(String)
+              .filter((j) => {
+                const n = num(j);
+                return n && n !== meNum && n !== meLidNum;
+              })
+              .slice(0, 3);
+          }
           const quotedRaw = ctxInfo?.quotedMessage;
           quotedTextExcerpt = extractQuotedText(quotedRaw);
           if (!mediaHint || !quotedTextExcerpt) {
@@ -1206,6 +1223,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                     chatName: groupSubject,
                     senderIsAdmin: isSenderAdmin,
                     senderIsCreator: senderIsGroupCreator,
+                    mentionedJids: mentionedOthers,
                     text: asr.text,
                     voiceNote: true,
                     botName: config.botName,
@@ -1285,6 +1303,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 chatName: groupSubject,
                 senderIsAdmin: isSenderAdmin,
                 senderIsCreator: senderIsGroupCreator,
+                mentionedJids: mentionedOthers,
                 text,
                 botName: config.botName,
                 prefix,
@@ -1405,6 +1424,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 chatName: groupSubject,
                 senderIsAdmin: isSenderAdmin,
                 senderIsCreator: senderIsGroupCreator,
+                mentionedJids: mentionedOthers,
                 text,
                 botName: config.botName,
                 prefix,

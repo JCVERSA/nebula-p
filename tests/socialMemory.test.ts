@@ -18,10 +18,12 @@ import {
   notePresence,
   noteGroupRoles,
   buildSocialBlock,
+  knownNameOf,
   exportVaultMirror,
   isSocialMemoryEnabled,
   __resetSocialMemoryForTests
 } from "../src/bot/services/socialMemory.js";
+import { touchUser, getKnownUserName, __resetDirectoryForTests } from "../src/bot/userDirectory.js";
 
 const GID = "90000000000-1234567890@g.us";
 const OWNER = "10000000001@s.whatsapp.net";
@@ -44,6 +46,7 @@ function groupMeta() {
 
 beforeEach(() => {
   __resetSocialMemoryForTests();
+  __resetDirectoryForTests();
 });
 
 afterAll(() => {
@@ -226,5 +229,63 @@ describe("9.19j — pins de câblage (leçon 8.49b : pinner le câblage, pas seu
     expect(src).toContain("turn.author || \"User\"");
     expect(src).toContain("export function recordChatter(");
     expect(src).toContain("opts: { author?: string; now?: number } = {}");
+  });
+});
+
+describe("9.19k — terrain 07:55 : nommer les admins, comprendre les mentions, se connaître", () => {
+  it("« tu connais qui à part moi ? » — le bloc DM décrit la mémoire CORRECTEMENT (plus de « je n'ai pas de mémoire »)", () => {
+    const block = buildSocialBlock({
+      chatJid: OWNER, actorJid: OWNER, actorName: "Dark Neon", isOwner: true, isGroup: false
+    }) || "";
+    expect(block).toContain("Ta mémoire est par conversation");
+    expect(block).toContain("Ne dis jamais que tu n'as pas de mémoire");
+  });
+
+  it("« Qui es @Arol ? » — la mention est identifiée avec son rôle vérifié, la question recentrée", () => {
+    noteGroupRoles(GID, groupMeta());
+    notePresence({ chatJid: GID, actorJid: ADMIN1, actorName: "Kitsu", isGroup: true });
+    const block = buildSocialBlock({
+      chatJid: GID, actorJid: OWNER, actorName: "Dark Neon", isOwner: true, isGroup: true,
+      mentionedJids: [ADMIN1]
+    }) || "";
+    expect(block).toContain("Le message mentionne : Kitsu (un admin du groupe)");
+    expect(block).toContain("plutôt que sur toi");
+  });
+
+  it("mention d'un inconnu → honnête : « quelqu'un que tu ne connais pas encore »", () => {
+    noteGroupRoles(GID, groupMeta());
+    const block = buildSocialBlock({
+      chatJid: GID, actorJid: OWNER, actorName: "Dark Neon", isOwner: false, isGroup: true,
+      mentionedJids: ["99999999999@s.whatsapp.net"]
+    }) || "";
+    expect(block).toContain("quelqu'un que tu ne connais pas encore");
+  });
+
+  it("un admin qui n'a JAMAIS parlé ici mais a déjà écrit au bot est nommé (repli répertoire — identité, pas conversation)", () => {
+    noteGroupRoles(GID, groupMeta());
+    touchUser(ADMIN1, { name: "Arol Kam's" }); // connu du répertoire bot-wide, muet dans CE groupe
+    expect(knownNameOf(ADMIN1)).toBe("Arol Kam's");
+    const block = buildSocialBlock({
+      chatJid: GID, actorJid: FANDIO, actorName: "Fandio", isOwner: false, isGroup: true
+    }) || "";
+    expect(block).toContain("Admins : Arol Kam's");
+  });
+
+  it("getKnownUserName : nom connu / vide pour un inconnu (pas d'exception)", () => {
+    touchUser(FANDIO, { name: "Fandio E" });
+    expect(getKnownUserName(FANDIO)).toBe("Fandio E");
+    expect(getKnownUserName("88888888888@s.whatsapp.net")).toBe("");
+  });
+
+  it("pins de câblage 9.19k (leçon 8.49b)", () => {
+    const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), "utf-8");
+    const engine = read("src/bot/botEngine.ts");
+    expect(engine).toContain("let mentionedOthers: string[] = [];");
+    expect(engine).toContain("mentionedJids: mentionedOthers,");
+    const runner = read("src/bot/services/agentRunner.ts");
+    expect(runner).toContain("mentionedJids: info.mentionedJids");
+    const ginfo = read("src/bot/commands/groupSettings.ts");
+    expect(ginfo).toContain("knownNameOf(m.id)");
+    expect(ginfo).toContain("pas encore connu");
   });
 });

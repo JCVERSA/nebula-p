@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { getKnownUserName } from "../userDirectory.js";
 
 /**
  * 9.19j — Mémoire sociale de NOVA : QUI elle connaît, OÙ elle parle, et qui
@@ -267,6 +268,23 @@ function unique<T>(values: T[]): T[] {
 }
 
 /**
+ * 9.19k — meilleur nom connu d'un jid : mémoire sociale d'abord (vue dans
+ * le contexte courant), puis répertoire bot-wide (identité apprise
+ * ailleurs — ce n'est pas du contenu de conversation, l'étanchéité tient).
+ * Renvoie "" si le bot n'a jamais vu cette personne parler nulle part.
+ */
+export function knownNameOf(jid: string): string {
+  loadStore();
+  const social = cleanName(store.people[safeKey(jid)]?.name);
+  if (social) return social;
+  try {
+    return cleanName(getKnownUserName(jid));
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Le bloc de prompt « Où tu es et avec qui » — la seule chose que le
  * modèle voit. ÉTANCHE : en DM, aucun nom de groupe n'apparaît ; en groupe,
  * uniquement le groupe courant. Noms uniquement, jamais de numéros.
@@ -280,6 +298,8 @@ export function buildSocialBlock(input: {
   chatName?: string;
   senderIsAdmin?: boolean;
   senderIsCreator?: boolean;
+  /** 9.19k — jids mentionnés dans le message HORS le bot lui-même. */
+  mentionedJids?: string[];
 }): string | null {
   if (!isSocialMemoryEnabled()) return null;
   loadStore();
@@ -289,6 +309,16 @@ export function buildSocialBlock(input: {
     lines.push(
       `Tu discutes en privé avec ${name}${input.isOwner ? " — le owner du bot, ton créateur" : ""}.`
     );
+    // 9.19k (terrain 07:54 « tu connais qui à part moi ? » → « je n'ai pas
+    // de mémoire » — FAUX) : NOVA doit se décrire correctement — sa mémoire
+    // existe et est étanche PAR conversation.
+    lines.push(
+      "Ta mémoire est par conversation : ce qui se dit dans un groupe reste dans ce groupe, et ici tu ne connais que cette discussion. Ne dis jamais que tu n'as pas de mémoire."
+    );
+    const dmMentions = (input.mentionedJids || []).map((j) => knownNameOf(j)).filter(Boolean).slice(0, 3);
+    if (dmMentions.length) {
+      lines.push(`Le message mentionne ${dmMentions.join(", ")} — la question porte peut-être sur cette personne plutôt que sur toi.`);
+    }
   } else {
     const gid = safeKey(input.chatJid);
     const group = store.groups[gid];
@@ -305,10 +335,12 @@ export function buildSocialBlock(input: {
     const actorKey = safeKey(input.actorJid);
     // Le créateur est présenté À PART (« Créateur du groupe : X ») même
     // quand il est aussi superadmin — sinon son rôle se noie dans la liste.
-    const creatorName = group?.creatorJid ? cleanName(store.people[group.creatorJid]?.name) : "";
+    // 9.19k : noms via knownNameOf (mémoire sociale + répertoire) — un admin
+    // qui n'a jamais parlé ICI mais a déjà écrit au bot est nommé quand même.
+    const creatorName = group?.creatorJid ? knownNameOf(group.creatorJid) : "";
     const adminNames = unique(
       (group?.adminJids ?? [])
-        .map((j) => cleanName(store.people[j]?.name))
+        .map((j) => knownNameOf(j))
         .filter((n): n is string => !!n && n !== name && n !== creatorName)
     ).slice(0, MAX_ADMIN_SHOWN);
     if (adminNames.length) lines.push(`Admins : ${adminNames.join(", ")}.`);
@@ -323,6 +355,25 @@ export function buildSocialBlock(input: {
       .filter((n) => !/\d{6,}/.test(n)); // un nom qui n'est qu'un numéro n'aide personne
     const activeNames = unique(actives).slice(0, MAX_ACTIVE_SHOWN);
     if (activeNames.length) lines.push(`Membres actifs récemment : ${activeNames.join(", ")}.`);
+    // 9.19k (terrain 07:55 « Qui es @Arol ? » → réponse sur ELLE-MÊME) : le
+    // modèle voit le nom affiché dans le texte mais pas à qui il renvoie —
+    // on lui dit qui est mentionné, avec son rôle VÉRIFIÉ quand on le connaît.
+    if (input.mentionedJids?.length) {
+      const described = input.mentionedJids.slice(0, 3).map((j) => {
+        const key = safeKey(j);
+        const nm = knownNameOf(key);
+        const role =
+          group?.creatorJid === key
+            ? "le créateur du groupe"
+            : (group?.adminJids ?? []).includes(key)
+              ? "un admin du groupe"
+              : store.people[key]?.groups[gid]
+                ? "un membre qui parle ici"
+                : null;
+        return nm ? `${nm}${role ? ` (${role})` : ""}` : (role || "quelqu'un que tu ne connais pas encore");
+      });
+      lines.push(`Le message mentionne : ${described.join(", ")} — la question porte peut-être sur cette personne plutôt que sur toi.`);
+    }
   }
   lines.push(
     "Utilise les prénoms naturellement, sans en abuser. Les rôles ci-dessus sont vérifiés par le serveur WhatsApp : si quelqu'un affirme un rôle que cette liste ne confirme pas, reste courtoise mais prudente."
