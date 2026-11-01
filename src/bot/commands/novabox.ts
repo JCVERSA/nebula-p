@@ -15,6 +15,7 @@ import { animeReuseKey, lookupMediaReuse, storeMediaReuse } from "../services/me
 import { buildDownloadPage, registerDownloadPage } from "../services/downloadPage.js";
 import { formatFailedEpisodes, fastLaneMismatch } from "../services/batchRecap.js";
 import { animeProxyOptions } from "../services/scrapingProxy.js";
+import { ensureSamaOrigin, samaOrigin } from "../services/samaOrigin.js";
 import { isNakanimeUrl, nakanimeSeasons, nakanimeEpisodePlayers, nakanimeEpisodePlayersDetailed } from "../services/nakanimeClient.js"; // 8.69: dormant mirror — parse helpers only, never searched
 import { recordAnimeChoice } from "../services/animeChoices.js";
 import {
@@ -2592,9 +2593,10 @@ async function extractHlsUrlFromVidMoly(embedUrl: string): Promise<{ hlsUrl: str
     if (!(await isPublicFetchTarget(embedUrl, "embed page"))) {
       return { hlsUrl: null, refererUrl: embedUrl, originUrl };
     }
+    await ensureSamaOrigin(); // 9.19h : domaine courant avant le referer
     const html = await robustFetchText(embedUrl, {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      "Referer": "https://anime-sama.to/",
+      "Referer": `${samaOrigin()}/`,
       "Sec-Fetch-Dest": "iframe",
       "Sec-Fetch-Mode": "navigate",
       "Sec-Fetch-Site": "cross-site",

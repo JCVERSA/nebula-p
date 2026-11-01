@@ -1,5 +1,6 @@
 import axios from "axios";
 import { safeAxiosGet } from "../urlSafety.js";
+import { ensureSamaOrigin, samaOrigin } from "./samaOrigin.js";
 import { spawn } from "child_process";
 import { trackSpawn } from "./spawnRegistry.js";
 import fs from "fs";
@@ -1003,10 +1004,11 @@ export async function extractMultiHostStream(
     // 3. Sendvid (Direct MP4 with exact resolutions)
     if (lowerUrl.includes("sendvid.com")) {
       try {
+        await ensureSamaOrigin(); // 9.19h : domaine courant avant le referer
         const resp = await axios.get(playerUrl, {
           headers: {
             "User-Agent": DEFAULT_USER_AGENT,
-            "Referer": "https://anime-sama.to/"
+            "Referer": `${samaOrigin()}/`
           },
           timeout: 6000,
           validateStatus: () => true,
@@ -1052,10 +1054,11 @@ export async function extractMultiHostStream(
     // 4. VidMoly / Ansembed / Topembed (HLS with multi-quality playlist)
     if (lowerUrl.includes("vidmoly.") || lowerUrl.includes("ansembed.") || lowerUrl.includes("topembed.") || lowerUrl.includes("vmpx.")) {
       try {
+        await ensureSamaOrigin(); // 9.19h : domaine courant avant le referer
         const resp = await axios.get(playerUrl, {
           headers: {
             "User-Agent": DEFAULT_USER_AGENT,
-            "Referer": "https://anime-sama.to/"
+            "Referer": `${samaOrigin()}/`
           },
           timeout: 6000,
           validateStatus: () => true,

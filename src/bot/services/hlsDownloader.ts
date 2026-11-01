@@ -8,6 +8,7 @@ import { spawn } from "child_process";
 import { trackSpawn } from "./spawnRegistry.js";
 import { isSafeDownloadUrl, safeAxiosGet, createKeepAliveDownloadAgent, type KeepAliveDownloadAgent } from "../urlSafety.js";
 import { animeProxyOptions } from "./scrapingProxy.js";
+import { samaOrigin } from "./samaOrigin.js";
 
 import { resolvedFfmpegPath } from "../ffmpeg.js";
 
@@ -140,8 +141,8 @@ export function getHeaderCandidates(url: string, baseHeaders: Record<string, str
     });
     candidates.push({
       ...standardBrowser,
-      "Referer": "https://anime-sama.to/",
-      "Origin": "https://anime-sama.to"
+      "Referer": `${samaOrigin()}/`,
+      "Origin": samaOrigin()
     });
   } else {
     // For general CDNs
@@ -154,7 +155,7 @@ export function getHeaderCandidates(url: string, baseHeaders: Record<string, str
       });
       candidates.push({
         ...standardBrowser,
-        "Referer": "https://anime-sama.to/"
+        "Referer": `${samaOrigin()}/`
       });
     } catch {}
   }

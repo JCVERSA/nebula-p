@@ -4,6 +4,7 @@ import http from "http";
 import https from "https";
 import fs from "fs";
 import { URL } from "url";
+import { samaTrustedHosts } from "./services/samaOrigin.js";
 
 /**
  * SSRF guard for user-supplied URLs.
@@ -178,7 +179,10 @@ export async function isSafeDownloadUrl(rawUrl: string): Promise<boolean> {
   };
   
   // Whitelist known safe video streaming and hosting domains to prevent false-positive DNS/IP blocks.
-  const trustedHosts = TRUSTED_STREAM_HOSTS;
+  // 9.19h : le domaine anime-sama tourne (.to/.si/.fr…) — l'hôte résolu
+  // dynamiquement est de confiance AUSSI (sinon : refus fail-closed après
+  // un déménagement, alors même que le flux vient d'être trouvé).
+  const trustedHosts = [...TRUSTED_STREAM_HOSTS, ...samaTrustedHosts()];
   if (trustedHosts.some((h) => hostname === h || hostname.endsWith("." + h))) {
     return remember(true);
   }
@@ -204,7 +208,7 @@ export async function isSafeDownloadUrl(rawUrl: string): Promise<boolean> {
 
 /** Resolves and validates every address of a hostname; fails closed. */
 async function resolvePinnedAddresses(hostname: string): Promise<Array<{ address: string; family: number }>> {
-  const trustedHosts = TRUSTED_STREAM_HOSTS;
+  const trustedHosts = [...TRUSTED_STREAM_HOSTS, ...samaTrustedHosts()]; // 9.19h : domaine résolu inclus
   const isTrusted = trustedHosts.some((h) => hostname === h || hostname.endsWith("." + h));
 
   if (!isTrusted && (hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal"))) {

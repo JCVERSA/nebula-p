@@ -21,6 +21,7 @@
 
 import { isExactAnimeMatch } from "../utils/quickAnimeParser.js";
 import axios from "axios";
+import { ensureSamaOrigin } from "./samaOrigin.js";
 import * as cheerio from "cheerio";
 import { completeVoiranimeFranchises, voiranimeSearch } from "./voiranimeClient.js";
 import { jetanimesSearch } from "./jetanimesClient.js";
@@ -264,7 +265,10 @@ export function jtDisabledMessage(): string {
 // ---------------------------------------------------------------------------
 
 async function searchAnimeSama(query: string): Promise<SourceSearchResult[]> {
-  const url = "https://anime-sama.to/template-php/defaut/fetch.php";
+  // 9.19h : origine dynamique — anime-sama déménage (terrain 01/11 : 404
+  // sur .to) ; le lanceur anime-sama.pw connaît le domaine courant.
+  const samaBase = await ensureSamaOrigin();
+  const url = `${samaBase}/template-php/defaut/fetch.php`;
   const params = new URLSearchParams();
   params.append("query", query);
 
