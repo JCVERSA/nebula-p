@@ -14,7 +14,15 @@ import {
   ytmViaYtDlp,
   ytvFormatSpec,
   ytvFormatSpecWithAudio,
-  ytvViaYtDlp
+  ytvViaYtDlp,
+  ensureYtDlpBinary,
+  isManagedBinaryFresh,
+  looksLikeMuslHost,
+  pickYtDlpAsset,
+  __setYtDlpDownloaderForTests,
+  __setYtDlpManagedDirForTests,
+  __setYtDlpProberForTests,
+  __resetYtDlpManagerForTests
 } from "../src/bot/services/ytDlp.js";
 import {
   __resetYtvPendingForTests,
@@ -601,5 +609,133 @@ describe("9.12 (B5) — choix .ytv par (chat, utilisateur)", () => {
     expect(src).toContain("consumePendingYtvChoice(ytvChoiceKey(context.sender, context.senderUser), args)");
     expect(src).not.toContain("pendingYtvChoices.set(context.sender,");
     expect(src).toContain("Aucun choix en attente pour toi");
+  });
+});
+
+// ── 9.19b : binaire yt-dlp AUTONOME géré ───────────────────────────────────
+//
+// Terrain 01/11 : le yt-dlp système (zipapp) casse sur le VPS (« unsupported
+// version of Python », < 3.11 requis par les releases 2026) et les API
+// tierces sont mortes → `.ytv`/`.ytm` en échec garanti (5 tentatives
+// utilisateur, 0 succès). Le bot doit gérer son PROPRE binaire autonome
+// (Python embarqué), sonde le système au lieu de le croire sur parole, et ne
+// JAMAIS tenter de réseau en tests (les overrides court-circuitent tout).
+describe("9.19b — binaire yt-dlp autonome géré (terrain 01/11 : Python système < 3.11)", () => {
+  let managedDir: string;
+  let downloads: string[];
+  let healthy: string[];
+
+  beforeEach(() => {
+    // Le beforeEach global a forcé le fake : on neutralise pour tester ensure.
+    __resetYtDlpManagerForTests();
+    managedDir = fs.mkdtempSync(path.join(os.tmpdir(), "ytdlp-managed-"));
+    downloads = [];
+    healthy = [];
+    __setYtDlpManagedDirForTests(managedDir);
+    __setYtDlpProberForTests(async bin => healthy.includes(bin) || bin.startsWith(managedDir));
+    __setYtDlpDownloaderForTests(async (asset, dest) => {
+      downloads.push(asset);
+      fs.writeFileSync(dest, "fake-autonomous-binary", { mode: 0o755 });
+    });
+  });
+
+  afterEach(() => {
+    __setYtDlpProberForTests(null);
+    __setYtDlpDownloaderForTests(null);
+    __setYtDlpManagedDirForTests(null);
+    delete process.env.NEBULA_YTDLP_PATH;
+    delete process.env.NEBULA_YTDLP_REFRESH_DAYS;
+    try { fs.rmSync(managedDir, { recursive: true, force: true }); } catch {}
+    __resetYtDlpManagerForTests();
+  });
+
+  it("asset officiel selon arch/libc (pur)", () => {
+    expect(pickYtDlpAsset("x64", false)).toBe("yt-dlp_linux");
+    expect(pickYtDlpAsset("arm64", false)).toBe("yt-dlp_linux_aarch64");
+    expect(pickYtDlpAsset("x64", true)).toBe("yt-dlp_musllinux");
+    expect(pickYtDlpAsset("arm64", true)).toBe("yt-dlp_musllinux_aarch64");
+    expect(pickYtDlpAsset("arm", false)).toBeNull();
+  });
+
+  it("fraîcheur : 7 jours par défaut, NEBULA_YTDLP_REFRESH_DAYS l'étend", () => {
+    const now = Date.now();
+    expect(isManagedBinaryFresh(now - 3600000, now)).toBe(true);
+    expect(isManagedBinaryFresh(now - 8 * 86400000, now)).toBe(false);
+    process.env.NEBULA_YTDLP_REFRESH_DAYS = "30";
+    expect(isManagedBinaryFresh(now - 8 * 86400000, now)).toBe(true);
+    process.env.NEBULA_YTDLP_REFRESH_DAYS = "abc"; // invalide → défaut
+    expect(isManagedBinaryFresh(now - 8 * 86400000, now)).toBe(false);
+  });
+
+  it("sans yt-dlp système sain → binaire autonome téléchargé et utilisé", async () => {
+    const bin = await ensureYtDlpBinary();
+    const expected = pickYtDlpAsset(process.arch, looksLikeMuslHost());
+    expect(expected).toBeTruthy();
+    expect(downloads).toEqual([expected]);
+    const dest = path.join(managedDir, expected as string);
+    expect(bin).toBe(dest);
+    expect(fs.existsSync(dest)).toBe(true); // exécutable écrit sur disque
+  });
+
+  it("téléchargement KO → null honnête, aucune exception", async () => {
+    __setYtDlpDownloaderForTests(async () => {
+      throw new Error("network down");
+    });
+    const bin = await ensureYtDlpBinary();
+    expect(bin).toBeNull();
+  });
+
+  it("garde anti-réseau : sans override, AUCUN téléchargement réel sous vitest", async () => {
+    __setYtDlpDownloaderForTests(null);
+    const bin = await ensureYtDlpBinary();
+    expect(bin).toBeNull();
+    expect(downloads).toEqual([]);
+  });
+
+  it("override owner (NEBULA_YTDLP_PATH) sain → prioritaire, zéro téléchargement", async () => {
+    const ownerBin = path.join(os.tmpdir(), "owner-ytdlp");
+    process.env.NEBULA_YTDLP_PATH = ownerBin;
+    healthy.push(ownerBin);
+    const bin = await ensureYtDlpBinary();
+    expect(bin).toBe(ownerBin);
+    expect(downloads).toEqual([]);
+  });
+
+  it("single-flight + cache : N appels → UN seul téléchargement", async () => {
+    const a = await ensureYtDlpBinary();
+    const b = await ensureYtDlpBinary(); // cache intra-heure
+    const [c, d] = await Promise.all([ensureYtDlpBinary(), ensureYtDlpBinary()]);
+    expect(downloads.length).toBe(1);
+    expect(new Set([a, b, c, d]).size).toBe(1);
+  });
+
+  it("binaire géré FRAIS réutilisé sans re-téléchargement (état reset, fichier conservé)", async () => {
+    const first = await ensureYtDlpBinary();
+    __resetYtDlpManagerForTests(); // simulate un nouveau tour de résolution
+    const second = await ensureYtDlpBinary();
+    expect(downloads.length).toBe(1); // PAS de second téléchargement
+    expect(second).toBe(first);
+  });
+
+  it("le forçage de test court-circuite ensure (fakes des autres describes inchangés)", async () => {
+    __setYtDlpBinForTests("/fake/bin/existant-pas");
+    const bin = await ensureYtDlpBinary();
+    expect(bin).toBe("/fake/bin/existant-pas");
+    expect(downloads).toEqual([]);
+  });
+
+  it("câblage : ensure avant CHAQUE run — ytm, ytv, sonde, et les 2 appels de .dl", () => {
+    const srcYt = fs.readFileSync(path.join(process.cwd(), "src/bot/services/ytDlp.ts"), "utf8");
+    expect(srcYt.split("await ensureYtDlpBinary();").length - 1).toBeGreaterThanOrEqual(3);
+    const srcDl = fs.readFileSync(path.join(process.cwd(), "src/bot/commands/dl.ts"), "utf8");
+    expect(srcDl.split("await ensureYtDlpBinary();").length - 1).toBe(2);
+  });
+
+  it("install.sh : asset AUTONOME + sonde du yt-dlp existant (plus de zipapp)", () => {
+    const sh = fs.readFileSync(path.join(process.cwd(), "scripts/install.sh"), "utf8");
+    expect(sh).toContain('YTDLP_ASSET="yt-dlp_linux"');
+    expect(sh).toContain("download/$YTDLP_ASSET");
+    expect(sh).toContain("yt-dlp --version >/dev/null 2>&1");
+    expect(sh).not.toContain("download/yt-dlp "); // l'ancienne zipapp Python-dépendante
   });
 });

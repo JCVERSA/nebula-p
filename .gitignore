@@ -25,3 +25,6 @@ bots/*/data/
 
 # Cookies YouTube pour yt-dlp (8.87) — jamais dans le dépôt
 .yt-cookies.txt
+
+# Binaire yt-dlp autonome géré par le bot (9.19b) — jamais dans le dépôt
+.yt-dlp-cache/

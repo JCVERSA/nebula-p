@@ -68,6 +68,8 @@ vi.mock("../src/bot/services/mediaToolkit.js", () => ({
 let ffmpegMode = "normal";
 
 vi.mock("../src/bot/services/ytDlp.js", () => ({
+  // 9.19b : dl.ts garantit un binaire sain avant chaque run
+  ensureYtDlpBinary: vi.fn(async () => "/fake/yt-dlp"),
   runYtDlp: vi.fn(async () => ({
     ok: true,
     stdout: JSON.stringify({

@@ -30,6 +30,7 @@ import { parseYtDlpProgressLine } from "./progressMessenger.js";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import axios from "axios";
 
 export type YtDlpOutcome =
   | { ok: true; buffer: Buffer; title: string | null }
@@ -56,9 +57,12 @@ export function canonicalYoutubeUrl(input: string): string | null {
 // Cache de la résolution du binaire (le PATH ne change pas en cours de run).
 let ytDlpBin: string | null | undefined;
 
-/** Test hook — force le binaire résolu (fake en tests, null = introuvable). */
+/** Test hook — force le binaire résolu (fake en tests, null = introuvable).
+ * 9.19b : tout forçage neutralise aussi ensureYtDlpBinary (les fakes des
+ * tests ne doivent déclencher NI sonde NI téléchargement réseau). */
 export function __setYtDlpBinForTests(bin: string | null): void {
   ytDlpBin = bin;
+  binForcedForTests = true;
 }
 
 function resolveYtDlp(): string | null {
@@ -76,6 +80,230 @@ function resolveYtDlp(): string | null {
   ytDlpBin = null;
   return null;
 }
+
+// ── 9.19b : binaire AUTONOME géré (terrain 01/11 : panne totale .ytv/.ytm) ──
+//
+// Le 01/11, le yt-dlp système (zipapp installée par install.sh 8.66) casse
+// sur le VPS : « ImportError: You are using an unsupported version of
+// Python. Only Python versions 3.11 and above are supported » — le Python
+// système est trop ancien pour les releases 2026 de yt-dlp, et les API
+// tierces de secours sont mortes (constat 8.86) : `.ytv`/`.ytm` deviennent
+// un échec garanti pour tout le monde (5 tentatives utilisateur, 0 succès).
+//
+// Remède : le bot gère son PROPRE binaire — l'asset officiel « yt-dlp_linux »
+// embarque un Python complet (PyInstaller) et ignore totalement le Python
+// système. Ordre de résolution (ensureYtDlpBinary, appelé avant chaque run) :
+//   1. NEBULA_YTDLP_PATH (override owner, sondé par --version) ;
+//   2. yt-dlp du PATH (sondé : un binaire présent mais CASSÉ est ignoré
+//      au lieu d'empoisonner chaque téléchargement d'une ImportError) ;
+//   3. binaire géré <cwd>/.yt-dlp-cache/<asset> — téléchargé depuis les
+//      releases GitHub officielles (arch/libc détectées), rafraîchi après
+//      NEBULA_YTDLP_REFRESH_DAYS (défaut 7 : yt-dlp vieillit vite).
+// Échec total → runYtDlp répond « introuvable » → message d'échec honnête.
+
+let binForcedForTests = false;
+let proberForTests: ((bin: string) => Promise<boolean>) | null = null;
+let downloaderForTests: ((asset: string, dest: string) => Promise<void>) | null = null;
+let managedDirForTests: string | null = null;
+let ensureInflight: Promise<string | null> | null = null;
+let ensureCheckedAt = 0;
+const YTDLP_ENSURE_RECHECK_MS = 60 * 60 * 1000;
+
+/** Répertoire du binaire géré (hors dépôt — voir .gitignore). */
+function managedYtDlpDir(): string {
+  return managedDirForTests || path.join(process.cwd(), ".yt-dlp-cache");
+}
+
+/** Asset officiel autonome selon arch/libc — null si non supporté. Pur. */
+export function pickYtDlpAsset(arch: string, musl: boolean): string | null {
+  if (musl) {
+    if (arch === "x64") return "yt-dlp_musllinux";
+    if (arch === "arm64") return "yt-dlp_musllinux_aarch64";
+    return null;
+  }
+  if (arch === "x64") return "yt-dlp_linux";
+  if (arch === "arm64") return "yt-dlp_linux_aarch64";
+  return null;
+}
+
+/** Hôte Alpine/musl ? (le binaire glibc y refuserait de démarrer). */
+export function looksLikeMuslHost(): boolean {
+  try {
+    return fs.existsSync("/lib/ld-musl-x86_64.so.1") || fs.existsSync("/lib/ld-musl-aarch64.so.1");
+  } catch {
+    return false;
+  }
+}
+
+/** Fraîcheur du binaire géré (mtime) — pur, testable. */
+export function isManagedBinaryFresh(mtimeMs: number, now = Date.now()): boolean {
+  const raw = Number(process.env.NEBULA_YTDLP_REFRESH_DAYS || 7);
+  const days = Number.isFinite(raw) && raw > 0 ? raw : 7;
+  return now - mtimeMs < days * 86400000;
+}
+
+/** Test hooks — les overrides court-circuitent la sonde/le téléchargement. */
+export function __setYtDlpProberForTests(fn: ((bin: string) => Promise<boolean>) | null): void {
+  proberForTests = fn;
+}
+export function __setYtDlpDownloaderForTests(fn: ((asset: string, dest: string) => Promise<void>) | null): void {
+  downloaderForTests = fn;
+}
+export function __setYtDlpManagedDirForTests(dir: string | null): void {
+  managedDirForTests = dir;
+}
+export function __resetYtDlpManagerForTests(): void {
+  ensureInflight = null;
+  ensureCheckedAt = 0;
+  ytDlpBin = undefined;
+  binForcedForTests = false;
+}
+
+/** Le binaire démarre-t-il ? (`--version` = le contrat minimal, timeout dur.) */
+function probeYtDlpBinary(bin: string, timeoutMs = 15000): Promise<boolean> {
+  if (proberForTests) return proberForTests(bin);
+  return new Promise(resolve => {
+    try {
+      const p = trackSpawn(spawn(bin, ["--version"], { stdio: ["ignore", "pipe", "pipe"] }));
+      let out = "";
+      let settled = false;
+      const finish = (v: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      };
+      const timer = setTimeout(() => {
+        try { p.kill("SIGKILL"); } catch {}
+        finish(false);
+      }, timeoutMs);
+      p.stdout?.on("data", (d: Buffer) => { out += d.toString(); });
+      p.on("error", () => finish(false));
+      p.on("close", code => finish(code === 0 && out.trim().length > 0));
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/** Télécharge l'asset autonome officiel (stream → tmp → rename atomique). */
+async function downloadManagedYtDlp(asset: string, dest: string): Promise<boolean> {
+  if (downloaderForTests) {
+    await downloaderForTests(asset, dest);
+    return true;
+  }
+  if (process.env.VITEST) return false; // jamais de réseau réel en tests
+  const tmp = `${dest}.tmp`;
+  try {
+    fs.mkdirSync(managedYtDlpDir(), { recursive: true });
+    const res = await axios.get(`https://github.com/yt-dlp/yt-dlp/releases/latest/download/${asset}`, {
+      responseType: "stream",
+      timeout: 30000,
+      maxRedirects: 5,
+      headers: { "User-Agent": "NebulaBot" }
+    });
+    await new Promise<void>((resolve, reject) => {
+      const ws = fs.createWriteStream(tmp, { mode: 0o755 });
+      const watchdog = setTimeout(() => {
+        try { res.data.destroy(); } catch {}
+        reject(new Error("timeout du téléchargement"));
+      }, 240000);
+      res.data.on("error", reject);
+      ws.on("error", reject);
+      ws.on("finish", () => {
+        clearTimeout(watchdog);
+        resolve();
+      });
+      res.data.pipe(ws);
+    });
+    // Garde anti-page d'erreur HTML : l'autonome fait ~41 Mo.
+    if (fs.statSync(tmp).size < 5000000) return false;
+    fs.chmodSync(tmp, 0o755);
+    fs.renameSync(tmp, dest);
+    return true;
+  } catch (err: any) {
+    console.log(`[YTDLP] téléchargement du binaire autonome échoué : ${err?.message || err}`);
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    return false;
+  }
+}
+
+/**
+ * Résout un yt-dlp FONCTIONNEL et met à jour le cache du runner. Ne jette
+ * jamais ; retourne null si rien ne marche (runYtDlp répondra « introuvable »
+ * et l'appelant garde son message d'échec honnête). Single-flight : des
+ * téléchargements simultanés partagent le même téléchargement.
+ */
+export async function ensureYtDlpBinary(force = false): Promise<string | null> {
+  if (binForcedForTests) return ytDlpBin ?? null;
+  if (ensureInflight) return ensureInflight;
+  if (!force && ensureCheckedAt && Date.now() - ensureCheckedAt < YTDLP_ENSURE_RECHECK_MS) {
+    return ytDlpBin ?? null;
+  }
+  ensureInflight = runYtDlpEnsure().finally(() => {
+    ensureInflight = null;
+  });
+  return ensureInflight;
+}
+
+async function runYtDlpEnsure(): Promise<string | null> {
+  ensureCheckedAt = Date.now();
+  // 1. Override owner explicite.
+  const envBin = (process.env.NEBULA_YTDLP_PATH || "").trim();
+  if (envBin) {
+    if (await probeYtDlpBinary(envBin)) {
+      ytDlpBin = envBin;
+      return envBin;
+    }
+    console.log(`[YTDLP] NEBULA_YTDLP_PATH (« ${envBin} ») inutilisable — ignoré`);
+  }
+  // 2. yt-dlp du PATH — sondé : présent mais cassé (Python système trop
+  //    ancien, terrain 01/11) => ignoré, pas d'ImportError en boucle.
+  const sys = resolveYtDlp();
+  if (sys && await probeYtDlpBinary(sys)) {
+    ytDlpBin = sys;
+    return sys;
+  }
+  if (sys) {
+    console.log("[YTDLP] yt-dlp système présent mais inutilisable (Python trop ancien ?) — bascule sur le binaire autonome géré");
+  }
+  // 3. Binaire autonome géré.
+  const asset = pickYtDlpAsset(process.arch, looksLikeMuslHost());
+  if (!asset) {
+    ytDlpBin = null;
+    console.log(`[YTDLP] architecture ${process.arch} sans binaire autonome disponible — yt-dlp indisponible`);
+    return null;
+  }
+  const dest = path.join(managedYtDlpDir(), asset);
+  if (fs.existsSync(dest) && isManagedBinaryFresh(fs.statSync(dest).mtimeMs) && await probeYtDlpBinary(dest)) {
+    ytDlpBin = dest;
+    return dest;
+  }
+  let downloaded = false;
+  try {
+    downloaded = await downloadManagedYtDlp(asset, dest);
+  } catch {
+    downloaded = false;
+  }
+  if (downloaded && await probeYtDlpBinary(dest)) {
+    let sizeMB = "?";
+    try { sizeMB = (fs.statSync(dest).size / 1e6).toFixed(0); } catch {}
+    console.log(`[YTDLP] binaire autonome « ${asset} » installé (${sizeMB} Mo) — ${dest}`);
+    ytDlpBin = dest;
+    return dest;
+  }
+  // Le téléchargement a échoué mais un VIEUX binaire fonctionnel traîne
+  // peut-être encore (mieux que rien — il sera rafraîchi au prochain tour).
+  if (fs.existsSync(dest) && await probeYtDlpBinary(dest)) {
+    console.log("[YTDLP] rafraîchissement impossible — ancien binaire autonome conservé");
+    ytDlpBin = dest;
+    return dest;
+  }
+  ytDlpBin = null;
+  console.log("[YTDLP] AUCUN yt-dlp fonctionnel — owner : curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp");
+  return null;
+}
+
 
 /**
  * Exécute yt-dlp avec timeout dur. Ne jette jamais (retourne ok/stdout/stderr),
@@ -254,6 +482,7 @@ const PROBE_STDOUT_CAP = 2 * 1024 * 1024; // le -J dépasse largement 16 Ko
  * d'avant 9.10), jamais d'exception.
  */
 export async function probeYoutubeEntry(rawInput: string): Promise<YoutubeProbe> {
+  await ensureYtDlpBinary(); // 9.19b : la sonde elle aussi doit avoir un binaire sain
   const empty: YoutubeProbe = {
     ok: false, isPlaylist: false, playlistCount: 0, entryIds: [],
     playlistTitle: null, title: null, audioLanguages: [], subtitleLanguages: []
@@ -316,6 +545,7 @@ export function ytvFormatSpecWithAudio(q: string, audioLang?: string): string {
 export async function ytmViaYtDlp(rawInput: string, maxBytes: number): Promise<YtDlpOutcome> {
   const url = canonicalYoutubeUrl(rawInput);
   if (!url) return { ok: false, reason: "no_id" };
+  await ensureYtDlpBinary(); // 9.19b : binaire garanti fonctionnel avant tout run
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nebula_ytdlp_"));
   try {
     const outBase = path.join(dir, "out");
@@ -386,6 +616,7 @@ export async function ytvViaYtDlp(
 ): Promise<YtDlpVideoOutcome> {
   const url = canonicalYoutubeUrl(rawInput);
   if (!url) return { ok: false, reason: "no_id" };
+  await ensureYtDlpBinary(); // 9.19b : binaire garanti fonctionnel avant tout run
   const q = ["360", "480", "720", "1080"].includes(quality) ? quality : "720";
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nebula_ytdlp_"));
   // En cas d'échec, le répertoire est purgé ICI ; en cas de succès sa

@@ -146,12 +146,27 @@ step "4/7 · yt-dlp (téléchargeur universel : Facebook, Twitter/X, secours You
 # ---------------------------------------------------------------------------
 # Binaire autonome officiel (méthode validée en prod 8.66), pas de paquet apt
 # (souvent obsolète). Idempotent.
-if command -v yt-dlp >/dev/null 2>&1; then
-  ok "yt-dlp $(yt-dlp --version 2>/dev/null | head -1) déjà présent"
+# 9.19b : binaire AUTONOME (Python embarqué). L'ancien asset « yt-dlp » est
+# une zipapp qui exige Python 3.11+ SUR LE SYSTÈME — terrain 01/11 : ImportError
+# sur le VPS, panne totale de .ytv/.song. Un yt-dlp existant mais CASSÉ est
+# aussi remplacé (la sonde --version échoue).
+YTDLP_ASSET="yt-dlp_linux"
+if [ "$(uname -m)" = "aarch64" ]; then
+  YTDLP_ASSET="yt-dlp_linux_aarch64"
+fi
+if ls /lib/ld-musl-*.so.1 >/dev/null 2>&1; then
+  if [ "$(uname -m)" = "aarch64" ]; then
+    YTDLP_ASSET="yt-dlp_musllinux_aarch64"
+  else
+    YTDLP_ASSET="yt-dlp_musllinux"
+  fi
+fi
+if yt-dlp --version >/dev/null 2>&1; then
+  ok "yt-dlp $(yt-dlp --version 2>/dev/null | head -1) déjà présent et fonctionnel"
 elif [ "$(id -u)" -eq 0 ] && command -v curl >/dev/null 2>&1; then
-  curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+  curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$YTDLP_ASSET" \
     -o /usr/local/bin/yt-dlp && chmod a+rx /usr/local/bin/yt-dlp \
-    && ok "yt-dlp $(yt-dlp --version 2>/dev/null | head -1) installé dans /usr/local/bin" \
+    && ok "yt-dlp autonome ($YTDLP_ASSET) installé dans /usr/local/bin" \
     || warn "Téléchargement yt-dlp impossible — réessaie via nebula setup plus tard"
 else
   warn "yt-dlp non installé (root/curl requis) — nebula setup l'installera quand possible"

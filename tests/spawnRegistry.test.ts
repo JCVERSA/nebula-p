@@ -92,7 +92,8 @@ describe("9.18ggg — câblage des spawns (source)", () => {
     expect(read("src/bot/services/mediaToolkit.ts").split("trackSpawn").length - 1).toBe(4);
     expect(read("src/bot/services/hlsDownloader.ts").split("trackSpawn").length - 1).toBe(2);
     expect(read("src/bot/services/animeStreamExtractor.ts").split("trackSpawn").length - 1).toBe(2);
-    expect(read("src/bot/services/ytDlp.ts").split("trackSpawn").length - 1).toBe(2);
+    // 9.19b : +1 — la sonde --version du binaire autonome géré s'enregistre aussi
+    expect(read("src/bot/services/ytDlp.ts").split("trackSpawn").length - 1).toBe(3);
     expect(read("src/bot/services/ttsService.ts").split("trackSpawn").length - 1).toBe(2);
   });
 

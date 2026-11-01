@@ -1,7 +1,7 @@
 import path from "path";
 import { BotCommand } from "../types.js";
 import { isSafeDownloadUrl } from "../urlSafety.js";
-import { runYtDlp } from "../services/ytDlp.js";
+import { ensureYtDlpBinary, runYtDlp } from "../services/ytDlp.js";
 import { fetchMediaToTempFile } from "../services/mediaLinkDelivery.js";
 import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.js";
 import { createProgressReporter, type ProgressSendFn } from "../services/progressMessenger.js";
@@ -94,6 +94,7 @@ const dlCommand: BotCommand = {
       const anchor = await context.reply(`🔎 *Analyse du lien…*\n${rawUrl.slice(0, 120)}`);
       anchorKey = (anchor as any)?.key ?? null;
 
+      await ensureYtDlpBinary(); // 9.19b : binaire garanti fonctionnel avant tout run
       const meta = await runYtDlp(
         ["-J", "--no-playlist", "--no-warnings", "-f", QUALITY_FORMAT, rawUrl],
         90000,
@@ -233,6 +234,7 @@ const dlaCommand: BotCommand = {
       const anchor = await context.reply(`🎧 *Extraction de la piste audio…*\n${rawUrl.slice(0, 120)}`);
       anchorKey = (anchor as any)?.key ?? null;
 
+      await ensureYtDlpBinary(); // 9.19b : binaire garanti fonctionnel avant tout run
       const meta = await runYtDlp(
         ["-J", "--no-playlist", "--no-warnings", "-f", AUDIO_FORMAT, rawUrl],
         90000,
