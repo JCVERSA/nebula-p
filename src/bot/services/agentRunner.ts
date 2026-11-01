@@ -153,6 +153,18 @@ export async function handleAgentMessage(
   const text = (info.text || "").trim();
   if (!text) return false;
 
+  // 9.19e (demande owner 01/11) : un message adressé à l'IA est marqué LU
+  // (✓✓ bleu) — les commandes (.menu…) restent en « reçu » comme avant.
+  // MP comme groupes, et uniquement CE message (readMessages par clé),
+  // jamais le reste du chat. Garde : socket vivant + fonction absente des
+  // vieux mocks → aucun effet, aucun échec possible.
+  try {
+    const readTarget = resolveLiveSocket(sock);
+    if (readTarget && typeof readTarget.readMessages === "function") {
+      await readTarget.readMessages([msg.key]);
+    }
+  } catch {}
+
   // 9.18 (L) — sourdine IA : l'utilisateur garde ses commandes mais les
   // tours IA lui sont refusés honnêtement (aucun token dépensé).
   if (isMutedUser(String(info.actorJid || ""))) {

@@ -39,6 +39,10 @@ vi.mock("../src/bot/services/mediaReuseStore.js", () => ({
   storeMediaReuse: () => {},
   SOCIAL_REUSE_TTL_MS: 1
 }));
+vi.mock("../src/bot/services/downloadPage.js", () => ({
+  buildDownloadPage: vi.fn((opts: any) => `<html>page ${opts.entries.length} médias</html>`),
+  registerDownloadPage: vi.fn(() => "https://d.example/d/page-abc123.html?inline=true")
+}));
 vi.mock("../src/bot/services/mediaLinkDelivery.js", () => ({
   fetchMediaToTempFile: vi.fn(),
   registerMediaLink: vi.fn()
@@ -48,6 +52,9 @@ vi.mock("../src/bot/liveSocket.js", () => ({ resolveLiveSocket: (s: unknown) => 
 const mExtract = vi.mocked(extractInstagramMedia);
 const mFetch = vi.mocked(fetchMediaToTempFile);
 const mRegister = vi.mocked(registerMediaLink);
+const { buildDownloadPage, registerDownloadPage } = await import("../src/bot/services/downloadPage.js");
+const mBuildPage = vi.mocked(buildDownloadPage);
+const mRegisterPage = vi.mocked(registerDownloadPage);
 
 const JID = "1555999111222@s.whatsapp.net";
 let tmpDir = "";
@@ -96,6 +103,9 @@ beforeEach(() => {
   })) as any);
   mExtract.mockReset();
   mExtract.mockResolvedValue({ items: [], strategy: "embed" } as any);
+  mBuildPage.mockClear();
+  mRegisterPage.mockReset();
+  mRegisterPage.mockReturnValue("https://d.example/d/page-abc123.html?inline=true");
 });
 
 afterEach(() => {
@@ -127,10 +137,14 @@ describe("9.19d — carrousel : la même image n'est plus envoyée N fois", () =
     const images = sent.filter((p) => p.image);
     expect(images.length).toBe(2); // pas 3 : le doublon de contenu est écarté
     expect(mFetch).toHaveBeenCalledTimes(3); // les 3 URLs ont bien été téléchargées puis comparées
-    const linksMsg = replies.find((t) => t.includes("Liens de téléchargement"));
-    expect(linksMsg).toBeTruthy();
-    expect(linksMsg).toContain("(2)");
-    expect(linksMsg).toContain("1 doublon(s) ignoré(s)");
+    const pageMsg = replies.find((t) => t.includes("Page de téléchargement prête"));
+    expect(pageMsg).toBeTruthy();
+    expect(pageMsg).toContain("2 média(s)");
+    expect(pageMsg).toContain("https://d.example/d/page-abc123.html?inline=true");
+    expect(pageMsg).toContain("1 doublon(s) ignoré(s)");
+    expect(replies.some((t) => t.includes("Liens de téléchargement"))).toBe(false); // plus de liste à rallonge
+    const entries = mBuildPage.mock.calls[mBuildPage.mock.calls.length - 1][0].entries;
+    expect(entries.map((e: any) => e.label)).toEqual(["Image 1", "Image 2"]); // le doublon n'a pas de bouton
   });
 
   it("sauvetage : l'extracteur maison récupère l'image manquante du carrousel", async () => {
@@ -139,8 +153,20 @@ describe("9.19d — carrousel : la même image n'est plus envoyée N fois", () =
     const images = sent.filter((p) => p.image);
     expect(images.length).toBe(3); // A (couverture) + B + C (secours extracteur)
     expect(mFetch).toHaveBeenCalledTimes(4); // 3 scraper + 1 extracteur
+    const pageMsg = replies.find((t) => t.includes("Page de téléchargement prête"));
+    expect(pageMsg).toContain("3 média(s)");
+    expect(pageMsg).toContain("1 média(s) récupéré(s) via l'extracteur maison");
+    const entries = mBuildPage.mock.calls[mBuildPage.mock.calls.length - 1][0].entries;
+    expect(entries.map((e: any) => e.label)).toEqual(["Image 1", "Image 2", "Image 3"]); // secours inclus
+  });
+
+  it("repli honnête : page impossible (APP_URL absent) → la liste historique avec libellés", async () => {
+    mRegisterPage.mockReturnValue(null);
+    const { replies } = await run("ig-repli-page");
     const linksMsg = replies.find((t) => t.includes("Liens de téléchargement"));
-    expect(linksMsg).toContain("(3)");
-    expect(linksMsg).toContain("1 média(s) récupéré(s) via l'extracteur maison");
+    expect(linksMsg).toBeTruthy();
+    expect(linksMsg).toContain("(2)");
+    expect(linksMsg).toContain("Image 1 — https://d.example/post_De3X6jVkvFE_1.jpg");
+    expect(linksMsg).toContain("1 doublon(s) ignoré(s)");
   });
 });

@@ -11,6 +11,7 @@ import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.
 import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
 import { createProgressReporter, type ProgressSendFn } from "../services/progressMessenger.js";
 import { resolveLiveSocket } from "../liveSocket.js";
+import { buildDownloadPage, registerDownloadPage } from "../services/downloadPage.js";
 import crypto from "crypto";
 import fs from "fs";
 
@@ -27,6 +28,11 @@ import fs from "fs";
  * photo de couverture (7 fichiers à 0,42 Mo pile). Dédoublonnage par CONTENU
  * (sha256) en plus de celui par URL, puis sauvetage par l'extracteur maison
  * (qui énumère les carrousels) quand des doublons ont été écartés.
+ *
+ * 9.19e (demande owner 01/11) : les liens finaux partent en UNE SEULE page
+ * hébergée (comme les animés — bouton par média + « Tout télécharger »)
+ * au lieu d'une liste de liens à rallonge. Repli liste si la page ne peut
+ * pas être hébergée (APP_URL absent / coffre plein).
  */
 
 interface IgdlMedia { url?: string; type?: string }
@@ -166,9 +172,10 @@ const instagramCommand: BotCommand = {
         return void (await context.reply("❌ Aucun média valide trouvé — post privé ou scraper indisponible."));
       }
 
-      const collectedLinks: Array<{ url: string; cached: boolean }> = [];
+      const collectedLinks: Array<{ url: string; cached: boolean; label: string; sizeMB: number }> = [];
       const contentSeen = new Set<string>(); // 9.19d : empreintes sha256 déjà envoyées
       let duplicatesDropped = 0;
+      let servedCount = 0; // 9.19e : numérotation des médias réellement envoyés
       // 9.18s : nom lisible — reel_<shortcode> (au lieu d'instagram_<timestamp>).
       const shortcode = instagramShortcode(text) || `${Date.now()}`;
 
@@ -211,6 +218,7 @@ const instagramCommand: BotCommand = {
           let sendPath = mediaUrl;
           let servedFromCache = false;
           let linkUrl: string | null = null; // 9.19d : poussé après le dédoublonnage par contenu
+          let linkSizeMB = 0; // 9.19e : taille affichée sur la page de téléchargement
           const cachedHit = cacheKey ? lookupMediaReuse(cacheKey) : null;
           if (cachedHit) {
             try {
@@ -218,6 +226,7 @@ const instagramCommand: BotCommand = {
               if (rec?.filePath) {
                 sendPath = rec.filePath;
                 linkUrl = rec.downloadUrl;
+                linkSizeMB = rec.sizeMB || 0;
                 servedFromCache = true;
               }
             } catch {}
@@ -240,6 +249,7 @@ const instagramCommand: BotCommand = {
                   try { storeMediaReuse(cacheKey, rec.filePath, linkName, { ttlMs: SOCIAL_REUSE_TTL_MS }); } catch {}
                 }
                 linkUrl = rec.downloadUrl;
+                linkSizeMB = rec.sizeMB || 0;
               } else {
                 sendPath = local; // quota du store atteint : fichier local, sans lien
               }
@@ -258,7 +268,15 @@ const instagramCommand: BotCommand = {
             }
             contentSeen.add(fingerprint);
           }
-          if (linkUrl) collectedLinks.push({ url: linkUrl, cached: servedFromCache });
+          servedCount++;
+          if (linkUrl) {
+            collectedLinks.push({
+              url: linkUrl,
+              cached: servedFromCache,
+              label: `${isVideo ? "Vidéo" : "Image"} ${servedCount}`,
+              sizeMB: linkSizeMB
+            });
+          }
 
           if (isVideo) {
             await sock.sendMessage(chatId, {
@@ -311,7 +329,15 @@ const instagramCommand: BotCommand = {
               const linkName = `${isVideo ? "reel" : "post"}_${shortcode}_r${rescuedCount + 1}${ext}`;
               const rec = registerMediaLink(local, linkName);
               const rescuePath = rec?.filePath || local;
-              if (rec) collectedLinks.push({ url: rec.downloadUrl, cached: false });
+              servedCount++;
+              if (rec) {
+                collectedLinks.push({
+                  url: rec.downloadUrl,
+                  cached: false,
+                  label: `${isVideo ? "Vidéo" : "Image"} ${servedCount}`,
+                  sizeMB: rec.sizeMB || 0
+                });
+              }
               await sock.sendMessage(chatId, isVideo
                 ? { video: { url: rescuePath }, mimetype: "video/mp4", caption: `*DOWNLOADED BY ${getConfig().botName.toUpperCase()}*` }
                 : { image: { url: rescuePath }, caption: `*DOWNLOADED BY ${getConfig().botName.toUpperCase()}*` }
@@ -331,15 +357,42 @@ const instagramCommand: BotCommand = {
       // (retour terrain 14/10 : sept .up à la main pour sept reels).
       if (collectedLinks.length) {
         const anyCached = collectedLinks.some((l) => l.cached);
-        await context.reply(
-          `🔗 *Liens de téléchargement* (${collectedLinks.length})\n` +
-          `⏳ Valables ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)\n` +
+        const notes =
           (anyCached ? `⚡ _Marqué déjà en cache (5 h) — aucun re-téléchargement_\n` : "") +
           (duplicatesDropped > 0 ? `🔁 ${duplicatesDropped} doublon(s) ignoré(s) — le service tiers renvoyait la même image\n` : "") +
-          (rescuedCount > 0 ? `🛟 ${rescuedCount} média(s) récupéré(s) via l'extracteur maison\n` : "") +
-          `\n` +
-          collectedLinks.map((l, i) => `${i + 1}. ${l.cached ? "⚡ " : ""}${l.url}`).join("\n")
-        );
+          (rescuedCount > 0 ? `🛟 ${rescuedCount} média(s) récupéré(s) via l'extracteur maison\n` : "");
+        // 9.19e : UNE page hébergée (comme les animés — un bouton par média
+        // + « Tout télécharger ») au lieu de la liste de liens.
+        let pageLink: string | null = null;
+        try {
+          const html = buildDownloadPage({
+            title: `Instagram — ${shortcode}`,
+            subtitle: `${collectedLinks.length} média(s) prêts`,
+            entries: collectedLinks.map((l) => ({ label: l.label, url: l.url, sizeMB: l.sizeMB })),
+            validityMinutes: getLinkTtlMinutes()
+          });
+          pageLink = registerDownloadPage(html, `nebula-instagram-${shortcode}.html`);
+        } catch (err) {
+          console.warn(`[IG] page de téléchargement impossible: ${err instanceof Error ? err.message : err}`);
+        }
+        if (pageLink) {
+          await context.reply(
+            `📄 *Page de téléchargement prête* — ${collectedLinks.length} média(s)\n\n` +
+            `🔗 ${pageLink}\n\n` +
+            `👉 Ouvre ce lien dans Chrome : un bouton par média, ou *« Tout télécharger »*.\n` +
+            `⏳ Valable ${getLinkTtlMinutes()} min (relancée à chaque ouverture).` +
+            (notes ? `\n\n${notes}` : "")
+          );
+        } else {
+          // Repli (APP_URL absent / coffre plein) : la liste historique.
+          await context.reply(
+            `🔗 *Liens de téléchargement* (${collectedLinks.length})\n` +
+            `⏳ Valables ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)\n` +
+            notes +
+            `\n` +
+            collectedLinks.map((l, i) => `${i + 1}. ${l.cached ? "⚡ " : ""}${l.label} — ${l.url}`).join("\n")
+          );
+        }
       }
     } catch (error) {
       console.error("[IG] Error:", error);

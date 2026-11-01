@@ -59,11 +59,14 @@ describe("9.18r — Instagram : liens automatiques (structure)", () => {
 
   it("UN SEUL message final liste tous les liens (fini les .up manuels)", () => {
     // 9.18t : le push porte { url, cached } pour marquer les hits cache.
-    // 9.19d : le lien est poussé APRÈS le dédoublonnage par contenu — un
-    // doublon de contenu n'a jamais de lien dans le message final.
+    // 9.19d : le lien est poussé APRÈS le dédoublonnage par contenu.
+    // 9.19e : UN SEUL message avec LA PAGE hébergée (comme les animés) ;
+    // la liste historique reste en repli (APP_URL absent / coffre plein).
     expect(src).toContain("linkUrl = rec.downloadUrl;");
-    expect(src).toContain("collectedLinks.push({ url: linkUrl, cached: servedFromCache });");
-    expect(src).toContain("Liens de téléchargement");
+    expect(src).toContain("url: linkUrl,");
+    expect(src).toContain("cached: servedFromCache,");
+    expect(src).toContain("Page de téléchargement prête");
+    expect(src).toContain("registerDownloadPage(html,");
     expect(src).toContain("max 2 h");
   });
 
@@ -136,7 +139,7 @@ describe("9.18t — caches sociaux 5 h : IG, TikTok, musique (structure)", () =>
     expect(ig.indexOf("lookupMediaReuse(cacheKey)")).toBeLessThan(ig.indexOf("await fetchMediaToTempFile(mediaUrl,"));
     expect(ig).toContain("storeMediaReuse(cacheKey, rec.filePath, linkName, { ttlMs: SOCIAL_REUSE_TTL_MS })");
     expect(ig).toContain("Marqué déjà en cache (5 h)");
-    expect(ig).toContain('${l.cached ? "⚡ " : ""}${l.url}');
+    expect(ig).toContain('${l.cached ? "⚡ " : ""}${l.label} — ${l.url}');
   });
 
   it("TikTok : id depuis URL/tikwm/extracteur, hit → noCopy + note, store 5 h sinon", () => {

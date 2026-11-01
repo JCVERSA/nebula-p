@@ -118,6 +118,7 @@ function mk(text: string) {
       return {};
     }),
     sendPresenceUpdate: vi.fn(async () => {}),
+    readMessages: vi.fn(async () => ({})),
   };
   const msg = { key: { remoteJid: JID } };
   const info = {
@@ -1069,5 +1070,25 @@ describe("9.19a — écran PÉRIMÉ purgé (terrain 31/10 04:07 : « Shiboyugi �
     expect(exec).toHaveBeenCalledTimes(1);
     const call = exec.mock.calls[0] as unknown as [string, string[]];
     expect(call[1]).toEqual(["shiboyugi"]); // recherche propre, pas `.a 2` contre l'écran mort
+  });
+});
+
+describe("9.19e — accusé de lecture : un message IA est marqué LU, pas les commandes", () => {
+  it("tout message entrant dans l'agent est marqué lu (clé du message, MP comme groupe)", async () => {
+    mAI.mockResolvedValueOnce('{"action":"reply","text":"salut !"}');
+    const exec = mkExec();
+    const ctx = mk("salut, ça va ?");
+    await run(ctx, exec);
+    expect(ctx.sock.readMessages).toHaveBeenCalledTimes(1);
+    expect(ctx.sock.readMessages).toHaveBeenCalledWith([ctx.msg.key]); // CE message seulement
+  });
+
+  it("marquage best-effort : un socket sans readMessages ne casse rien", async () => {
+    mAI.mockResolvedValueOnce('{"action":"reply","text":"ok"}');
+    const exec = mkExec();
+    const ctx = mk("hey");
+    delete (ctx.sock as any).readMessages;
+    await run(ctx, exec); // ne doit pas jeter
+    expect(texts(ctx.sent).some((t) => String(t).includes("ok"))).toBe(true);
   });
 });
