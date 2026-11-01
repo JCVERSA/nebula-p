@@ -25,7 +25,9 @@ vi.mock("../src/bot/geminiClient.js", () => ({
 import {
   getMemoryContext,
   recordExchange,
+  recordChatter,
   compactIfNeeded,
+  defaultMemorySummarizer,
   forgetMemory,
   memoryStatus,
   looksSecret,
@@ -163,5 +165,55 @@ describe("aiMemory — forget & status", () => {
     const s = memoryStatus(CHAT);
     expect(s).toContain("2 turns");
     expect(s).toContain("h left");
+  });
+});
+
+describe("9.19j — mémoire nominative + collective", () => {
+  it("recordExchange avec auteur : le bloc dit QUI a parlé", () => {
+    recordExchange(CHAT, "je veux la vidéo de natori", "je m'en occupe", { author: "Dark Neon" });
+    const block = getMemoryContext(CHAT) || "";
+    expect(block).toContain("Dark Neon: je veux la vidéo de natori");
+    expect(block).toContain("NOVA: je m'en occupe");
+  });
+
+  it("sans auteur : repli « User » (tours pré-9.19j et appels non migrés)", () => {
+    recordExchange(CHAT, "old style", "ok");
+    expect(getMemoryContext(CHAT)).toContain("User: old style");
+  });
+
+  it("recordChatter : un échange de groupe sans réponse du bot est retenu avec son auteur", () => {
+    recordChatter(CHAT, "Fandio", "l'examen de bio était dur aujourd'hui");
+    const block = getMemoryContext(CHAT) || "";
+    expect(block).toContain("Fandio: l'examen de bio était dur aujourd'hui");
+  });
+
+  it("recordChatter filtre secrets, vides et auteurs inconnus", () => {
+    recordChatter(CHAT, "Fandio", "mon mot de passe: hunter2");
+    recordChatter(CHAT, "", "message orphelin");
+    recordChatter(CHAT, "Fandio", "   ");
+    const block = getMemoryContext(CHAT) || "";
+    expect(block).not.toContain("hunter2");
+    expect(block).not.toContain("orphelin");
+  });
+
+  it("recordChatter borne l'extrait à 300 caractères", () => {
+    recordChatter(CHAT, "Fandio", "x".repeat(500));
+    const block = getMemoryContext(CHAT) || "";
+    expect(block).toContain("x".repeat(300));
+    expect(block).not.toContain("x".repeat(301));
+  });
+
+  it("le transcript de compaction garde les auteurs (résumés sociaux)", async () => {
+    const { generateTextWithFallback } = await import("../src/bot/geminiClient.js");
+    const summarizer = vi.mocked(generateTextWithFallback);
+    summarizer.mockClear();
+    await defaultMemorySummarizer("précédent", [
+      { role: "user", author: "Dark Neon", text: "on regarde kill blue ce soir ?", ts: Date.now() },
+      { role: "assistant", text: "excellente idée", ts: Date.now() }
+    ]);
+    expect(summarizer).toHaveBeenCalled();
+    const prompt = String(summarizer.mock.calls[0][0]);
+    expect(prompt).toContain("Dark Neon: on regarde kill blue ce soir ?");
+    expect(prompt).toContain("NOVA: excellente idée");
   });
 });

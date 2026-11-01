@@ -20,6 +20,8 @@ import { generateTextWithFallback } from "../geminiClient.js";
 
 export interface MemoryTurn {
   role: "user" | "assistant";
+  /** 9.19j — nom de l'auteur du tour (mémoire nominative) ; absent = tour pré-9.19j. */
+  author?: string;
   text: string;
   ts: number;
 }
@@ -132,7 +134,10 @@ export function getMemoryContext(chatJid: string, now = Date.now()): string | nu
     lines.push(`Summary of the oldest exchanges: ${memory.summary}`);
   }
   for (const turn of memory.turns) {
-    lines.push(`${turn.role === "user" ? "User" : "NOVA"}: ${turn.text}`);
+    // 9.19j — mémoire nominative : QUI a dit quoi (« Dark Neon: … »), pas un
+    // « User: » anonyme. Repli « User » pour les tours pré-9.19j.
+    const who = turn.role === "assistant" ? "NOVA" : turn.author || "User";
+    lines.push(`${who}: ${turn.text}`);
   }
   const block = lines.join("\n").slice(0, MAX_BLOCK_CHARS);
   return block.length > 0 ? block : null;
@@ -147,9 +152,15 @@ export function looksSecret(text: string): boolean {
  * Records one exchange. Secret-bearing user turns are skipped entirely
  * (their answer too — a reply to a secret often echoes context around it).
  */
-export function recordExchange(chatJid: string, userText: string, assistantText: string, now = Date.now()): void {
+export function recordExchange(
+  chatJid: string,
+  userText: string,
+  assistantText: string,
+  opts: { author?: string; now?: number } = {}
+): void {
   if (!isMemoryEnabled()) return;
   if (looksSecret(userText) || looksSecret(assistantText)) return;
+  const now = opts.now ?? Date.now();
 
   const store = loadStore();
   const memory: ChatMemory = store[chatJid] || { turns: [], summary: "", lastTs: now };
@@ -157,7 +168,12 @@ export function recordExchange(chatJid: string, userText: string, assistantText:
     memory.turns = [];
     memory.summary = "";
   }
-  memory.turns.push({ role: "user", text: userText.slice(0, MAX_TURN_CHARS), ts: now });
+  memory.turns.push({
+    role: "user",
+    author: opts.author ? opts.author.slice(0, 60) : undefined,
+    text: userText.slice(0, MAX_TURN_CHARS),
+    ts: now
+  });
   memory.turns.push({ role: "assistant", text: assistantText.slice(0, MAX_TURN_CHARS), ts: now });
   memory.lastTs = now;
   pruneTurns(memory);
@@ -172,6 +188,35 @@ export function recordExchange(chatJid: string, userText: string, assistantText:
  * the injected summarizer (no LLM in tests). When the summarizer fails or is
  * absent, the absolute cap in pruneTurns keeps the file bounded.
  */
+/**
+ * 9.19j — mémoire collective : enregistre un message de groupe qui ne
+ * s'adresse PAS au bot (l'auteur et son propos font partie du tissu social
+ * du chat — c'est ce qui permet de répondre « avec qui tu parlais et de
+ * quoi »). Tour « user » avec auteur, sans réponse de NOVA. Mêmes gardes
+ * que recordExchange : secrets filtrés, bornes strictes, TTL glissant.
+ */
+export function recordChatter(chatJid: string, author: string, text: string, now = Date.now()): void {
+  if (!isMemoryEnabled()) return;
+  const clean = String(text || "").trim();
+  if (clean.length < 2) return;
+  const who = String(author || "").trim().slice(0, 60);
+  if (!who) return;
+  if (looksSecret(clean)) return;
+
+  const store = loadStore();
+  const memory: ChatMemory = store[chatJid] || { turns: [], summary: "", lastTs: now };
+  if (isExpired(memory, now)) {
+    memory.turns = [];
+    memory.summary = "";
+  }
+  memory.turns.push({ role: "user", author: who, text: clean.slice(0, 300), ts: now });
+  memory.lastTs = now;
+  pruneTurns(memory);
+  store[chatJid] = memory;
+  evictIfNeeded(store);
+  saveStore(store);
+}
+
 export async function compactIfNeeded(
   chatJid: string,
   summarizer: (previousSummary: string, oldTurns: MemoryTurn[]) => Promise<string>,
@@ -209,7 +254,7 @@ export async function compactIfNeeded(
  * the per-user daily AI quota (that quota gates user-facing requests).
  */
 export async function defaultMemorySummarizer(previousSummary: string, oldTurns: MemoryTurn[]): Promise<string> {
-  const transcript = oldTurns.map((t) => `${t.role === "user" ? "User" : "NOVA"}: ${t.text}`).join("\n");
+  const transcript = oldTurns.map((t) => `${t.role === "assistant" ? "NOVA" : t.author || "User"}: ${t.text}`).join("\n");
   const prompt =
     `Previous summary:\n${previousSummary || "(none)"}\n\nOlder conversation turns to merge into it:\n${transcript}\n\n` +
     `Rewrite the summary as 3 to 6 short factual lines (French if the conversation is French). Keep names, decisions, preferences and open questions. No preamble.`;

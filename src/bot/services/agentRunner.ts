@@ -85,6 +85,7 @@ import {
   preferenceContextBlock,
   applyDefaultQuality
 } from "./userPreferences.js";
+import { buildSocialBlock } from "./socialMemory.js";
 
 export interface AgentMessageInfo {
   senderJid: string;    // jid du chat (clé mémoire)
@@ -101,6 +102,12 @@ export interface AgentMessageInfo {
   quotedTextExcerpt?: string | null;
   /** 9.13 — le message est la transcription d'une note vocale. */
   voiceNote?: boolean;
+  /** 9.19j — contexte social : type de chat, nom du groupe, rôles VÉRIFIÉS
+   * (métadonnées serveur — jamais une affirmation en chat) de l'auteur. */
+  isGroup?: boolean;
+  chatName?: string | null;
+  senderIsAdmin?: boolean;
+  senderIsCreator?: boolean;
 }
 
 export type AgentExecutor = (
@@ -324,7 +331,7 @@ export async function handleAgentMessage(
       await sendText(`🔗 Le dernier lien envoyé ici :
 
 ${last.text}`);
-      recordExchange(info.senderJid, text, "dernier lien renvoyé (déterministe)");
+      recordExchange(info.senderJid, text, "dernier lien renvoyé (déterministe)", { author: info.senderName });
       return true;
     }
   }
@@ -406,8 +413,21 @@ ${last.text}`);
     // QUEUE. L'ordre précédent intercalait la mémoire ENTRE les deux — le
     // préfixe commun aux requêtes cassait au premier bloc dynamique : aucun
     // cache possible, tout le système était refacturé à chaque tour.
+    // 9.19j — bloc social : qui parle, où, rôles vérifiés. Étanche par
+    // chat : un groupe ne raconte jamais sa vie à un autre chat.
+    const socialBlock = buildSocialBlock({
+      chatJid: info.senderJid,
+      actorJid: info.actorJid,
+      actorName: info.senderName,
+      isOwner: info.isOwner,
+      isGroup: info.isGroup === true,
+      chatName: info.chatName || undefined,
+      senderIsAdmin: info.senderIsAdmin === true,
+      senderIsCreator: info.senderIsCreator === true
+    });
     const dynamicBlocks = [
       memoryBlock,
+      socialBlock,
       choiceBlock,
       prefBlock,
       obsBlock,
@@ -500,14 +520,14 @@ ${last.text}`);
           await sendText(`🔎 Je cherche : ${leak.query}`);
           const out = await exec(searchCmd.name, [leak.query], "agent");
           setLastObservation(info.senderJid, searchCmd.name, out.texts);
-          recordExchange(info.senderJid, text, out.texts[0] ?? "");
+          recordExchange(info.senderJid, text, out.texts[0] ?? "", { author: info.senderName });
           return true;
         }
       }
       if (looksLikeRawJson(raw)) {
         const honest = "🤖 J'ai mal formaté ma réponse — reformule ta demande, je réessaie proprement.";
         await sendText(honest, { voice: true, force: !!info.voiceNote });
-        recordExchange(info.senderJid, text, honest);
+        recordExchange(info.senderJid, text, honest, { author: info.senderName });
         return true;
       }
       // 9.18bbbb : prose qui est une ligne de commande (« .search X ») →
@@ -519,16 +539,16 @@ ${last.text}`);
         if (lightCmd && !isAgentDeniedCommand(lightCmd.name) && !isHeavyAgentCommand(lightCmd, cmdLine.args ? cmdLine.args.split(/\s+/) : [])) {
           const out = await exec(lightCmd.name, cmdLine.args ? cmdLine.args.split(/\s+/) : [], "agent");
           setLastObservation(info.senderJid, lightCmd.name, out.texts);
-          recordExchange(info.senderJid, text, out.texts[0] ?? "");
+          recordExchange(info.senderJid, text, out.texts[0] ?? "", { author: info.senderName });
           return true;
         }
         const honestCmd = `👉 Tape \`${info.prefix}${cmdLine.command}${cmdLine.args ? " " + cmdLine.args : ""}\` directement — je l'exécuterai proprement.`;
         await sendText(honestCmd, { voice: true, force: !!info.voiceNote });
-        recordExchange(info.senderJid, text, honestCmd);
+        recordExchange(info.senderJid, text, honestCmd, { author: info.senderName });
         return true;
       }
       await sendText(raw, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B) : voix appelle voix
-      recordExchange(info.senderJid, text, raw);
+      recordExchange(info.senderJid, text, raw, { author: info.senderName });
       compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
       return true;
     }
@@ -567,7 +587,7 @@ ${last.text}`);
     while (true) {
       if (current.action === "reply" || current.action === "ask") {
         await sendText(current.text, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B)
-        recordExchange(info.senderJid, text, current.text);
+        recordExchange(info.senderJid, text, current.text, { author: info.senderName });
         compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
         return true;
       }
@@ -583,7 +603,7 @@ ${last.text}`);
         const imgQuery = current.args.trim();
         if (!imgQuery) {
           await sendText("📸 Donne-moi un sujet à chercher — ex. `img Jungkook`.");
-          recordExchange(info.senderJid, text, "img : usage");
+          recordExchange(info.senderJid, text, "img : usage", { author: info.senderName });
           return true;
         }
         if (!info.isOwner && !checkAgentBudget(info.actorJid)) {
@@ -648,7 +668,7 @@ ${last.text}`);
             await sendText(summary);
             setLastObservation(info.senderJid, "img", [summary]);
           }
-          recordExchange(info.senderJid, text, summary);
+          recordExchange(info.senderJid, text, summary, { author: info.senderName });
         } catch (err: any) {
           await sendText(
             `⚠️ La recherche d'images a échoué${err?.message ? ` (${err.message})` : ""} — réessaie, ou envoie-moi un lien direct et \`${info.prefix}dl\` le téléchargera.`,
@@ -678,7 +698,7 @@ ${last.text}`);
               ? `🤖 Je n'ai pas \`${info.prefix}${current.command}\` — voulais-tu dire \`${info.prefix}${close}\` ?`
               : `🤖 Je n'ai pas de commande pour cette demande — tape \`${info.prefix}menu\` pour voir ce que je sais faire.`;
         await sendText(honest, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B)
-        recordExchange(info.senderJid, text, honest);
+        recordExchange(info.senderJid, text, honest, { author: info.senderName });
         return true;
       }
 
@@ -814,7 +834,7 @@ ${last.text}`);
             }
             if (chained && (chained.action === "reply" || chained.action === "ask")) {
               await sendText(chained.text, { voice: true, force: !!info.voiceNote }); // 9.18ii + jj(B)
-              recordExchange(info.senderJid, text, chained.text);
+              recordExchange(info.senderJid, text, chained.text, { author: info.senderName });
               compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
               return true;
             }
@@ -823,7 +843,7 @@ ${last.text}`);
           }
         }
         // Terminé (lien envoyé, réponse simple…) : rien à piloter.
-        recordExchange(info.senderJid, text, current.say || `[${canonical.name} exécutée]`);
+        recordExchange(info.senderJid, text, current.say || `[${canonical.name} exécutée]`, { author: info.senderName });
         compactIfNeeded(info.senderJid, defaultMemorySummarizer).catch(() => {});
         return true;
       }

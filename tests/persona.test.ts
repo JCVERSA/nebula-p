@@ -53,7 +53,9 @@ describe("persona — base prompt", () => {
     expect(ai).toContain("await context.reply(answer);");
     expect(ai).not.toContain("Nebula AI Assistant");
     const mem = fs.readFileSync("src/bot/services/aiMemory.ts", "utf-8");
-    expect(mem).toContain('"User" : "NOVA"');
+    // 9.19j : la mémoire est nominative — l'auteur est nommé quand il est
+    // connu, mais le rendu distingue TOUJOURS NOVA des messages humains.
+    expect(mem).toContain('turn.role === "assistant" ? "NOVA" : turn.author || "User"');
     const app = fs.readFileSync("src/App.tsx", "utf-8");
     expect(app).toContain("🧬 NOVA is synthesizing");
     expect(app).toContain("NOVA Engine");

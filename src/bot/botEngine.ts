@@ -30,9 +30,11 @@ import { getPersonaPrompt } from "./persona.js";
 import {
   getMemoryContext,
   recordExchange,
+  recordChatter,
   compactIfNeeded,
   defaultMemorySummarizer
 } from "./services/aiMemory.js";
+import { noteGroupRoles, notePresence } from "./services/socialMemory.js";
 import { database } from "./database.js";
 import { checkAIQuota, consumeAIQuota, withAIConcurrency } from "./aiQuota.js";
 import { setWatchSender, startWatchScheduler } from "./services/episodeWatchService.js";
@@ -1055,6 +1057,10 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         // Active Group Moderation Engine
         const isGroup = senderJid.endsWith("@g.us");
         let isSenderAdmin = false;
+        // 9.19j — contexte social : subject du groupe + « l'auteur est-il
+        // le créateur » (métadonnées serveur, jamais une affirmation chat).
+        let groupSubject: string | undefined;
+        let senderIsGroupCreator = false;
 
         if (isGroup && !isFromMe) {
           try {
@@ -1069,6 +1075,12 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
               name: groupMetadata?.subject,
               memberCount: Array.isArray(groupMetadata?.participants) ? groupMetadata.participants.length : undefined,
             });
+            // 9.19j — rôles vérifiés (créateur/admins/taille) pour la
+            // mémoire sociale ; zéro appel réseau en plus (cache partagé).
+            noteGroupRoles(senderJid, groupMetadata);
+            groupSubject = typeof groupMetadata?.subject === "string" ? groupMetadata.subject : undefined;
+            const groupCreatorJid = String(groupMetadata?.owner || groupMetadata?.creator || "");
+            senderIsGroupCreator = !!groupCreatorJid && groupCreatorJid === actualSenderJid;
           } catch (e) {}
         }
 
@@ -1086,6 +1098,13 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
           if (!isOwner && isBannedUser(actualSenderJid)) {
             continue;
           }
+          // 9.19j — présence sociale : nom frais + activité dans CE groupe.
+          notePresence({
+            chatJid: senderJid,
+            actorJid: actualSenderJid,
+            actorName: msg.pushName || "",
+            isGroup,
+          });
         }
 
         // Moderation hooks (antilink/antitag/antibot) were removed with the
@@ -1183,6 +1202,10 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                     actorNumber: actualSenderNumber,
                     senderName,
                     isOwner,
+                    isGroup,
+                    chatName: groupSubject,
+                    senderIsAdmin: isSenderAdmin,
+                    senderIsCreator: senderIsGroupCreator,
                     text: asr.text,
                     voiceNote: true,
                     botName: config.botName,
@@ -1258,6 +1281,10 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 actorNumber: actualSenderNumber,
                 senderName,
                 isOwner,
+                isGroup,
+                chatName: groupSubject,
+                senderIsAdmin: isSenderAdmin,
+                senderIsCreator: senderIsGroupCreator,
                 text,
                 botName: config.botName,
                 prefix,
@@ -1299,7 +1326,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 )
               );
               // Per-conversation memory (audit 8.38) — fire and forget.
-              recordExchange(senderJid, text, answer);
+              recordExchange(senderJid, text, answer, { author: senderName });
               compactIfNeeded(senderJid, defaultMemorySummarizer).catch(() => {});
               if (sock && typeof sock.sendPresenceUpdate === "function") {
                 try {
@@ -1340,6 +1367,16 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
         // mais uniquement si le message S'ADRESSE au bot (mention @ ou reply
         // à un message du bot) — jamais sur la conversation générale.
         if (isGroup && !isFromMe && !text.startsWith(prefix)) {
+          // 9.19j — mémoire collective : les échanges du groupe qui ne
+          // s'adressent PAS au bot sont retenus avec leurs auteurs — c'est
+          // ce qui permet de répondre « avec qui tu parlais et de quoi ».
+          // Ceux qui s'adressent au bot sont mémorisés par l'agent (pas de
+          // doublon).
+          const addressedBot =
+            isAIConfigured() && messageAddressesBot(msg, sock?.user?.id, (sock as any)?.user?.lid);
+          if (!addressedBot && text.trim().length > 1) {
+            recordChatter(senderJid, senderName, text);
+          }
           // 9.12 (B5, décision owner) : « 1 »/« 2 »/« video »/« playlist » nu
           // d'un utilisateur ayant un choix .ytv en attente → consommé SANS
           // tour IA (l'écran a été déclenché PAR cet utilisateur — sans ça,
@@ -1354,7 +1391,7 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
             continue;
           }
           // 9.19f : le LID aussi — les mentions @ partent souvent en @lid
-          if (isAIConfigured() && messageAddressesBot(msg, sock?.user?.id, (sock as any)?.user?.lid)) {
+          if (addressedBot) {
             const handledByAgent = await handleAgentMessage(
               sock,
               msg,
@@ -1364,6 +1401,10 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
                 actorNumber: actualSenderNumber,
                 senderName,
                 isOwner,
+                isGroup,
+                chatName: groupSubject,
+                senderIsAdmin: isSenderAdmin,
+                senderIsCreator: senderIsGroupCreator,
                 text,
                 botName: config.botName,
                 prefix,

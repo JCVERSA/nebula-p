@@ -86,7 +86,7 @@ const aiCommand: BotCommand = {
       await context.reply(answer);
       // Persist the exchange for the next message in this chat (sliding TTL),
       // then compact old turns into the rolling summary (internal call).
-      recordExchange(chatJid, prompt, answer);
+      recordExchange(chatJid, prompt, answer, { author: context.senderName });
       compactIfNeeded(chatJid, defaultMemorySummarizer).catch((e) =>
         console.warn(`[AI Memory] compaction skipped: ${e?.message || e}`)
       );
