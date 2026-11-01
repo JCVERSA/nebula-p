@@ -208,3 +208,43 @@ describe("source routing wiring pins (the 8.49b lesson: pin the wiring, not just
     expect(source).not.toContain("Session Expired:");
   });
 });
+
+describe("9.19i — 403/503 transitoire : UN retry avant l'échec honnête (terrain 01/11 03:47)", () => {
+  it("403 puis succès → résultats livrés (le retry a bien eu lieu)", async () => {
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    voiranimeSearch.mockClear(); // ce harnais ne fait pas clearAllMocks : on repart de zéro
+    voiranimeSearch
+      .mockRejectedValueOnce({ response: { status: 403 } })
+      .mockResolvedValue([
+        { title: "Kill Blue VF", url: "https://voir-anime.to/anime/kill-blue-vf/", slug: "kill-blue-vf", isVf: true }
+      ]);
+    const { searchAnime } = await loadNovabox();
+
+    const results = await searchAnime("kill blue", "va");
+
+    expect(results).toHaveLength(1); // livré : le blocage transitoire n'a rien coûté
+    // ≥ 2 appels : le 1er (403) + le retry qui réussit (la complétion de
+    // franchise peut en ajouter — on ne pinne pas ce détail interne ici).
+    expect(voiranimeSearch.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("403 persistant → l'erreur remonte, sans boucle (1 essai + 1 retry)", async () => {
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    voiranimeSearch.mockClear();
+    voiranimeSearch.mockRejectedValue({ response: { status: 403 } });
+    const { searchAnime } = await loadNovabox();
+
+    await expect(searchAnime("kill blue", "va")).rejects.toMatchObject({ response: { status: 403 } });
+    expect(voiranimeSearch).toHaveBeenCalledTimes(2); // le throw interrompt les variantes : exactement 1 + 1
+  });
+
+  it("les autres erreurs (réseau, timeout) ne déclenchent AUCUN retry", async () => {
+    const voiranimeSearch = await loadFn<ReturnType<typeof vi.fn>>("../src/bot/services/voiranimeClient.js", "voiranimeSearch");
+    voiranimeSearch.mockClear();
+    voiranimeSearch.mockRejectedValue({ code: "ECONNABORTED" });
+    const { searchAnime } = await loadNovabox();
+
+    await expect(searchAnime("kill blue", "va")).rejects.toMatchObject({ code: "ECONNABORTED" });
+    expect(voiranimeSearch).toHaveBeenCalledTimes(1);
+  });
+});

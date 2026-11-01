@@ -329,7 +329,22 @@ async function isPublicFetchTarget(rawUrl: string, label: string): Promise<boole
  * piégeait tout nouvel appelant (scripts/anime-repro compris).
  */
 export async function searchAnime(query: string, source: AnimeSourceId = effectiveDefaultSource()) {
-  const results = await searchAnimeBySource(query, source);
+  let results: SourceSearchResult[];
+  try {
+    results = await searchAnimeBySource(query, source);
+  } catch (err: any) {
+    // 9.19i (terrain 01/11 03:47/04:23) : 403/503 TRANSITOIRE du catalogue
+    // — UN seul retry après une pause (jamais d'échec visible sans avoir
+    // réessayé). Le log NOMME la source : anime-sama = mur IP datacenter
+    // connu (remède operator : NEBULA_ANIME_PROXY) ; un autre catalogue =
+    // inattendu, à surveiller. L'échec persistant remonte au message
+    // honnête existant.
+    const status = err?.response?.status;
+    if (status !== 403 && status !== 503) throw err;
+    console.warn(`[NOVABOX] ${sourceLogLabel(source)} : HTTP ${status} sur « ${query} » — nouvel essai dans 1,5 s`);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    results = await searchAnimeBySource(query, source);
+  }
   console.log(`[NOVABOX] ${sourceLogLabel(source)} search: ${results.length} result(s) for "${query}"`);
   return results;
 }
