@@ -58,9 +58,11 @@ describe("9.18r — Instagram : liens automatiques (structure)", () => {
   });
 
   it("UN SEUL message final liste tous les liens (fini les .up manuels)", () => {
-    // 9.18t : le push porte { url, cached } pour marquer ⚡ les hits cache.
-    expect(src).toContain("collectedLinks.push({ url: rec.downloadUrl, cached: true });");
-    expect(src).toContain("collectedLinks.push({ url: rec.downloadUrl, cached: false });");
+    // 9.18t : le push porte { url, cached } pour marquer les hits cache.
+    // 9.19d : le lien est poussé APRÈS le dédoublonnage par contenu — un
+    // doublon de contenu n'a jamais de lien dans le message final.
+    expect(src).toContain("linkUrl = rec.downloadUrl;");
+    expect(src).toContain("collectedLinks.push({ url: linkUrl, cached: servedFromCache });");
     expect(src).toContain("Liens de téléchargement");
     expect(src).toContain("max 2 h");
   });

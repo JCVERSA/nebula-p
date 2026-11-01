@@ -11,6 +11,8 @@ import { registerTempDownload, getLinkTtlMinutes } from "../tempDownloadManager.
 import { fetchMediaToTempFile, registerMediaLink } from "../services/mediaLinkDelivery.js";
 import { createProgressReporter, type ProgressSendFn } from "../services/progressMessenger.js";
 import { resolveLiveSocket } from "../liveSocket.js";
+import crypto from "crypto";
+import fs from "fs";
 
 /**
  * `.instagram` — portage natif de l'original neb (media/instagram.js, owner
@@ -19,6 +21,12 @@ import { resolveLiveSocket } from "../liveSocket.js";
  * envois. Si les deux backends tiers échouent : extracteur maison
  * (instagramExtractor.ts — embed public + API web Instagram). Messages FR,
  * import dynamique (le paquet n'a pas de types).
+ *
+ * 9.19d (terrain 01/11 01:52) : un post de 7 photos → 7 fois la MÊME image.
+ * Le scraper tiers renvoie N URLs « uniques » qui pointent toutes sur la
+ * photo de couverture (7 fichiers à 0,42 Mo pile). Dédoublonnage par CONTENU
+ * (sha256) en plus de celui par URL, puis sauvetage par l'extracteur maison
+ * (qui énumère les carrousels) quand des doublons ont été écartés.
  */
 
 interface IgdlMedia { url?: string; type?: string }
@@ -33,6 +41,23 @@ export function orderIgBackends(last: "igdl" | "igdl2" | null): Array<"igdl" | "
 }
 
 const processedMessages = new Set<string>();
+
+/** 9.19d — empreinte de contenu d'un fichier média (sha256). Null si
+ * illisible (URL distante jamais téléchargée, fichier disparu…). */
+export function mediaFileFingerprint(filePath: string): string | null {
+  try {
+    return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/** 9.19d — pur : des doublons de contenu ont été écartés et le média vient
+ * d'un scraper tiers → l'extracteur maison (qui énumère les carrousels)
+ * tente de récupérer les images manquantes. */
+export function shouldRescueWithExtractor(input: { duplicatesDropped: number; mediaSource: string }): boolean {
+  return input.duplicatesDropped > 0 && !input.mediaSource.startsWith("extractor:");
+}
 
 function extractUniqueMedia(mediaData: IgdlMedia[]): IgdlMedia[] {
   const unique: IgdlMedia[] = [];
@@ -142,6 +167,8 @@ const instagramCommand: BotCommand = {
       }
 
       const collectedLinks: Array<{ url: string; cached: boolean }> = [];
+      const contentSeen = new Set<string>(); // 9.19d : empreintes sha256 déjà envoyées
+      let duplicatesDropped = 0;
       // 9.18s : nom lisible — reel_<shortcode> (au lieu d'instagram_<timestamp>).
       const shortcode = instagramShortcode(text) || `${Date.now()}`;
 
@@ -183,13 +210,14 @@ const instagramCommand: BotCommand = {
           const cacheKey = igReuseKey(shortcode, i);
           let sendPath = mediaUrl;
           let servedFromCache = false;
+          let linkUrl: string | null = null; // 9.19d : poussé après le dédoublonnage par contenu
           const cachedHit = cacheKey ? lookupMediaReuse(cacheKey) : null;
           if (cachedHit) {
             try {
               const rec = registerTempDownload(cachedHit.filePath, linkName, { noCopy: true });
               if (rec?.filePath) {
                 sendPath = rec.filePath;
-                collectedLinks.push({ url: rec.downloadUrl, cached: true });
+                linkUrl = rec.downloadUrl;
                 servedFromCache = true;
               }
             } catch {}
@@ -211,12 +239,26 @@ const instagramCommand: BotCommand = {
                 if (cacheKey) {
                   try { storeMediaReuse(cacheKey, rec.filePath, linkName, { ttlMs: SOCIAL_REUSE_TTL_MS }); } catch {}
                 }
-                collectedLinks.push({ url: rec.downloadUrl, cached: false });
+                linkUrl = rec.downloadUrl;
               } else {
                 sendPath = local; // quota du store atteint : fichier local, sans lien
               }
             }
           }
+
+          // 9.19d (terrain 01/11 01:52) : le scraper tiers renvoie parfois N
+          // fois la MÊME image avec N URLs différentes (7 fichiers à 0,42 Mo
+          // pile pour un post de 7 photos) — on dédoublonne par CONTENU.
+          const fingerprint = mediaFileFingerprint(sendPath);
+          if (fingerprint) {
+            if (contentSeen.has(fingerprint)) {
+              duplicatesDropped++;
+              console.log(`[IG] média ${i + 1}/${mediaToDownload.length} ignoré : contenu identique à un média déjà envoyé (le service tiers répète la même image)`);
+              continue;
+            }
+            contentSeen.add(fingerprint);
+          }
+          if (linkUrl) collectedLinks.push({ url: linkUrl, cached: servedFromCache });
 
           if (isVideo) {
             await sock.sendMessage(chatId, {
@@ -244,6 +286,47 @@ const instagramCommand: BotCommand = {
       }
       await igProgress.finish();
 
+      // 9.19d : le scraper tiers n'a renvoyé que des copies de la même image
+      // → l'extracteur maison (embed public + API web Instagram, qui énumère
+      // les carrousels) tente de récupérer les médias manquants. Les contenus
+      // déjà envoyés restent dédoublonnés par la même empreinte.
+      let rescuedCount = 0;
+      if (shouldRescueWithExtractor({ duplicatesDropped, mediaSource })) {
+        console.log("[IG] doublons de contenu détectés — essai de l'extracteur maison pour le carrousel");
+        try {
+          const own = await extractInstagramMedia(text);
+          const items = (own?.items || []).filter((it) => it?.url).slice(0, 20);
+          for (const item of items) {
+            try {
+              const isVideo = item.type === "video" || /\.(mp4|mov|avi|mkv|webm)$/i.test(item.url);
+              const local = await fetchMediaToTempFile(item.url, () => {});
+              if (!local) continue;
+              const fingerprint = mediaFileFingerprint(local);
+              if (fingerprint && contentSeen.has(fingerprint)) {
+                try { fs.rmSync(local, { force: true }); } catch {}
+                continue;
+              }
+              if (fingerprint) contentSeen.add(fingerprint);
+              const ext = isVideo ? ".mp4" : ".jpg";
+              const linkName = `${isVideo ? "reel" : "post"}_${shortcode}_r${rescuedCount + 1}${ext}`;
+              const rec = registerMediaLink(local, linkName);
+              const rescuePath = rec?.filePath || local;
+              if (rec) collectedLinks.push({ url: rec.downloadUrl, cached: false });
+              await sock.sendMessage(chatId, isVideo
+                ? { video: { url: rescuePath }, mimetype: "video/mp4", caption: `*DOWNLOADED BY ${getConfig().botName.toUpperCase()}*` }
+                : { image: { url: rescuePath }, caption: `*DOWNLOADED BY ${getConfig().botName.toUpperCase()}*` }
+              , { quoted: msg });
+              rescuedCount++;
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            } catch (err) {
+              console.warn(`[IG] média de secours échoué: ${err instanceof Error ? err.message : err}`);
+            }
+          }
+        } catch (err) {
+          console.warn(`[IG] extracteur maison (secours) échoué: ${err instanceof Error ? err.message : err}`);
+        }
+      }
+
       // 9.18r : UN SEUL message avec tous les liens — fini les .up manuels
       // (retour terrain 14/10 : sept .up à la main pour sept reels).
       if (collectedLinks.length) {
@@ -252,6 +335,8 @@ const instagramCommand: BotCommand = {
           `🔗 *Liens de téléchargement* (${collectedLinks.length})\n` +
           `⏳ Valables ${getLinkTtlMinutes()} min après chaque téléchargement (max 2 h)\n` +
           (anyCached ? `⚡ _Marqué déjà en cache (5 h) — aucun re-téléchargement_\n` : "") +
+          (duplicatesDropped > 0 ? `🔁 ${duplicatesDropped} doublon(s) ignoré(s) — le service tiers renvoyait la même image\n` : "") +
+          (rescuedCount > 0 ? `🛟 ${rescuedCount} média(s) récupéré(s) via l'extracteur maison\n` : "") +
           `\n` +
           collectedLinks.map((l, i) => `${i + 1}. ${l.cached ? "⚡ " : ""}${l.url}`).join("\n")
         );
