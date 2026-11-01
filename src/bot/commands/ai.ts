@@ -61,6 +61,12 @@ const aiCommand: BotCommand = {
     }
 
     try {
+      // 9.19f : présence « écrit… » pendant l'appel IA (rythme humain).
+      try {
+        if (sock && typeof sock.sendPresenceUpdate === "function") {
+          await sock.sendPresenceUpdate("composing", msg.key.remoteJid || "");
+        }
+      } catch {}
       consumeAIQuota(context.sender);
       const chatJid = msg.key.remoteJid || "";
       const memoryBlock = getMemoryContext(chatJid);
@@ -74,7 +80,10 @@ const aiCommand: BotCommand = {
           "gemini-3.7-flash"
         )
       );
-      await context.reply(`🌌 *NOVA*\n\n${answer}`);
+      // 9.19f : fini le header encombrant devant CHAQUE réponse — la
+      // réponse arrive nue, comme un vrai message. NOVA reste le nom de
+      // l'agent (identité dans le persona, pas en signature).
+      await context.reply(answer);
       // Persist the exchange for the next message in this chat (sliding TTL),
       // then compact old turns into the rolling summary (internal call).
       recordExchange(chatJid, prompt, answer);

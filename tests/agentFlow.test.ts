@@ -71,7 +71,13 @@ vi.mock("../src/bot/commandKnowledge.js", () => ({
   buildAgentKnowledge: vi.fn(() => "KNOWLEDGE"),
 }));
 
-import { handleAgentMessage, messageAddressesBot } from "../src/bot/services/agentRunner.js";
+import {
+  handleAgentMessage,
+  messageAddressesBot,
+  computeReadReceiptDelay,
+  __setReadReceiptDelayForTests,
+  __setReplyPacingForTests
+} from "../src/bot/services/agentRunner.js";
 import { generateTextWithFallback, isAIConfigured } from "../src/bot/geminiClient.js";
 import { getCommand } from "../src/bot/commandRegistry.js";
 import { checkAIQuota } from "../src/bot/aiQuota.js";
@@ -149,6 +155,8 @@ beforeEach(() => {
   mSynth.mockResolvedValue(Buffer.from("OGG-AUDIO"));
   __resetAgentStateForTests();
   __resetObservationsForTests();
+  __setReadReceiptDelayForTests(5); // 9.19f : bleu quasi immédiat en tests
+  __setReplyPacingForTests(0); // 9.19f : pas de pacing en tests
   mConfigured.mockReturnValue(true);
   mQuota.mockReturnValue({ allowed: true } as any);
   mGetCommand.mockImplementation(((n: string) => COMMANDS[n]) as any);
@@ -190,6 +198,12 @@ describe("9.11 — audit agent : texte cité, adressage groupes, typo", () => {
     expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "@bot download ça", contextInfo: { mentionedJid: ["1555700000001:3@s.whatsapp.net"] } } }), BOT)).toBe(true);
     // reply à un message du bot (participant = bot)
     expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "et en 720p ?", contextInfo: { participant: "1555700000001@s.whatsapp.net" } } }), BOT)).toBe(true);
+    // 9.19f : mention par LID (groupes WhatsApp récents) — le bot restait
+    // muet quand la mention partait en @lid au lieu du numéro.
+    const LID = "987654321098765@lid";
+    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "@bot salut", contextInfo: { mentionedJid: [LID] } } }), BOT, LID)).toBe(true);
+    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "réponse au bot", contextInfo: { participant: "987654321098765:2@lid" } } }), BOT, LID)).toBe(true);
+    expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "@quelqu'un d'autre", contextInfo: { mentionedJid: ["111222333444555@lid"] } } }), BOT, LID)).toBe(false);
     // conversation générale : ni mention ni reply au bot
     expect(messageAddressesBot(mkMsg({ conversation: "salut les gars" }), BOT)).toBe(false);
     expect(messageAddressesBot(mkMsg({ extendedTextMessage: { text: "réponse à quelqu'un d'autre", contextInfo: { participant: "1555999999999@s.whatsapp.net" } } }), BOT)).toBe(false);
@@ -199,7 +213,7 @@ describe("9.11 — audit agent : texte cité, adressage groupes, typo", () => {
   it("M1 : botEngine ne passe l'agent en groupe QUE sur adressage (wiring)", async () => {
     const fs = await import("fs");
     const src = fs.readFileSync("src/bot/botEngine.ts", "utf-8");
-    expect(src).toContain("messageAddressesBot(msg, sock?.user?.id)");
+    expect(src).toContain("messageAddressesBot(msg, sock?.user?.id, (sock as any)?.user?.lid)");
     expect(src).toContain("isGroup && !isFromMe && !text.startsWith(prefix)");
   });
 
@@ -1074,13 +1088,26 @@ describe("9.19a — écran PÉRIMÉ purgé (terrain 31/10 04:07 : « Shiboyugi �
 });
 
 describe("9.19e — accusé de lecture : un message IA est marqué LU, pas les commandes", () => {
-  it("tout message entrant dans l'agent est marqué lu (clé du message, MP comme groupe)", async () => {
+  it("tout message entrant dans l'agent est marqué lu — APRÈS une pause de lecture (jamais instantané)", async () => {
     mAI.mockResolvedValueOnce('{"action":"reply","text":"salut !"}');
     const exec = mkExec();
     const ctx = mk("salut, ça va ?");
     await run(ctx, exec);
-    expect(ctx.sock.readMessages).toHaveBeenCalledTimes(1);
+    // pas encore : le bleu attend la pause de lecture (différée)
+    expect(ctx.sock.readMessages).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(ctx.sock.readMessages).toHaveBeenCalledTimes(1));
     expect(ctx.sock.readMessages).toHaveBeenCalledWith([ctx.msg.key]); // CE message seulement
+  });
+
+  it("computeReadReceiptDelay : 500 ms + ~25 ms/caractère, plafonné 3,5 s, jitter ±20 %", () => {
+    for (let i = 0; i < 60; i++) {
+      const short = computeReadReceiptDelay(10); // 500 + 250 = 750 brut
+      expect(short).toBeGreaterThanOrEqual(600);
+      expect(short).toBeLessThanOrEqual(900);
+      const long = computeReadReceiptDelay(5000); // plafonné 3500 brut
+      expect(long).toBeGreaterThanOrEqual(2800);
+      expect(long).toBeLessThanOrEqual(4200);
+    }
   });
 
   it("marquage best-effort : un socket sans readMessages ne casse rien", async () => {

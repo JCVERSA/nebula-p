@@ -47,7 +47,10 @@ describe("persona — base prompt", () => {
 
   it("9.18g — user-facing surfaces say NOVA (reply header, memory, dashboard)", () => {
     const ai = fs.readFileSync("src/bot/commands/ai.ts", "utf-8");
-    expect(ai).toContain("🌌 *NOVA*");
+    // 9.19f : plus de header systématique devant chaque réponse .ai —
+    // la réponse arrive nue ; NOVA reste le nom dans le persona/mémoire.
+    expect(ai).not.toContain("🌌");
+    expect(ai).toContain("await context.reply(answer);");
     expect(ai).not.toContain("Nebula AI Assistant");
     const mem = fs.readFileSync("src/bot/services/aiMemory.ts", "utf-8");
     expect(mem).toContain('"User" : "NOVA"');

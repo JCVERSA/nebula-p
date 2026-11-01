@@ -1353,7 +1353,8 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
             await dispatchBotCommand(sock, msg, dispatchInfo, "ytvideo", [bareYtv], "agent");
             continue;
           }
-          if (isAIConfigured() && messageAddressesBot(msg, sock?.user?.id)) {
+          // 9.19f : le LID aussi — les mentions @ partent souvent en @lid
+          if (isAIConfigured() && messageAddressesBot(msg, sock?.user?.id, (sock as any)?.user?.lid)) {
             const handledByAgent = await handleAgentMessage(
               sock,
               msg,

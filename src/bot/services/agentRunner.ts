@@ -114,11 +114,44 @@ export type AgentExecutor = (
  * réponse (reply) à un message du bot — JAMAIS à la conversation générale
  * (sinon chaque message du groupe partirait en tour IA). Pur — testé.
  */
-export function messageAddressesBot(msg: any, botJid: string | null | undefined): boolean {
-  if (!botJid) return false;
+/** 9.19f — pause de LECTURE avant le bleu (pur) : 500 ms + ~25 ms par
+ * caractère du message reçu, plafonné 3,5 s, jitter ±20 %. Un humain
+ * n'ouvre pas et ne lit pas un message en 0 ms (retour owner 01/11 :
+ * « le Lu est trop instantané » — recherche : bleu instantané = signature
+ * n°1 du robot). */
+export function computeReadReceiptDelay(textLength: number): number {
+  const raw = Math.min(3500, 500 + Math.max(0, textLength) * 25);
+  const jitter = 0.8 + Math.random() * 0.4;
+  return Math.round(raw * jitter);
+}
+
+/** Test hooks 9.19f — figent le bleu et la pacing (null = comportement réel). */
+let readReceiptDelayForTests: number | null = null;
+let replyPacingForTests: number | null = null;
+export function __setReadReceiptDelayForTests(ms: number | null): void {
+  readReceiptDelayForTests = ms;
+}
+export function __setReplyPacingForTests(ms: number | null): void {
+  replyPacingForTests = ms;
+}
+
+/**
+ * 9.11 : le message s'adresse-t-il au bot (mention @ ou reply à un message
+ * du bot) ? 9.19f : le matching accepte AUSSI le LID du bot — les groupes
+ * WhatsApp récents envoient les mentions en @lid (identifiant lié), pas en
+ * numéro : sans ça, le bot restait muet quand on le mentionnait.
+ */
+export function messageAddressesBot(msg: any, botJid: string | null | undefined, botLid?: string | null): boolean {
+  if (!botJid && !botLid) return false;
   const num = (j: unknown) => String(j ?? "").split(":")[0].split("@")[0].replace(/\D/g, "");
   const me = num(botJid);
-  if (!me) return false;
+  const myLid = num(botLid);
+  if (!me && !myLid) return false;
+  const isMe = (j: unknown) => {
+    const n = num(j);
+    if (!n) return false;
+    return (!!me && n === me) || (!!myLid && n === myLid);
+  };
   const m = msg?.message || {};
   const ctxs: any[] = [
     m.extendedTextMessage?.contextInfo,
@@ -129,8 +162,8 @@ export function messageAddressesBot(msg: any, botJid: string | null | undefined)
   ];
   for (const ctx of ctxs) {
     if (!ctx) continue;
-    if (Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.some((j: any) => num(j) === me)) return true;
-    if (ctx.participant && num(ctx.participant) === me) return true;
+    if (Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.some((j: any) => isMe(j))) return true;
+    if (ctx.participant && isMe(ctx.participant)) return true;
   }
   return false;
 }
@@ -153,17 +186,28 @@ export async function handleAgentMessage(
   const text = (info.text || "").trim();
   if (!text) return false;
 
-  // 9.19e (demande owner 01/11) : un message adressé à l'IA est marqué LU
-  // (✓✓ bleu) — les commandes (.menu…) restent en « reçu » comme avant.
-  // MP comme groupes, et uniquement CE message (readMessages par clé),
-  // jamais le reste du chat. Garde : socket vivant + fonction absente des
-  // vieux mocks → aucun effet, aucun échec possible.
-  try {
-    const readTarget = resolveLiveSocket(sock);
-    if (readTarget && typeof readTarget.readMessages === "function") {
-      await readTarget.readMessages([msg.key]);
-    }
-  } catch {}
+  // 9.19e/9.19f : un message adressé à l'IA est marqué LU (✓✓ bleu) — les
+  // commandes (.menu…) restent en « reçu ». Le bleu tombe après une vraie
+  // pause de LECTURE (jamais instantané — retour owner 01/11), uniquement
+  // pour CE message. Fire-and-forget : la réponse n'attend pas le bleu.
+  setTimeout(() => {
+    try {
+      const readTarget = resolveLiveSocket(sock);
+      if (readTarget && typeof readTarget.readMessages === "function") {
+        readTarget.readMessages([msg.key]).catch(() => {});
+      }
+    } catch {}
+  }, readReceiptDelayForTests ?? computeReadReceiptDelay(text.length));
+
+  // 9.19f — rythme humain : jamais de réponse instantanée. La première
+  // écriture du tour attend un minimum aléatoire (600-1400 ms) MOINS le
+  // temps déjà passé (l'appel IA en consomme souvent l'essentiel).
+  const turnStartedAt = Date.now();
+  const minFirstReplyMs = replyPacingForTests ?? (600 + Math.floor(Math.random() * 800));
+  const paceFirstReply = async () => {
+    const remaining = minFirstReplyMs - (Date.now() - turnStartedAt);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+  };
 
   // 9.18 (L) — sourdine IA : l'utilisateur garde ses commandes mais les
   // tours IA lui sont refusés honnêtement (aucun token dépensé).
@@ -184,6 +228,7 @@ export async function handleAgentMessage(
   // .on/.off) décide alors note vocale (Henri) ou texte, avec repli texte
   // intégral si la synthèse échoue (jamais de réponse perdue).
   const sendText = async (t: string, opts: { voice?: boolean; force?: boolean } = {}) => {
+    await paceFirstReply(); // 9.19f : la première écriture respire avant d'arriver
     // 9.18ggg — envoi via le socket VIVANT au moment d'écrire (audit 17/10
     // §1) : un tour d'agent qui traverse une reconnexion ne doit pas mourir
     // sur le socket capturé à l'arrivée du message.
