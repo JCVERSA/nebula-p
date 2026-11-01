@@ -628,6 +628,41 @@ export function observationMatchesRequest(observation: string, request: string):
   return tokens.some((t) => obs.includes(t));
 }
 
+/**
+ * 9.19g (terrain 01/11 04:34) : « télécharge la dernière vidéo de X » →
+ * l'agent exécute `.search` pour trouver le lien (`.ytv` exige une URL) —
+ * mais la sortie de recherche n'est pas un écran interactif : le tour se
+ * TERMINAIT net et la vidéo n'était jamais téléchargée (2 recherches
+ * d'affilée, utilisateur frustré). Chaînage DÉTERMINISTE (zéro token) :
+ * verbe de téléchargement + mot vidéo dans la demande d'origine, et un
+ * lien YouTube dans les résultats → enchaîne `.ytv` immédiatement. Pur.
+ */
+const DL_VERBS = ["télécharge", "telecharge", "envoie", "download", "récupère", "recupere", "charge", "passe", "balance", "met"];
+const VIDEO_WORDS = ["vidéo", "video", "clip", "music video"];
+
+export function searchResultVideoFollowUp(
+  command: string,
+  outputTexts: string[],
+  userText: string
+): { url: string } | null {
+  if (command !== "search") return null;
+  const n = String(userText || "").toLowerCase();
+  const wantsDownload = DL_VERBS.some((v) => n.includes(v));
+  const wantsVideo = VIDEO_WORDS.some((w) => n.includes(w));
+  if (!wantsDownload || !wantsVideo) return null; // question d'info (« c'est quoi le clip X ? ») → pas de téléchargement
+  const hay = (outputTexts || []).join(" ");
+  for (const marker of ["youtube.com/watch?v=", "youtu.be/"]) {
+    const i = hay.indexOf(marker);
+    if (i >= 0) {
+      const id = hay.slice(i + marker.length, i + marker.length + 11);
+      if (id.length === 11 && /^[a-zA-Z0-9_-]+$/.test(id)) {
+        return { url: `https://www.youtube.com/watch?v=${id}` };
+      }
+    }
+  }
+  return null;
+}
+
 export function looksLikeLinkResendRequest(text: string): boolean {
   const t = (text || "").trim();
   if (!t || t.length > 120 || /[\n\r]/.test(t)) return false;

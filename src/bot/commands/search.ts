@@ -1,6 +1,6 @@
 import { BotCommand } from "../types.js";
 import { searchWeb, FRESHNESS_LABELS, type SearchFreshness } from "../services/webSearch.js";
-import { capText } from "../services/webText.js";
+import { capText, cleanWebSnippet } from "../services/webText.js";
 import { checkWebQuota, consumeWebQuota } from "../webQuota.js";
 
 /**
@@ -88,10 +88,14 @@ const searchCommand: BotCommand = {
       const period = freshness ? ` — _${FRESHNESS_LABELS[freshness]}_` : "";
       let text = `🔍 *Recherche — ${query}*${period}\n`;
       hits.forEach((h, i) => {
-        text += `\n${i + 1}. *${h.title}*\n`;
+        // 9.19g : extraits NETTOYÉS — JSON brut, templates, titres markdown
+        // et balises n'arrivent plus tels quels dans le chat (terrain 01/11).
+        const cleanTitle = cleanWebSnippet(h.title) || h.title;
+        const cleanSnip = cleanWebSnippet(h.snippet);
+        text += `\n${i + 1}. *${cleanTitle}*\n`;
         if (h.publishedDate) text += `   📅 ${h.publishedDate.slice(0, 10)} — `;
         else text += `   `;
-        text += `${capText(h.snippet, 180)}\n`;
+        text += `${capText(cleanSnip, 180)}\n`;
         if (h.domain) text += `   🔗 ${h.url}\n`;
       });
       text += `\n_Via ${engine === "tavily" ? "Tavily" : "DuckDuckGo"} — la requête leur est transmise._`;

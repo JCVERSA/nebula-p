@@ -64,7 +64,11 @@ describe("commandKnowledge — fiche .a (statique)", () => {
   expect(k).toContain("INTERNATIONAUX");
     expect(k).toContain("Détecte l'intention");
     expect(k).toContain("Ne promets jamais une capacité inexistante");
-    expect(k).toContain("Que sais-tu faire ?");
+    // 9.19g : la règle couvre aussi « tu fais quoi » et impose une réponse
+    // COURTE (terrain 01/11 : pavé de commandes en réponse à « tu fais quoi »).
+    expect(k).toContain("que sais-tu faire / tu fais quoi");
+    expect(k).toContain("JAMAIS la liste complète");
+    expect(k).toContain("jamais **");
   });
 
   it("utilise le préfixe demandé partout (pas de « . » codé dur)", () => {
@@ -76,7 +80,10 @@ describe("commandKnowledge — fiche .a (statique)", () => {
   });
 
   it("reste compact (budget de prompt système)", () => {
-    expect(buildCommandKnowledge(".").length).toBeLessThan(4500);
+    // 9.19g : +2 règles de style WhatsApp (réponse courte, pas de double
+    // astérisque — terrain 01/11) → plafond 4500 → 4600. Le budget RÉEL du
+    // prompt complet reste gardé par tests/agentPromptBudget.test.ts.
+    expect(buildCommandKnowledge(".").length).toBeLessThan(4600);
   });
 
   it("survit à un registre vide (boot très tôt / contexte panneau)", () => {

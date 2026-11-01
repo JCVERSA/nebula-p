@@ -465,7 +465,7 @@ describe("9.18zzzz — durée de repli film (estimation de taille honnête)", ()
     const k = buildCommandKnowledge(".");
     expect(k).toContain("décision execute");
     expect(k).toContain("JAMAIS la commande en texte");
-    expect(k.length).toBeLessThan(4500);
+    expect(k.length).toBeLessThan(4600); // 9.19g : +2 règles de style WhatsApp
   });
 });
 

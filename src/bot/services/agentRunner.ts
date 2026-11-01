@@ -61,6 +61,7 @@ import {
   deterministicNextEpisodeDecision,
   looksLikeLinkResendRequest,
   observationMatchesRequest,
+  searchResultVideoFollowUp,
   messageSuggestsMultiIntent,
   extractToolCallLeak,
   extractCommandLineLeak,
@@ -556,6 +557,7 @@ ${last.text}`);
     let decisionsUsed = 1; // la décision initiale compte
     let current = decision;
     const executedSignatures = new Set<string>(); // anti-boucle dégénérée
+    let searchChainUsed = false; // 9.19g : chaînage search → vidéo, une seule fois
     // 9.18cc (P8) : demande double liée (« l'épisode 1 ET la chanson ») →
     // UN tour de relance borné après la première livraison, si (et seulement
     // si) le message contient une liaison + ≥2 familles d'intention.
@@ -755,6 +757,25 @@ ${last.text}`);
 
       // 9.1 — la sortie attend-elle un choix que l'agent peut piloter ?
       if (!outputLooksInteractive(out.texts)) {
+        // 9.19g (terrain 01/11 04:34) : la recherche venait de TROUVER le
+        // lien que l'utilisateur veut télécharger — sans ce chaînage, le tour
+        // s'arrêtait net (sortie non interactive) et la vidéo n'arrivait
+        // jamais. Déterministe (zéro token), UNE fois, puis la boucle
+        // revalide TOUT (denylist, sanitize URL, confirmation lourde…).
+        if (!searchChainUsed) {
+          const followUp = searchResultVideoFollowUp(canonical.name, out.texts, text);
+          if (followUp) {
+            searchChainUsed = true;
+            recordAudit(`wa:${info.actorNumber}`, "agent.chain", "ytvideo", "from-search");
+            current = {
+              action: "execute",
+              command: "ytvideo",
+              args: followUp.url,
+              say: "🎬 Trouvé — je télécharge la vidéo…"
+            };
+            continue;
+          }
+        }
         // 9.18cc (P8) : première demande livrée et le message initial
         // contenait PLUSIEURS demandes liées → UN tour de relance pour
         // enchaîner la deuxième (éco tokens : détection déterministe, une

@@ -1119,3 +1119,34 @@ describe("9.19e — accusé de lecture : un message IA est marqué LU, pas les c
     expect(texts(ctx.sent).some((t) => String(t).includes("ok"))).toBe(true);
   });
 });
+
+describe("9.19g — chaînage déterministe : la recherche TROUVE la vidéo, l'agent la télécharge", () => {
+  const SEARCH_OUT = [
+    "🔍 *Recherche — natori latest music video*",
+    "1. *Nostalgia*",
+    "   https://www.youtube.com/watch?v=uLfiVjjNVEI",
+    "_Via Tavily — la requête leur est transmise._"
+  ];
+
+  it("« télécharge la vidéo de X » → .search puis .ytv <url> automatiquement (terrain 01/11)", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"search","args":"natori latest music video"}');
+    const exec = vi.fn()
+      .mockResolvedValueOnce({ ok: true, denied: false, hadError: false, lastText: "", vfFallbackHint: false, texts: SEARCH_OUT })
+      .mockResolvedValue({ ok: true, denied: false, hadError: false, lastText: "", vfFallbackHint: false, texts: ["🎬 Vidéo envoyée"] });
+    const ctx = mk("télécharge la dernière vidéo de natori stp");
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(2); // avant 9.19g : 1, puis le tour s'arrêtait net
+    expect(exec.mock.calls[0][0]).toBe("search");
+    const second = exec.mock.calls[1] as unknown as [string, string[]];
+    expect(second[0]).toBe("ytvideo");
+    expect(second[1]).toEqual(["https://www.youtube.com/watch?v=uLfiVjjNVEI"]);
+  });
+
+  it("question d'info (« c'est quoi le clip X ? ») → recherche livrée, PAS de téléchargement auto", async () => {
+    mAI.mockResolvedValueOnce('{"action":"execute","command":"search","args":"clip natori"}');
+    const exec = vi.fn().mockResolvedValue({ ok: true, denied: false, hadError: false, lastText: "", vfFallbackHint: false, texts: SEARCH_OUT });
+    const ctx = mk("c'est quoi le clip de natori ?");
+    await run(ctx, exec);
+    expect(exec).toHaveBeenCalledTimes(1);
+  });
+});

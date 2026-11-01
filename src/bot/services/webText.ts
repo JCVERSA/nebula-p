@@ -67,6 +67,26 @@ export function htmlToText(html: string): string {
 }
 
 /** Coupe propre à une longueur max : au dernier espace, sinon caractère dur. */
+
+/**
+ * 9.19g — nette un extrait de recherche avant affichage (terrain 01/11
+ * 04:35 : le chat recevait du JSON brut `{"type":"song"...`, des templates
+ * `{{#list}}`, des titres markdown `## Channel` et des balises `[VIDEO]`
+ * tels quels). Pur : aucune dépendance, aucun réseau.
+ */
+export function cleanWebSnippet(raw: string): string {
+  let t = String(raw || "");
+  t = t.replace(/\{\{[^}]*\}\}/g, " "); // templates handlebars
+  t = t.replace(/\{[^{}]*\}/g, " "); // fragments JSON (2 passes = imbriqués légers)
+  t = t.replace(/\{[^{}]*\}/g, " ");
+  t = t.split(String.fromCharCode(92)).join(" "); // séquences échappées (\", \s)
+  t = t.replace(/^#{1,6}[ \t]*/gm, " "); // titres markdown
+  t = t.replace(/[\[\]\{\}""]/g, " "); // crochets/accoles/quotes orphelins ([VIDEO]...)
+  t = t.replace(/\s+/g, " ").trim(); // espaces + sauts de ligne
+  if (/^[^0-9A-Za-zÀ-ÿ]+$/.test(t)) return ""; // que de la ponctuation → rien à afficher
+  return t;
+}
+
 export function capText(text: string, max: number): string {
   const t = text.trim();
   if (t.length <= max) return t;
