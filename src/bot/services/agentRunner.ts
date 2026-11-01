@@ -426,7 +426,11 @@ ${last.text}`);
       chatName: info.chatName || undefined,
       senderIsAdmin: info.senderIsAdmin === true,
       senderIsCreator: info.senderIsCreator === true,
-      mentionedJids: info.mentionedJids
+      mentionedJids: info.mentionedJids,
+      // 9.19l : le bot ne se compte pas comme un admin humain.
+      selfNums: [String((sock as any)?.user?.id || ""), String((sock as any)?.user?.lid || "")]
+        .map((j) => j.split(":")[0].split("@")[0].replace(/\D/g, ""))
+        .filter(Boolean)
     });
     const dynamicBlocks = [
       memoryBlock,

@@ -19,6 +19,7 @@ import {
   noteGroupRoles,
   buildSocialBlock,
   knownNameOf,
+  describeKnownAdmins,
   exportVaultMirror,
   isSocialMemoryEnabled,
   __resetSocialMemoryForTests
@@ -113,11 +114,11 @@ describe("9.19j — bloc social (prompt)", () => {
     expect(block).toContain("Anime Crew");
     expect(block).toContain("(4 membres)");
     expect(block).toContain("Tu réponds à Fandio — un membre du groupe");
-    expect(block).toContain("Admins : Kitsu"); // admin connu → nommé
+    expect(block).toContain("Admins du groupe (3 au total) : Kitsu — 1 dont tu ne connais pas encore le nom");
     expect(block).toContain("Créateur du groupe : Dark Neon");
     expect(block).not.toContain("40000000004"); // admin silencieux : JAMAIS son numéro
     expect(block).not.toMatch(/\d{7,}/); // aucun numéro de téléphone dans le bloc
-    expect(block.length).toBeLessThanOrEqual(600); // budget prompt tenu
+    expect(block.length).toBeLessThanOrEqual(1200); // budget prompt tenu
   });
 
   it("rôles distincts : admin du groupe, créateur, owner du bot en groupe", () => {
@@ -268,7 +269,7 @@ describe("9.19k — terrain 07:55 : nommer les admins, comprendre les mentions, 
     const block = buildSocialBlock({
       chatJid: GID, actorJid: FANDIO, actorName: "Fandio", isOwner: false, isGroup: true
     }) || "";
-    expect(block).toContain("Admins : Arol Kam's");
+    expect(block).toContain("Admins du groupe (3 au total) : Arol Kam's");
   });
 
   it("getKnownUserName : nom connu / vide pour un inconnu (pas d'exception)", () => {
@@ -285,7 +286,69 @@ describe("9.19k — terrain 07:55 : nommer les admins, comprendre les mentions, 
     const runner = read("src/bot/services/agentRunner.ts");
     expect(runner).toContain("mentionedJids: info.mentionedJids");
     const ginfo = read("src/bot/commands/groupSettings.ts");
-    expect(ginfo).toContain("knownNameOf(m.id)");
+    expect(ginfo).toContain("knownNameOf(String(owner))"); // créateur nommé
     expect(ginfo).toContain("pas encore connu");
+  });
+});
+
+describe("9.19l — terrain 08:17-08:19 : total des admins, bot exclu, garde anti-@numéro", () => {
+  it("describeKnownAdmins (pur) : total, noms connus, inconnus, bot exclu, créateur à part", () => {
+    noteGroupRoles(GID, groupMeta());
+    notePresence({ chatJid: GID, actorJid: ADMIN1, actorName: "Kitsu", isGroup: true });
+    const BOT = "70000000007@s.whatsapp.net";
+    const info = describeKnownAdmins(
+      [OWNER, ADMIN1, ADMIN2_SILENT, BOT],
+      ["70000000007"], // digits du bot
+      [OWNER] // créateur présenté à part
+    );
+    expect(info.total).toBe(4);
+    expect(info.names).toEqual(["Kitsu"]);
+    expect(info.unknownCount).toBe(1); // ADMIN2_SILENT
+    expect(info.selfIsAdmin).toBe(true); // le bot est admin mais pas un humain
+  });
+
+  it("le bloc ne liste JAMAIS le bot parmi les admins humains et annonce le TOTAL", () => {
+    noteGroupRoles(GID, {
+      subject: "SBF4",
+      owner: OWNER,
+      participants: [
+        { id: OWNER, admin: "superadmin" },
+        { id: "70000000007@s.whatsapp.net", admin: "admin" }, // le bot
+        { id: ADMIN1, admin: "admin" }
+      ]
+    });
+    notePresence({ chatJid: GID, actorJid: OWNER, actorName: "Dark Neon", isGroup: true });
+    notePresence({ chatJid: GID, actorJid: ADMIN1, actorName: "Arol Kam's", isGroup: true });
+
+    const block =
+      buildSocialBlock({
+        chatJid: GID, actorJid: ADMIN1, actorName: "Arol Kam's", isOwner: false, isGroup: true,
+        selfNums: ["70000000007"]
+      }) || "";
+
+    expect(block).toContain("Admins du groupe (3 au total)"); // TOTAL annoncé — pas « juste nous deux »
+    expect(block).toContain("Tu es toi-même admin de ce groupe");
+    expect(block).toContain("ne te compte pas comme un membre humain");
+    expect(block).not.toContain("Admins du groupe (2 au total) : Dark Neon"); // créateur à part
+  });
+
+  it("garde anti-@numéro : jamais recopier un LID brut, jamais deviner, jamais « c'est tout » prématuré", () => {
+    const block = buildSocialBlock({
+      chatJid: OWNER, actorJid: OWNER, actorName: "Dark Neon", isOwner: true, isGroup: false
+    }) || "";
+    expect(block).toContain("ne les recopie JAMAIS dans une réponse");
+    expect(block).toContain("ne devine pas à qui ils renvoient");
+    expect(block).toContain("n'invente pas d'explication technique");
+    expect(block).toContain("tant que le total annoncé n'est pas atteint");
+  });
+
+  it("pins de câblage 9.19l (leçon 8.49b)", () => {
+    const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), "utf-8");
+    const runner = read("src/bot/services/agentRunner.ts");
+    expect(runner).toContain("selfNums: [String((sock as any)?.user?.id");
+    const ginfo = read("src/bot/commands/groupSettings.ts");
+    expect(ginfo).toContain("describeKnownAdmins(");
+    expect(ginfo).toContain("(dont le bot)");
+    expect(ginfo).toContain("resolveLiveSocket(_sock)");
   });
 });

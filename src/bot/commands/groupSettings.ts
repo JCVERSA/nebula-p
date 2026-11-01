@@ -1,5 +1,5 @@
 import { BotCommand } from "../types.js";
-import { knownNameOf } from "../services/socialMemory.js";
+import { describeKnownAdmins, knownNameOf } from "../services/socialMemory.js";
 import { groupJidOf } from "../utils/groupTargets.js";
 import { resolveLiveSocket } from "../liveSocket.js";
 
@@ -114,14 +114,22 @@ const groupinfoCommand: BotCommand = {
       // admins et le créateur quand le bot les connaît (mémoire sociale +
       // répertoire — identité, pas contenu de conversation) ; sinon repli
       // mention @numéro inchangé.
-      const resolvedAdmins = admins.map((m) => knownNameOf(m.id));
-      const adminNames = Array.from(new Set(resolvedAdmins.filter(Boolean))).slice(0, 6);
-      const unknownAdmins = resolvedAdmins.filter((n) => !n).length;
+      // 9.19l : le bot lui-même est exclu des NOMS (il n'est pas un admin
+      // humain — terrain : il s'affichait « Moi » dans la liste) et assumé
+      // séparément par « (dont le bot) ».
+      const liveSock = resolveLiveSocket(_sock);
+      const selfNums = [String(liveSock?.user?.id || ""), String(liveSock?.user?.lid || "")]
+        .map((j) => j.split(":")[0].split("@")[0].replace(/\D/g, ""))
+        .filter(Boolean);
+      const adminInfo = describeKnownAdmins(
+        admins.map((m) => m.id),
+        selfNums
+      );
       const lines = [
         `👥 *${String(meta.subject || "Groupe").slice(0, 80)}*`,
         desc ? `\n📝 ${desc.slice(0, 300)}${desc.length > 300 ? "…" : ""}` : "",
         `\n\n👤 *Membres :* ${members.length || meta.size || "?"}`,
-        `🛡️ *Admins :* ${admins.length}${adminNames.length ? ` — ${adminNames.join(", ")}` : ""}${unknownAdmins ? ` (+${unknownAdmins} pas encore connu${unknownAdmins > 1 ? "s" : ""} par leur nom)` : ""}`,
+        `🛡️ *Admins :* ${admins.length}${adminInfo.names.length ? ` — ${adminInfo.names.join(", ")}` : ""}${adminInfo.unknownCount ? ` (+${adminInfo.unknownCount} pas encore connu${adminInfo.unknownCount > 1 ? "s" : ""} par leur nom)` : ""}${adminInfo.selfIsAdmin ? " (dont le bot)" : ""}`,
         owner ? `👑 *Créé par :* ${knownNameOf(String(owner)) || `@${String(owner).split("@")[0]}`}` : "",
         created ? `\n📅 *Créé le :* ${created}` : "",
       ].filter(Boolean);
