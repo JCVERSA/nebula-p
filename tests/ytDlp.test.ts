@@ -71,6 +71,13 @@ function installFakeBin(): void {
     "  const seen = fs.readFileSync(process.env.ARGS_LOG_PATH, 'utf8').split('\\n').filter(Boolean).length;",
     "  if (seen < 2) { console.error('ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you are not a bot. Use --cookies for the authentication.'); process.exit(1); }",
     "}",
+    "if (process.env.FAKE_MODE === 'subs429') {",
+    "  // 9.19c : sous-titres en 429 tant que les flags sous-titres sont présents.",
+    "  if (args.includes('--write-subs') || args.includes('--write-auto-subs')) {",
+    "    console.error('ERROR: Unable to download video subtitles for fr: HTTP Error 429: Too Many Requests');",
+    "    process.exit(1);",
+    "  }",
+    "}",
     "const oi = args.indexOf('-o');",
     "if (oi !== -1) {",
     "  const out = args[oi + 1].replace('%(ext)s', process.env.FAKE_EXT || 'webm');",
@@ -737,5 +744,52 @@ describe("9.19b — binaire yt-dlp autonome géré (terrain 01/11 : Python syst�
     expect(sh).toContain("download/$YTDLP_ASSET");
     expect(sh).toContain("yt-dlp --version >/dev/null 2>&1");
     expect(sh).not.toContain("download/yt-dlp "); // l'ancienne zipapp Python-dépendante
+  });
+});
+
+// ── 9.19c : sous-titres refusés par YouTube → la vidéo reste sauvée ────────
+//
+// Terrain 01/11 12:50 : « ERROR: Unable to download video subtitles for
+// 'fr': HTTP Error 429: Too Many Requests » — yt-dlp en fait une erreur
+// FATALE et jette la vidéo déjà téléchargée. Le retry SANS flags sous-titres
+// sauve la vidéo ; le caption annonce la dégradation honnêtement.
+describe("9.19c — sous-titres en 429 : retry sans sous-titres, vidéo sauvée", () => {
+  it("subs manuelles en 429 → UN retry SANS flags sous-titres, ok + subsSkipped", async () => {
+    process.env.FAKE_MODE = "subs429";
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "720", 100 * 1024 * 1024, { subs: { lang: "fr", auto: false } });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.subsSkipped).toBe(true);
+    const calls = readLoggedArgs();
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toContain("--write-subs");
+    expect(calls[0]).toContain("--embed-subs");
+    expect(calls[1]).not.toContain("--write-subs");
+    expect(calls[1]).not.toContain("--write-auto-subs");
+    expect(calls[1]).not.toContain("--sub-langs");
+    expect(calls[1]).not.toContain("--embed-subs");
+  });
+
+  it("subs automatiques en 429 → même sauvetage", async () => {
+    process.env.FAKE_MODE = "subs429";
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "480", 100 * 1024 * 1024, { subs: { lang: "en", auto: true } });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.subsSkipped).toBe(true);
+    const calls = readLoggedArgs();
+    expect(calls[0]).toContain("--write-auto-subs");
+    expect(calls[1]).not.toContain("--write-auto-subs");
+  });
+
+  it("sans sous-titres demandés → un seul run, aucun subsSkipped", async () => {
+    process.env.FAKE_MODE = "subs429"; // le fake passe : aucun flag sous-titres
+    const r = await ytvViaYtDlp("https://youtu.be/dQw4w9WgXcQ", "720", 100 * 1024 * 1024);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.subsSkipped).toBeFalsy();
+    expect(readLoggedArgs().length).toBe(1);
+  });
+
+  it("câblage : ytvideo.ts annonce la dégradation au lieu d'un échec", () => {
+    const src = fs.readFileSync(path.join(process.cwd(), "src/bot/commands/ytvideo.ts"), "utf8");
+    expect(src).toContain("momentanément indisponibles (limite YouTube)");
+    expect(src).toContain("if (local.subsSkipped) subsUnavailable = true;");
   });
 });

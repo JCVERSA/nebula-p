@@ -546,6 +546,7 @@ const ytvideoCommand: BotCommand = {
       // Échec de sonde → dégradation honnête : comportement d'avant 9.10.
       let audioLang = forcedAudioLang;
       let subs: { lang: string; auto: boolean } | null = null;
+      let subsUnavailable = false; // 9.19c : sous-titres refusés par YouTube (429) — vidéo sauvée sans
       try {
         const probe = await probeYoutubeEntry(videoUrl);
         if (probe.ok && !probe.isPlaylist) {
@@ -618,6 +619,7 @@ const ytvideoCommand: BotCommand = {
         if (local.ok) {
           videoPath = local.filePath;
           if (local.title) finalTitle = local.title;
+          if (local.subsSkipped) subsUnavailable = true;
           console.log("[YTV] OK via yt-dlp");
         } else if (local.reason === "too_large") {
           return void (await context.reply("⚠️ *Vidéo trop lourde* (max 100 Mo à cette qualité) — essaie une qualité inférieure ou une vidéo plus courte."));
@@ -712,7 +714,11 @@ const ytvideoCommand: BotCommand = {
         fileName: `${safeName}.mp4`,
         caption: `*${finalTitle || searchQuery}*\n📺 Qualité : ${quality}p` +
           (audioLang ? `\n🎚️ Audio : ${langLabel(audioLang)}` : "") +
-          (subs ? `\n💬 Sous-titres ${subs.auto ? "automatiques " : ""}${subs.lang.split("-")[0].toUpperCase()} intégrés` : "") +
+          (subsUnavailable
+            ? `\n💬 Sous-titres ${subs ? subs.lang.split("-")[0].toUpperCase() + " " : ""}momentanément indisponibles (limite YouTube) — vidéo envoyée sans`
+            : subs
+              ? `\n💬 Sous-titres ${subs.auto ? "automatiques " : ""}${subs.lang.split("-")[0].toUpperCase()} intégrés`
+              : "") +
           (reusedHit ? `\n⚡ Servie depuis le cache — aucun re-téléchargement` : "") +
           linkNote +
           `\n\n> *_Downloaded by ${getConfig().botName}_*`

@@ -37,8 +37,14 @@ export type YtDlpOutcome =
   | { ok: false; reason: "no_id" | "missing" | "too_large" | "signin" | "session_quota" | "failed"; detail?: string };
 
 export type YtDlpVideoOutcome =
-  | { ok: true; filePath: string; title: string | null }
+  | { ok: true; filePath: string; title: string | null; subsSkipped?: boolean }
   | { ok: false; reason: "no_id" | "missing" | "too_large" | "signin" | "session_quota" | "failed"; detail?: string };
+
+/** 9.19c : yt-dlp en fait une erreur FATALE (il jette la vidéo déjà
+ * téléchargée) — terrain 01/11 12:50 : « Unable to download video subtitles
+ * for 'fr': HTTP Error 429: Too Many Requests » (limite YouTube, IP
+ * datacenter). Les sous-titres sont un BONUS, pas une raison d'échouer. */
+const SUBS_DL_FAILED_RE = /unable to download (?:video |auto |automatic )?(?:subtitles|captions?)/i;
 
 const YT_ID_RE = /(?:youtu\.be\/|v=|shorts\/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/;
 
@@ -630,7 +636,11 @@ export async function ytvViaYtDlp(
   try {
     const outBase = path.join(dir, "out");
     const cookies = activeCookiesFile();
-    const buildArgs = (withCookies: boolean): string[] => [
+    const subsArgs = (on: boolean): string[] =>
+      on && opts.subs
+        ? [opts.subs.auto ? "--write-auto-subs" : "--write-subs", "--sub-langs", opts.subs.lang, "--embed-subs"]
+        : [];
+    const buildArgs = (withCookies: boolean, withSubs = true): string[] => [
       // 9.6 : H.264+AAC d'abord ; 9.10 : piste audio de la langue demandée
       // en tête de préférence quand elle existe.
       "-f", ytvFormatSpecWithAudio(q, opts.audioLang),
@@ -647,9 +657,7 @@ export async function ytvViaYtDlp(
       // 9.6 : anonyme d'abord — les cookies ne partent qu'en secours.
       ...(withCookies && cookies ? ["--cookies", cookies] : []),
       // 9.10 : sous-titres intégrés au mp4 (mov_text) quand demandés.
-      ...(opts.subs
-        ? [opts.subs.auto ? "--write-auto-subs" : "--write-subs", "--sub-langs", opts.subs.lang, "--embed-subs"]
-        : []),
+      ...subsArgs(withSubs),
       "--max-filesize", String(maxBytes),
       "--print", "%(title)s",
       "-o", `${outBase}.%(ext)s`,
@@ -662,6 +670,7 @@ export async function ytvViaYtDlp(
         try { opts.onProgress(sample); } catch {}
       }
     };
+    let usedCookies = false;
     let r = await runYtDlp(buildArgs(false), 180000, 16000, opts.onProgress ? onLine : undefined);
     // 9.6 : mur d'authentification → UN seul retry avec les cookies,
     // dans la limite du budget global (50/h, tous utilisateurs).
@@ -670,8 +679,18 @@ export async function ytvViaYtDlp(
         release();
         return { ok: false, reason: "session_quota" };
       }
+      usedCookies = true;
       cookieDownloads.push(Date.now());
       r = await runYtDlp(buildArgs(true), 180000, 16000, opts.onProgress ? onLine : undefined);
+    }
+    // 9.19c (terrain 01/11 12:50) : sous-titres refusés (429 YouTube) → UN
+    // retry SANS les flags de sous-titres : la vidéo est ce que l'utilisateur
+    // veut, les sous-titres sont un bonus. L'appelant affiche la dégradation.
+    let subsSkipped = false;
+    if (!r.ok && opts.subs && SUBS_DL_FAILED_RE.test(r.stderr)) {
+      console.log("[YTDLP] sous-titres refusés (limite YouTube) — retry sans sous-titres pour sauver la vidéo");
+      r = await runYtDlp(buildArgs(usedCookies, false), 180000, 16000, opts.onProgress ? onLine : undefined);
+      if (r.ok) subsSkipped = true;
     }
     // Refus de taille : yt-dlp peut sortir en erreur OU en code 0 (skip) —
     // on examine le message AVANT le code de sortie.
@@ -694,7 +713,7 @@ export async function ytvViaYtDlp(
       release();
       return { ok: false, reason: "too_large", detail: `post-contrôle : ${fs.statSync(file).size} > ${maxBytes} octets` };
     }
-    return { ok: true, filePath: file, title: firstStdoutLine(r.stdout) };
+    return { ok: true, filePath: file, title: firstStdoutLine(r.stdout), subsSkipped };
   } catch {
     release();
     return { ok: false, reason: "failed" };
