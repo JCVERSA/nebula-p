@@ -19,6 +19,9 @@ import { getCommand } from "../commandRegistry.js";
 const agtraceCommand: BotCommand = {
   name: "agtrace",
   category: "Tools",
+  // 9.19n (audit #7) : le tag ownerOnly existait mais n'était utilisé nulle
+  // part — la porte était inline uniquement. Double filet (tag + inline).
+  ownerOnly: true,
   description: "Trace décision agent (owner)",
   usage: "agtrace <message à tracer>",
   execute: async (sock, msg, context) => {

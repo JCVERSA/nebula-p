@@ -93,7 +93,15 @@ const traceCommand: BotCommand = {
         return void (await context.reply(`⏳ Patiente ${wait} s entre deux recherches.`));
       }
       lastCallByUser.set(context.sender, Date.now());
-      if (lastCallByUser.size > 500) lastCallByUser.clear(); // bound the map
+      // 9.19n (audit #8, rectifié) : la map était bornée via clear() —
+      // brutal : tous les cooldowns ACTIFS étaient perdus d'un coup. Élagage
+      // des seules entrées expirées, comme les quotas (uploads, agent).
+      if (lastCallByUser.size > 500) {
+        const nowMs = Date.now();
+        for (const [k, t] of lastCallByUser) {
+          if (nowMs - t >= COOLDOWN_MS) lastCallByUser.delete(k);
+        }
+      }
       await context.react("🔍");
 
       const res = await axios.post("https://api.trace.moe/search", image, {

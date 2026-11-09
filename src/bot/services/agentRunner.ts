@@ -224,7 +224,8 @@ export async function handleAgentMessage(
   if (isMutedUser(String(info.actorJid || ""))) {
     const sendMuted = async (t: string) => {
       try {
-        await sock.sendMessage(info.senderJid, { text: t }, { quoted: msg });
+        // 9.19n (audit #3) : socket VIVANT — même correction que sendText.
+        await resolveLiveSocket(sock).sendMessage(info.senderJid, { text: t }, { quoted: msg });
       } catch {}
     };
     await sendMuted(
@@ -356,7 +357,10 @@ ${last.text}`);
 
   await setPresence("composing");
   try {
-    if (!det) consumeAIQuota(info.actorJid);
+    // 9.19n (audit #4) : le quota IA est consommé au SUCCÈS de l'appel (plus
+    // bas), plus AVANT — une panne du fournisseur ne doit pas brûler le
+    // quota de l'utilisateur : il recevait « IA indisponible » ET perdait un
+    // cran. checkAIQuota reste la porte d'entrée (fail-closed si dépassé).
     const memoryBlock = getMemoryContext(info.senderJid);
     // 8.97/8.99 — mémoire des choix interactifs, INJECTÉE À LA DEMANDE
     // (leçon Mastra : ce bloc n'a d'utilité que si le message parle
@@ -465,6 +469,7 @@ ${last.text}`);
           generateTextWithFallback(text, agentSystem, "gemini-3.7-flash", { jsonMode: true })
         );
         rawLatencyMs = Date.now() - tStart;
+        if (!det) consumeAIQuota(info.actorJid); // 9.19n : appel RÉUSSI → quota consommé
         decision = parseAgentDecision(raw);
         if (!decision) {
           // 9.18eeee (A1) — retry GUIDÉ : la réponse n'est pas au contrat.
@@ -812,7 +817,6 @@ ${last.text}`);
         if (multiIntentPending && !multiFollowUpUsed && !out.denied && decisionsUsed < MAX_AI_DECISIONS) {
           const quotaChain = checkAIQuota(info.actorJid);
           if (quotaChain.allowed) {
-            consumeAIQuota(info.actorJid);
             decisionsUsed++;
             multiFollowUpUsed = true;
             const chainSystem =
@@ -829,6 +833,7 @@ ${last.text}`);
               const rawChain = await withAIConcurrency(() =>
                 generateTextWithFallback(text, chainSystem, "gemini-3.7-flash", { jsonMode: true })
               );
+              consumeAIQuota(info.actorJid); // 9.19n : appel RÉUSSI → quota consommé
               chained = parseAgentDecision(rawChain);
             } catch {
               chained = null;
@@ -867,7 +872,6 @@ ${last.text}`);
       }
 
       // ── Décision de relance : 1 appel IA, sortie observée en contexte ──
-      consumeAIQuota(info.actorJid);
       decisionsUsed++;
       // 9.18w (audit 9.18) : la consigne des écrans interactifs (« 👉 Réponds
       // avec .a 1 ») est en FIN de sortie — une coupe head-only la perdait.
@@ -889,6 +893,7 @@ ${last.text}`);
         const rawNext = await withAIConcurrency(() =>
           generateTextWithFallback(text, followUpSystem, "gemini-3.7-flash", { jsonMode: true })
         );
+        consumeAIQuota(info.actorJid); // 9.19n : appel RÉUSSI → quota consommé
         next = parseAgentDecision(rawNext);
       } catch {
         next = null;
@@ -943,7 +948,9 @@ async function offerCatalogRetry(
     ? ""
     : "\n_Le bot a déjà proposé la suite en VOSTFR — choisis simplement la résolution si ça te convient._";
   try {
-    await sock.sendMessage(
+    // 9.19n (audit #3) : l'offre de bascule partait sur le socket CAPTURÉ —
+    // la classe exacte du bug §1 de l'audit 17/10, corrigée partout sauf ici.
+    await resolveLiveSocket(sock).sendMessage(
       info.senderJid,
       { text: `ℹ️ *Cette langue n'est pas sur ce catalogue.*\nJe peux essayer l'autre : \`${display}\`\n\nRéponds *OK* pour que je lance _(2 minutes)_.${closing}` },
       { quoted: msg }
@@ -966,7 +973,6 @@ async function runErrorRecovery(
   try {
     const quota = checkAIQuota(info.actorJid);
     if (!quota.allowed) return; // l'erreur est déjà visible, pas de bruit
-    consumeAIQuota(info.actorJid);
 
     const system =
       `Tu es l'agent du bot ${info.botName}. Une commande que tu viens de lancer pour l'utilisateur ` +
@@ -993,6 +999,7 @@ async function runErrorRecovery(
         "gemini-3.7-flash"
       )
     );
+    consumeAIQuota(info.actorJid); // 9.19n : appel RÉUSSI → quota consommé
     const fix = parseAgentFix(raw);
     if (!fix) return; // erreur déjà visible — on ne rajoute pas de bruit
 

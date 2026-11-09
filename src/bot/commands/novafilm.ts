@@ -274,6 +274,22 @@ async function downloadDirectMp4(url: string, headers: Record<string, string>, l
   return fs.existsSync(localPath) && fs.statSync(localPath).size > 0;
 }
 
+/**
+ * 9.19m — kill-switch owner : NEBULA_NOVAFILM_DISABLED=1 coupe Novafilm
+ * (même raison qu'Novabox : serveur à stockage limité). Message honnête,
+ * jamais d'échec brut — l'agent IA relaie la réponse telle quelle.
+ */
+export function isNovafilmDisabled(): boolean {
+  return String(process.env.NEBULA_NOVAFILM_DISABLED ?? "").trim() === "1";
+}
+
+function novafilmDisabledMessage(): string {
+  return (
+    "🎞️ *Novafilm est désactivé sur ce serveur.*\n\n" +
+    "_L'administrateur a coupé les téléchargements de films ici (ressources limitées)._"
+  );
+}
+
 const novafilmCommand: BotCommand = {
   name: "novafilm",
   aliases: ["f", "film", "films"],
@@ -282,6 +298,10 @@ const novafilmCommand: BotCommand = {
   usage: ".f <titre> | .novafilm <titre>",
   examples: [".f insidious", ".f avatar", ".novafilm spider-man"],
   execute: async (sock, msg, context) => {
+    // 9.19m : kill-switch owner — AVANT toute recherche/session/téléchargement.
+    if (isNovafilmDisabled()) {
+      return void (await context.reply(novafilmDisabledMessage()));
+    }
     const sender = context.sender;
     const firstArg = (context.args[0] || "").toLowerCase();
 

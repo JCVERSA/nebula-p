@@ -67,7 +67,9 @@ export function parseAgentDecision(raw: string): AgentDecision | null {
 // ── Denylist : commandes que l'agent n'invoquera JAMAIS ────────────────────
 
 /** L'IA ne doit jamais s'invoquer elle-même (boucle) ni mobiliser .ai. */
-export const AGENT_DENYLIST: ReadonlySet<string> = new Set(["agent", "ai"]);
+// 9.19n (audit #9) : agtrace = outil de débogage owner (DRY-RUN) — l'agent
+// n'a rien à exécuter là, et sa porte inline refuserait de toute façon.
+export const AGENT_DENYLIST: ReadonlySet<string> = new Set(["agent", "ai", "agtrace"]);
 
 export function isAgentDeniedCommand(canonicalName: string): boolean {
   return AGENT_DENYLIST.has(canonicalName.toLowerCase());

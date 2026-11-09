@@ -997,457 +997,467 @@ async function runStartLiveBot(isManualStart = false, pairingPhone?: string) {
       if (m.type !== "notify") return;
 
       for (const msg of m.messages) {
-        if (!msg.message) continue;
+        // 9.19n (audit #2) : un message qui JETTE ne doit plus tuer le reste
+        // du lot — sans ce try, l'exception rejetait la promesse du listener
+        // (les messages suivants du même lot étaient perdus) et atterrissait
+        // dans unhandledRejection, loguée en silence (lissage 5 s).
+        try {
+          if (!msg.message) continue;
 
-        // 9.8 : registre borné des messages récents (reçus ET émis) —
-        // résout les replies dont la citation a été épurée (chat éphémère).
-        recordRecentMessage(String(msg.key?.remoteJid || ""), String(msg.key?.id || ""), msg.message);
+          // 9.8 : registre borné des messages récents (reçus ET émis) —
+          // résout les replies dont la citation a été épurée (chat éphémère).
+          recordRecentMessage(String(msg.key?.remoteJid || ""), String(msg.key?.id || ""), msg.message);
 
-        // Unwrap ephemeral, viewOnce, or other wrapper messages
-        let messageContent = msg.message;
-        if (messageContent.ephemeralMessage) {
-          messageContent = messageContent.ephemeralMessage.message || {};
-        }
-        if (messageContent.viewOnceMessage) {
-          messageContent = messageContent.viewOnceMessage.message || {};
-        }
-        if (messageContent.viewOnceMessageV2) {
-          messageContent = messageContent.viewOnceMessageV2.message || {};
-        }
-        if (messageContent.documentWithCaptionMessage) {
-          messageContent = messageContent.documentWithCaptionMessage.message || {};
-        }
+          // Unwrap ephemeral, viewOnce, or other wrapper messages
+          let messageContent = msg.message;
+          if (messageContent.ephemeralMessage) {
+            messageContent = messageContent.ephemeralMessage.message || {};
+          }
+          if (messageContent.viewOnceMessage) {
+            messageContent = messageContent.viewOnceMessage.message || {};
+          }
+          if (messageContent.viewOnceMessageV2) {
+            messageContent = messageContent.viewOnceMessageV2.message || {};
+          }
+          if (messageContent.documentWithCaptionMessage) {
+            messageContent = messageContent.documentWithCaptionMessage.message || {};
+          }
 
-        if (!messageContent) continue;
+          if (!messageContent) continue;
 
-        // Extract text from the unwrapped message
-        const text = messageContent.conversation ||
-                     messageContent.extendedTextMessage?.text ||
-                     messageContent.imageMessage?.caption ||
-                     messageContent.videoMessage?.caption ||
-                     messageContent.templateButtonReplyMessage?.selectedId ||
-                     messageContent.buttonsResponseMessage?.selectedButtonId ||
-                     messageContent.listResponseMessage?.singleSelectReply?.selectedRowId ||
-                     "";
+          // Extract text from the unwrapped message
+          const text = messageContent.conversation ||
+                       messageContent.extendedTextMessage?.text ||
+                       messageContent.imageMessage?.caption ||
+                       messageContent.videoMessage?.caption ||
+                       messageContent.templateButtonReplyMessage?.selectedId ||
+                       messageContent.buttonsResponseMessage?.selectedButtonId ||
+                       messageContent.listResponseMessage?.singleSelectReply?.selectedRowId ||
+                       "";
 
-        const config = getConfig();
-        const prefix = config.prefix;
-        const senderJid = msg.key.remoteJid || "";
-        const senderNumber = senderJid.split("@")[0];
-        const senderName = msg.pushName || "WhatsApp User";
-        const isFromMe = !!msg.key.fromMe;
+          const config = getConfig();
+          const prefix = config.prefix;
+          const senderJid = msg.key.remoteJid || "";
+          const senderNumber = senderJid.split("@")[0];
+          const senderName = msg.pushName || "WhatsApp User";
+          const isFromMe = !!msg.key.fromMe;
 
-        // Extract precise actual sender info (handles group participants vs DM)
-        const actualSenderJid = msg.key.participant || msg.key.remoteJid || "";
-        const actualSenderNumber = actualSenderJid.split("@")[0].replace(/[^0-9]/g, "");
-        const envOwnerNumber = (process.env.OWNER_NUMBER || "").trim();
-        const configuredOwner = envOwnerNumber || config.ownerNumber;
-        // 8.89 : le message peut arriver d'un jid @lid (WhatsApp « masquer mon
-        // numéro ») — résolution LID→numéro via Baileys puis comparaison
-        // EXACTE (helper partagé avec whois ; comportement IDENTIQUE pour les
-        // jids téléphone). Fallback NEBULA_OWNER_LID si la table est inconnue.
-        const ownerCheck = await resolveOwnerIdentity(sock, actualSenderJid, configuredOwner);
-        const isOwner = ownerCheck.isOwner;
+          // Extract precise actual sender info (handles group participants vs DM)
+          const actualSenderJid = msg.key.participant || msg.key.remoteJid || "";
+          const actualSenderNumber = actualSenderJid.split("@")[0].replace(/[^0-9]/g, "");
+          const envOwnerNumber = (process.env.OWNER_NUMBER || "").trim();
+          const configuredOwner = envOwnerNumber || config.ownerNumber;
+          // 8.89 : le message peut arriver d'un jid @lid (WhatsApp « masquer mon
+          // numéro ») — résolution LID→numéro via Baileys puis comparaison
+          // EXACTE (helper partagé avec whois ; comportement IDENTIQUE pour les
+          // jids téléphone). Fallback NEBULA_OWNER_LID si la table est inconnue.
+          const ownerCheck = await resolveOwnerIdentity(sock, actualSenderJid, configuredOwner);
+          const isOwner = ownerCheck.isOwner;
 
-        // Add visual live logs to the dashboard so the user knows messages are being processed
-        if (text.trim()) {
-          addLog(`📨 Message Received: "${maskLogText(text)}" from ${senderName} (${maskLogNumber(senderNumber)}) [fromMe: ${isFromMe}]`);
-        }
+          // Add visual live logs to the dashboard so the user knows messages are being processed
+          if (text.trim()) {
+            addLog(`📨 Message Received: "${maskLogText(text)}" from ${senderName} (${maskLogNumber(senderNumber)}) [fromMe: ${isFromMe}]`);
+          }
 
-        // Active Group Moderation Engine
-        const isGroup = senderJid.endsWith("@g.us");
-        let isSenderAdmin = false;
-        // 9.19j — contexte social : subject du groupe + « l'auteur est-il
-        // le créateur » (métadonnées serveur, jamais une affirmation chat).
-        let groupSubject: string | undefined;
-        let senderIsGroupCreator = false;
+          // Active Group Moderation Engine
+          const isGroup = senderJid.endsWith("@g.us");
+          let isSenderAdmin = false;
+          // 9.19j — contexte social : subject du groupe + « l'auteur est-il
+          // le créateur » (métadonnées serveur, jamais une affirmation chat).
+          let groupSubject: string | undefined;
+          let senderIsGroupCreator = false;
 
-        if (isGroup && !isFromMe) {
-          try {
-            const groupMetadata = await getCachedGroupMetadata(sock, senderJid);
-            if (groupMetadata) {
-              const senderParticipant = groupMetadata.participants.find((p: any) => p.id.split("@")[0] === actualSenderNumber);
-              isSenderAdmin = senderParticipant?.admin === "admin" || senderParticipant?.admin === "superadmin";
-            }
-            // 9.16/9.18 — répertoire : le groupe est connu dès son premier
-            // message, avec sa taille (ciblage annonces du dashboard).
-            touchGroup(senderJid, {
-              name: groupMetadata?.subject,
-              memberCount: Array.isArray(groupMetadata?.participants) ? groupMetadata.participants.length : undefined,
+          if (isGroup && !isFromMe) {
+            try {
+              const groupMetadata = await getCachedGroupMetadata(sock, senderJid);
+              if (groupMetadata) {
+                const senderParticipant = groupMetadata.participants.find((p: any) => p.id.split("@")[0] === actualSenderNumber);
+                isSenderAdmin = senderParticipant?.admin === "admin" || senderParticipant?.admin === "superadmin";
+              }
+              // 9.16/9.18 — répertoire : le groupe est connu dès son premier
+              // message, avec sa taille (ciblage annonces du dashboard).
+              touchGroup(senderJid, {
+                name: groupMetadata?.subject,
+                memberCount: Array.isArray(groupMetadata?.participants) ? groupMetadata.participants.length : undefined,
+              });
+              // 9.19j — rôles vérifiés (créateur/admins/taille) pour la
+              // mémoire sociale ; zéro appel réseau en plus (cache partagé).
+              noteGroupRoles(senderJid, groupMetadata);
+              groupSubject = typeof groupMetadata?.subject === "string" ? groupMetadata.subject : undefined;
+              const groupCreatorJid = String(groupMetadata?.owner || groupMetadata?.creator || "");
+              senderIsGroupCreator = !!groupCreatorJid && groupCreatorJid === actualSenderJid;
+            } catch (e) {}
+          }
+
+          // 9.16 — répertoire utilisateurs : chaque message (hors échos du bot)
+          // rafraîchit fiche, compteurs et dernier contact. Un banni est
+          // ignoré par TOUT le moteur ; le propriétaire ne peut jamais l'être.
+          if (!isFromMe) {
+            // 9.18 — ownerCheck a déjà résolu le LID vers le vrai numéro (pour
+            // tout expéditeur @lid, owner ou pas) : on le conserve dans la
+            // fiche, zéro appel Baileys supplémentaire.
+            touchUser(actualSenderJid, {
+              name: msg.pushName || "",
+              resolvedNumber: ownerCheck.resolvedNumber || undefined,
             });
-            // 9.19j — rôles vérifiés (créateur/admins/taille) pour la
-            // mémoire sociale ; zéro appel réseau en plus (cache partagé).
-            noteGroupRoles(senderJid, groupMetadata);
-            groupSubject = typeof groupMetadata?.subject === "string" ? groupMetadata.subject : undefined;
-            const groupCreatorJid = String(groupMetadata?.owner || groupMetadata?.creator || "");
-            senderIsGroupCreator = !!groupCreatorJid && groupCreatorJid === actualSenderJid;
-          } catch (e) {}
-        }
+            if (!isOwner && isBannedUser(actualSenderJid)) {
+              continue;
+            }
+            // 9.19j — présence sociale : nom frais + activité dans CE groupe.
+            notePresence({
+              chatJid: senderJid,
+              actorJid: actualSenderJid,
+              actorName: msg.pushName || "",
+              isGroup,
+            });
+          }
 
-        // 9.16 — répertoire utilisateurs : chaque message (hors échos du bot)
-        // rafraîchit fiche, compteurs et dernier contact. Un banni est
-        // ignoré par TOUT le moteur ; le propriétaire ne peut jamais l'être.
-        if (!isFromMe) {
-          // 9.18 — ownerCheck a déjà résolu le LID vers le vrai numéro (pour
-          // tout expéditeur @lid, owner ou pas) : on le conserve dans la
-          // fiche, zéro appel Baileys supplémentaire.
-          touchUser(actualSenderJid, {
-            name: msg.pushName || "",
-            resolvedNumber: ownerCheck.resolvedNumber || undefined,
-          });
-          if (!isOwner && isBannedUser(actualSenderJid)) {
+          // Moderation hooks (antilink/antitag/antibot) were removed with the
+          // 8.59 command curation; welcome/goodbye and RoleGuard remain active.
+          // Allow owner to run commands on their own session, but ignore regular self messages that don't start with prefix
+          if (isFromMe && !text.startsWith(prefix)) {
             continue;
           }
-          // 9.19j — présence sociale : nom frais + activité dans CE groupe.
-          notePresence({
-            chatJid: senderJid,
+
+          // 8.93 : infos de dispatch partagées entre le chemin préfixe et l'agent.
+          const dispatchInfo: DispatchInfo = {
+            senderJid,
             actorJid: actualSenderJid,
-            actorName: msg.pushName || "",
+            senderName,
+            senderNumber,
+            isOwner,
+            isAdmin: isSenderAdmin,
             isGroup,
-          });
-        }
+            prefix,
+            text,
+            messageContent,
+          };
 
-        // Moderation hooks (antilink/antitag/antibot) were removed with the
-        // 8.59 command curation; welcome/goodbye and RoleGuard remain active.
-        // Allow owner to run commands on their own session, but ignore regular self messages that don't start with prefix
-        if (isFromMe && !text.startsWith(prefix)) {
-          continue;
-        }
-
-        // 8.93 : infos de dispatch partagées entre le chemin préfixe et l'agent.
-        const dispatchInfo: DispatchInfo = {
-          senderJid,
-          actorJid: actualSenderJid,
-          senderName,
-          senderNumber,
-          isOwner,
-          isAdmin: isSenderAdmin,
-          isGroup,
-          prefix,
-          text,
-          messageContent,
-        };
-
-        // 9.6b/9.11 : contexte de reply pour l'agent — nature du média cité
-        // (+ repli registre stanzaId 9.8) et extrait du TEXTE cité (lien,
-        // titre — audit B4). Calculés une fois, utilisés en DM ET en groupe.
-        let mediaHint = describeMessageMedia(messageContent);
-        let quotedTextExcerpt: string | null = null;
-        // 9.19k — mentions d'AUTRES personnes que le bot (« Qui es @X ? ») :
-        // le modèle voit le nom affiché dans le texte, mais pas à qui il
-        // correspond — le bloc social lui donne le rôle de la personne.
-        let mentionedOthers: string[] = [];
-        {
-          const ctxInfo = messageContent?.extendedTextMessage?.contextInfo;
+          // 9.6b/9.11 : contexte de reply pour l'agent — nature du média cité
+          // (+ repli registre stanzaId 9.8) et extrait du TEXTE cité (lien,
+          // titre — audit B4). Calculés une fois, utilisés en DM ET en groupe.
+          let mediaHint = describeMessageMedia(messageContent);
+          let quotedTextExcerpt: string | null = null;
+          // 9.19k — mentions d'AUTRES personnes que le bot (« Qui es @X ? ») :
+          // le modèle voit le nom affiché dans le texte, mais pas à qui il
+          // correspond — le bloc social lui donne le rôle de la personne.
+          let mentionedOthers: string[] = [];
           {
-            const num = (j: unknown) => String(j ?? "").split(":")[0].split("@")[0].replace(/\D/g, "");
-            const meNum = num(sock?.user?.id);
-            const meLidNum = num((sock as any)?.user?.lid);
-            const mentionedRaw: any[] = Array.isArray(ctxInfo?.mentionedJid) ? ctxInfo.mentionedJid : [];
-            mentionedOthers = mentionedRaw
-              .map(String)
-              .filter((j) => {
-                const n = num(j);
-                return n && n !== meNum && n !== meLidNum;
-              })
-              .slice(0, 3);
-          }
-          const quotedRaw = ctxInfo?.quotedMessage;
-          quotedTextExcerpt = extractQuotedText(quotedRaw);
-          if (!mediaHint || !quotedTextExcerpt) {
-            const stanzaId = ctxInfo?.stanzaId;
-            if (stanzaId) {
-              const stored = getRecentMessage(senderJid, String(stanzaId));
-              if (stored) {
-                if (!mediaHint) {
-                  const q = describeMessageMedia(stored);
-                  if (q) mediaHint = { what: q.what, how: "reply" };
+            const ctxInfo = messageContent?.extendedTextMessage?.contextInfo;
+            {
+              const num = (j: unknown) => String(j ?? "").split(":")[0].split("@")[0].replace(/\D/g, "");
+              const meNum = num(sock?.user?.id);
+              const meLidNum = num((sock as any)?.user?.lid);
+              const mentionedRaw: any[] = Array.isArray(ctxInfo?.mentionedJid) ? ctxInfo.mentionedJid : [];
+              mentionedOthers = mentionedRaw
+                .map(String)
+                .filter((j) => {
+                  const n = num(j);
+                  return n && n !== meNum && n !== meLidNum;
+                })
+                .slice(0, 3);
+            }
+            const quotedRaw = ctxInfo?.quotedMessage;
+            quotedTextExcerpt = extractQuotedText(quotedRaw);
+            if (!mediaHint || !quotedTextExcerpt) {
+              const stanzaId = ctxInfo?.stanzaId;
+              if (stanzaId) {
+                const stored = getRecentMessage(senderJid, String(stanzaId));
+                if (stored) {
+                  if (!mediaHint) {
+                    const q = describeMessageMedia(stored);
+                    if (q) mediaHint = { what: q.what, how: "reply" };
+                  }
+                  if (!quotedTextExcerpt) quotedTextExcerpt = extractQuotedText(stored);
                 }
-                if (!quotedTextExcerpt) quotedTextExcerpt = extractQuotedText(stored);
               }
             }
           }
-        }
 
-        // 9.13/9.15d : note vocale adressée au bot → transcription Gemini
-        // (audio natif — l'ASR NIM hébergé n'existe pas, cf. voiceTranscribe),
-        // puis tour
-        // agent sur le texte obtenu. DM : toujours ; groupe : seulement si le
-        // message s'adresse au bot (mention/reply — même porte que 9.11).
-        // Échec = réponse honnête, jamais de tour IA sur un texte vide.
-        if (!isFromMe && !text.trim() && messageContent.audioMessage) {
-          const voiceAddressed = !isGroup || messageAddressesBot(msg, sock?.user?.id);
-          if (voiceAddressed) {
-            if (!isAsrEnabled()) {
-              await sock.sendMessage(senderJid, {
-                text: "🎙️ Je ne peux pas encore écouter les notes vocales (transcription désactivée ou clé Gemini absente) — écris-moi ton message."
-              }, { quoted: msg });
-              continue;
-            }
-            const budget = checkAsrBudget(actualSenderJid);
-            if (!budget.allowed) {
-              await sock.sendMessage(senderJid, {
-                text: `⏳ Budget transcription atteint (10 notes vocales/heure) — réessaie dans ${budget.retryAfterMin} min ou écris-moi.`
-              }, { quoted: msg });
-              continue;
-            }
-            await sock.sendPresenceUpdate("recording", senderJid).catch(() => {});
-            try {
-              const stream = await downloadContentFromMessage(messageContent.audioMessage, "audio");
-              let buffer = Buffer.alloc(0);
-              for await (const chunk of stream) {
-                buffer = Buffer.concat([buffer, chunk]);
-                if (buffer.length > 16 * 1024 * 1024) break;
-              }
-              const asr = await transcribeVoiceNote(buffer);
-              if (!asr.ok) {
-                addLog(`[ASR] Échec transcription : ${asr.error}`);
+          // 9.13/9.15d : note vocale adressée au bot → transcription Gemini
+          // (audio natif — l'ASR NIM hébergé n'existe pas, cf. voiceTranscribe),
+          // puis tour
+          // agent sur le texte obtenu. DM : toujours ; groupe : seulement si le
+          // message s'adresse au bot (mention/reply — même porte que 9.11).
+          // Échec = réponse honnête, jamais de tour IA sur un texte vide.
+          if (!isFromMe && !text.trim() && messageContent.audioMessage) {
+            const voiceAddressed = !isGroup || messageAddressesBot(msg, sock?.user?.id);
+            if (voiceAddressed) {
+              if (!isAsrEnabled()) {
                 await sock.sendMessage(senderJid, {
-                  text: `🎙️ Je n'ai pas réussi à transcrire cette note vocale (${asr.error}).`
+                  text: "🎙️ Je ne peux pas encore écouter les notes vocales (transcription désactivée ou clé Gemini absente) — écris-moi ton message."
                 }, { quoted: msg });
                 continue;
               }
-              chargeAsrBudget(actualSenderJid);
-              addLog(`[ASR] Note vocale transcrite (${asr.text.length} caractères) de ${maskLogNumber(actualSenderNumber)}`);
-              if (isAIConfigured()) {
-                const handled = await handleAgentMessage(
-                  sock,
-                  msg,
-                  {
-                    senderJid,
-                    actorJid: actualSenderJid,
-                    actorNumber: actualSenderNumber,
-                    senderName,
-                    isOwner,
-                    isGroup,
-                    chatName: groupSubject,
-                    senderIsAdmin: isSenderAdmin,
-                    senderIsCreator: senderIsGroupCreator,
-                    mentionedJids: mentionedOthers,
-                    text: asr.text,
-                    voiceNote: true,
-                    botName: config.botName,
-                    prefix,
-                    mediaHint: null,
-                    quotedTextExcerpt: null
-                  },
-                  (commandName, args) =>
-                    dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
-                );
-                if (handled) continue;
-              } else {
+              const budget = checkAsrBudget(actualSenderJid);
+              if (!budget.allowed) {
                 await sock.sendMessage(senderJid, {
-                  text: `🎙️ (transcription) « ${asr.text.slice(0, 800)} »\n\n_L'agent IA est désactivé — la transcription brute ci-dessus._`
+                  text: `⏳ Budget transcription atteint (10 notes vocales/heure) — réessaie dans ${budget.retryAfterMin} min ou écris-moi.`
                 }, { quoted: msg });
                 continue;
               }
-            } catch (err: any) {
-              addLog(`[ASR] Erreur inattendue : ${err?.message || err}`);
-              await sock.sendMessage(senderJid, {
-                text: "🎙️ Erreur inattendue pendant la transcription — réessaie ou écris-moi."
-              }, { quoted: msg });
-              continue;
-            }
-          }
-        }
-
-        // Direct AI response in private chat when not starting with prefix.
-        // 9.18j (retour terrain 13/10) : text.trim() obligatoire — un média
-        // sans caption (sticker, image, document) produisait un tour IA à
-        // PROMPT VIDE : Gemini répondait n'importe quoi (« Je suis NOVA… »,
-        // « Je suis à ton écoute ! »), brûlait le quota IA et remplissait
-        // les logs d'erreurs NIM « Textless prompt ». Les notes vocales
-        // restent gérées plus haut (ASR) ; un sticker n'a rien à dire.
-        if (!isGroup && !isFromMe && text.trim() && !text.startsWith(prefix)) {
-          // 8.95b : question novabox en attente (« continuer en VOSTFR ? ») —
-          // un « oui »/« non » nu doit RÉPONDRE À CETTE QUESTION, pas partir
-          // dans l'agent IA (qui reformulerait une nouvelle demande).
-          // Priorité à la confirmation de l'agent si les deux pendent (elle
-          // est alors plus récente : l'agent vient de poser sa question).
-          const bareAnswer = bareLanguageAnswer(text);
-          if (
-            bareAnswer &&
-            hasPendingLanguageConfirm(senderJid) &&
-            !peekPendingConfirmation(actualSenderJid)
-          ) {
-            await dispatchBotCommand(sock, msg, dispatchInfo, "a", [bareAnswer], "agent");
-            continue;
-          }
-          // 9.12 (B5, décision owner) : « 1 »/« 2 » nu alors qu'un choix .ytv
-          // de CET utilisateur est en attente → consommé SANS tour IA (éco
-          // tokens — même logique que la confirmation de langue ci-dessus).
-          const bareYtv = bareYtvChoiceAnswer(text);
-          if (
-            bareYtv &&
-            hasPendingYtvChoice(senderJid, actualSenderJid) &&
-            !peekPendingConfirmation(actualSenderJid)
-          ) {
-            await dispatchBotCommand(sock, msg, dispatchInfo, "ytvideo", [bareYtv], "agent");
-            continue;
-          }
-          if (isAIConfigured()) {
-            // 8.93 agent beta (privé uniquement) : l'IA traduit la demande
-            // naturelle en commande existante et l'exécute aux droits de
-            // l'utilisateur (RoleGuard inchangé). Renvoie false → l'IA
-            // n'est pas configurée : laisser le chemin normal répondre.
-            const handledByAgent = await handleAgentMessage(
-              sock,
-              msg,
-              {
-                senderJid,
-                actorJid: actualSenderJid,
-                actorNumber: actualSenderNumber,
-                senderName,
-                isOwner,
-                isGroup,
-                chatName: groupSubject,
-                senderIsAdmin: isSenderAdmin,
-                senderIsCreator: senderIsGroupCreator,
-                mentionedJids: mentionedOthers,
-                text,
-                botName: config.botName,
-                prefix,
-                mediaHint,
-                quotedTextExcerpt,
-              },
-              (commandName, args) =>
-                dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
-            );
-            if (handledByAgent) {
-              continue;
-            }
-            const quota = checkAIQuota(actualSenderJid);
-            if (!quota.allowed) {
-              await sock.sendMessage(senderJid, { text: `⚠️ ${quota.error}` }, { quoted: msg });
-              continue;
-            }
-            try {
-              if (sock && typeof sock.sendPresenceUpdate === "function") {
-                try {
-                  await sock.sendPresenceUpdate("composing", senderJid);
-                } catch (pe) {}
-              }
-              consumeAIQuota(actualSenderJid);
-              const memoryBlock = getMemoryContext(senderJid);
-              // 8.97/8.99 — dernier téléchargement anime du chat, comme
-              // l'agent — mais SEULEMENT si le message y ressemble (leçon
-              // Mastra : pas d'historique inutile dans « salut ça va »).
-              const choiceBlock = messageSuggestsAnimeHistory(text)
-                ? getAnimeChoiceContext(senderJid)
-                : null;
-              const answer = await withAIConcurrency(() =>
-                generateTextWithFallback(
-                  text,
-                  getPersonaPrompt("dm", config.botName) +
-                    (memoryBlock ? `\n\n${memoryBlock}` : "") +
-                    (choiceBlock ? `\n\n${choiceBlock}` : ""),
-                  "gemini-3.7-flash"
-                )
-              );
-              // Per-conversation memory (audit 8.38) — fire and forget.
-              recordExchange(senderJid, text, answer, { author: senderName });
-              compactIfNeeded(senderJid, defaultMemorySummarizer).catch(() => {});
-              if (sock && typeof sock.sendPresenceUpdate === "function") {
-                try {
-                  await sock.sendPresenceUpdate("paused", senderJid);
-                } catch (pe) {}
-              }
-              await sock.sendMessage(senderJid, { text: answer }, { quoted: msg });
-              addLog(`🤖 [AI Direct DM] Replied directly to @${actualSenderNumber} without .ai command`);
-              continue;
-            } catch (error: any) {
-              console.error("[Private Chat AI Error]:", error);
-              addLog(`❌ [Private Chat AI Error]: ${error.message}`);
-              // 8.71: users used to get TOTAL SILENCE when the AI chain
-              // failed (production logs: the same users retrying 3-5x).
-              // Honest French notice, same tone as the other messages.
+              await sock.sendPresenceUpdate("recording", senderJid).catch(() => {});
               try {
-                await sock.sendMessage(
-                  senderJid,
-                  { text: "😕 *L’IA est momentanément indisponible.*\n\n🔁 *Réessaie dans un instant.*\n_Si ça persiste, préviens l’administrateur du bot._" },
-                  { quoted: msg }
-                );
-              } catch {}
+                const stream = await downloadContentFromMessage(messageContent.audioMessage, "audio");
+                let buffer = Buffer.alloc(0);
+                for await (const chunk of stream) {
+                  buffer = Buffer.concat([buffer, chunk]);
+                  if (buffer.length > 16 * 1024 * 1024) break;
+                }
+                const asr = await transcribeVoiceNote(buffer);
+                if (!asr.ok) {
+                  addLog(`[ASR] Échec transcription : ${asr.error}`);
+                  await sock.sendMessage(senderJid, {
+                    text: `🎙️ Je n'ai pas réussi à transcrire cette note vocale (${asr.error}).`
+                  }, { quoted: msg });
+                  continue;
+                }
+                chargeAsrBudget(actualSenderJid);
+                addLog(`[ASR] Note vocale transcrite (${asr.text.length} caractères) de ${maskLogNumber(actualSenderNumber)}`);
+                if (isAIConfigured()) {
+                  const handled = await handleAgentMessage(
+                    sock,
+                    msg,
+                    {
+                      senderJid,
+                      actorJid: actualSenderJid,
+                      actorNumber: actualSenderNumber,
+                      senderName,
+                      isOwner,
+                      isGroup,
+                      chatName: groupSubject,
+                      senderIsAdmin: isSenderAdmin,
+                      senderIsCreator: senderIsGroupCreator,
+                      mentionedJids: mentionedOthers,
+                      text: asr.text,
+                      voiceNote: true,
+                      botName: config.botName,
+                      prefix,
+                      mediaHint: null,
+                      quotedTextExcerpt: null
+                    },
+                    (commandName, args) =>
+                      dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
+                  );
+                  if (handled) continue;
+                } else {
+                  await sock.sendMessage(senderJid, {
+                    text: `🎙️ (transcription) « ${asr.text.slice(0, 800)} »\n\n_L'agent IA est désactivé — la transcription brute ci-dessus._`
+                  }, { quoted: msg });
+                  continue;
+                }
+              } catch (err: any) {
+                addLog(`[ASR] Erreur inattendue : ${err?.message || err}`);
+                await sock.sendMessage(senderJid, {
+                  text: "🎙️ Erreur inattendue pendant la transcription — réessaie ou écris-moi."
+                }, { quoted: msg });
+                continue;
+              }
             }
-          } else {
-            // Friendly fallback guide if AI key is not yet configured
-            await sock.sendMessage(
-              senderJid,
-              {
-                text: `🤖 *Hello! I am ${config.botName}.*\n\n💬 Send \`${prefix}ai <prompt>\` or configure your Gemini API Key in the panel to enable full direct private AI conversation!\n\nType \`${prefix}menu\` for all available commands.`,
-              },
-              { quoted: msg }
-            );
-            continue;
           }
-        }
 
-        // 9.11 (audit M1, décision owner) : l'agent répond AUSSI en groupe,
-        // mais uniquement si le message S'ADRESSE au bot (mention @ ou reply
-        // à un message du bot) — jamais sur la conversation générale.
-        if (isGroup && !isFromMe && !text.startsWith(prefix)) {
-          // 9.19j — mémoire collective : les échanges du groupe qui ne
-          // s'adressent PAS au bot sont retenus avec leurs auteurs — c'est
-          // ce qui permet de répondre « avec qui tu parlais et de quoi ».
-          // Ceux qui s'adressent au bot sont mémorisés par l'agent (pas de
-          // doublon).
-          const addressedBot =
-            isAIConfigured() && messageAddressesBot(msg, sock?.user?.id, (sock as any)?.user?.lid);
-          if (!addressedBot && text.trim().length > 1) {
-            recordChatter(senderJid, senderName, text);
-          }
-          // 9.12 (B5, décision owner) : « 1 »/« 2 »/« video »/« playlist » nu
-          // d'un utilisateur ayant un choix .ytv en attente → consommé SANS
-          // tour IA (l'écran a été déclenché PAR cet utilisateur — sans ça,
-          // la consigne « Réponds avec 1 ou 2 » serait mensongère en groupe).
-          const bareYtv = bareYtvChoiceAnswer(text);
-          if (
-            bareYtv &&
-            hasPendingYtvChoice(senderJid, actualSenderJid) &&
-            !peekPendingConfirmation(actualSenderJid)
-          ) {
-            await dispatchBotCommand(sock, msg, dispatchInfo, "ytvideo", [bareYtv], "agent");
-            continue;
-          }
-          // 9.19f : le LID aussi — les mentions @ partent souvent en @lid
-          if (addressedBot) {
-            const handledByAgent = await handleAgentMessage(
-              sock,
-              msg,
-              {
+          // Direct AI response in private chat when not starting with prefix.
+          // 9.18j (retour terrain 13/10) : text.trim() obligatoire — un média
+          // sans caption (sticker, image, document) produisait un tour IA à
+          // PROMPT VIDE : Gemini répondait n'importe quoi (« Je suis NOVA… »,
+          // « Je suis à ton écoute ! »), brûlait le quota IA et remplissait
+          // les logs d'erreurs NIM « Textless prompt ». Les notes vocales
+          // restent gérées plus haut (ASR) ; un sticker n'a rien à dire.
+          if (!isGroup && !isFromMe && text.trim() && !text.startsWith(prefix)) {
+            // 8.95b : question novabox en attente (« continuer en VOSTFR ? ») —
+            // un « oui »/« non » nu doit RÉPONDRE À CETTE QUESTION, pas partir
+            // dans l'agent IA (qui reformulerait une nouvelle demande).
+            // Priorité à la confirmation de l'agent si les deux pendent (elle
+            // est alors plus récente : l'agent vient de poser sa question).
+            const bareAnswer = bareLanguageAnswer(text);
+            if (
+              bareAnswer &&
+              hasPendingLanguageConfirm(senderJid) &&
+              !peekPendingConfirmation(actualSenderJid)
+            ) {
+              await dispatchBotCommand(sock, msg, dispatchInfo, "a", [bareAnswer], "agent");
+              continue;
+            }
+            // 9.12 (B5, décision owner) : « 1 »/« 2 » nu alors qu'un choix .ytv
+            // de CET utilisateur est en attente → consommé SANS tour IA (éco
+            // tokens — même logique que la confirmation de langue ci-dessus).
+            const bareYtv = bareYtvChoiceAnswer(text);
+            if (
+              bareYtv &&
+              hasPendingYtvChoice(senderJid, actualSenderJid) &&
+              !peekPendingConfirmation(actualSenderJid)
+            ) {
+              await dispatchBotCommand(sock, msg, dispatchInfo, "ytvideo", [bareYtv], "agent");
+              continue;
+            }
+            if (isAIConfigured()) {
+              // 8.93 agent beta (privé uniquement) : l'IA traduit la demande
+              // naturelle en commande existante et l'exécute aux droits de
+              // l'utilisateur (RoleGuard inchangé). Renvoie false → l'IA
+              // n'est pas configurée : laisser le chemin normal répondre.
+              const handledByAgent = await handleAgentMessage(
+                sock,
+                msg,
+                {
+                  senderJid,
+                  actorJid: actualSenderJid,
+                  actorNumber: actualSenderNumber,
+                  senderName,
+                  isOwner,
+                  isGroup,
+                  chatName: groupSubject,
+                  senderIsAdmin: isSenderAdmin,
+                  senderIsCreator: senderIsGroupCreator,
+                  mentionedJids: mentionedOthers,
+                  text,
+                  botName: config.botName,
+                  prefix,
+                  mediaHint,
+                  quotedTextExcerpt,
+                },
+                (commandName, args) =>
+                  dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
+              );
+              if (handledByAgent) {
+                continue;
+              }
+              const quota = checkAIQuota(actualSenderJid);
+              if (!quota.allowed) {
+                await sock.sendMessage(senderJid, { text: `⚠️ ${quota.error}` }, { quoted: msg });
+                continue;
+              }
+              try {
+                if (sock && typeof sock.sendPresenceUpdate === "function") {
+                  try {
+                    await sock.sendPresenceUpdate("composing", senderJid);
+                  } catch (pe) {}
+                }
+                const memoryBlock = getMemoryContext(senderJid);
+                // 8.97/8.99 — dernier téléchargement anime du chat, comme
+                // l'agent — mais SEULEMENT si le message y ressemble (leçon
+                // Mastra : pas d'historique inutile dans « salut ça va »).
+                const choiceBlock = messageSuggestsAnimeHistory(text)
+                  ? getAnimeChoiceContext(senderJid)
+                  : null;
+                const answer = await withAIConcurrency(() =>
+                  generateTextWithFallback(
+                    text,
+                    getPersonaPrompt("dm", config.botName) +
+                      (memoryBlock ? `\n\n${memoryBlock}` : "") +
+                      (choiceBlock ? `\n\n${choiceBlock}` : ""),
+                    "gemini-3.7-flash"
+                  )
+                );
+                // 9.19n (audit #4) : quota consommé au SUCCÈS de l'appel —
+                // une panne fournisseur ne brûle plus le cran de l'utilisateur.
+                consumeAIQuota(actualSenderJid);
+                // Per-conversation memory (audit 8.38) — fire and forget.
+                recordExchange(senderJid, text, answer, { author: senderName });
+                compactIfNeeded(senderJid, defaultMemorySummarizer).catch(() => {});
+                if (sock && typeof sock.sendPresenceUpdate === "function") {
+                  try {
+                    await sock.sendPresenceUpdate("paused", senderJid);
+                  } catch (pe) {}
+                }
+                await sock.sendMessage(senderJid, { text: answer }, { quoted: msg });
+                addLog(`🤖 [AI Direct DM] Replied directly to @${actualSenderNumber} without .ai command`);
+                continue;
+              } catch (error: any) {
+                console.error("[Private Chat AI Error]:", error);
+                addLog(`❌ [Private Chat AI Error]: ${error.message}`);
+                // 8.71: users used to get TOTAL SILENCE when the AI chain
+                // failed (production logs: the same users retrying 3-5x).
+                // Honest French notice, same tone as the other messages.
+                try {
+                  await sock.sendMessage(
+                    senderJid,
+                    { text: "😕 *L’IA est momentanément indisponible.*\n\n🔁 *Réessaie dans un instant.*\n_Si ça persiste, préviens l’administrateur du bot._" },
+                    { quoted: msg }
+                  );
+                } catch {}
+              }
+            } else {
+              // Friendly fallback guide if AI key is not yet configured
+              await sock.sendMessage(
                 senderJid,
-                actorJid: actualSenderJid,
-                actorNumber: actualSenderNumber,
-                senderName,
-                isOwner,
-                isGroup,
-                chatName: groupSubject,
-                senderIsAdmin: isSenderAdmin,
-                senderIsCreator: senderIsGroupCreator,
-                mentionedJids: mentionedOthers,
-                text,
-                botName: config.botName,
-                prefix,
-                mediaHint,
-                quotedTextExcerpt,
-              },
-              (commandName, args) =>
-                dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
-            );
-            if (handledByAgent) continue;
+                {
+                  text: `🤖 *Hello! I am ${config.botName}.*\n\n💬 Send \`${prefix}ai <prompt>\` or configure your Gemini API Key in the panel to enable full direct private AI conversation!\n\nType \`${prefix}menu\` for all available commands.`,
+                },
+                { quoted: msg }
+              );
+              continue;
+            }
           }
-          continue;
+
+          // 9.11 (audit M1, décision owner) : l'agent répond AUSSI en groupe,
+          // mais uniquement si le message S'ADRESSE au bot (mention @ ou reply
+          // à un message du bot) — jamais sur la conversation générale.
+          if (isGroup && !isFromMe && !text.startsWith(prefix)) {
+            // 9.19j — mémoire collective : les échanges du groupe qui ne
+            // s'adressent PAS au bot sont retenus avec leurs auteurs — c'est
+            // ce qui permet de répondre « avec qui tu parlais et de quoi ».
+            // Ceux qui s'adressent au bot sont mémorisés par l'agent (pas de
+            // doublon).
+            const addressedBot =
+              isAIConfigured() && messageAddressesBot(msg, sock?.user?.id, (sock as any)?.user?.lid);
+            if (!addressedBot && text.trim().length > 1) {
+              recordChatter(senderJid, senderName, text);
+            }
+            // 9.12 (B5, décision owner) : « 1 »/« 2 »/« video »/« playlist » nu
+            // d'un utilisateur ayant un choix .ytv en attente → consommé SANS
+            // tour IA (l'écran a été déclenché PAR cet utilisateur — sans ça,
+            // la consigne « Réponds avec 1 ou 2 » serait mensongère en groupe).
+            const bareYtv = bareYtvChoiceAnswer(text);
+            if (
+              bareYtv &&
+              hasPendingYtvChoice(senderJid, actualSenderJid) &&
+              !peekPendingConfirmation(actualSenderJid)
+            ) {
+              await dispatchBotCommand(sock, msg, dispatchInfo, "ytvideo", [bareYtv], "agent");
+              continue;
+            }
+            // 9.19f : le LID aussi — les mentions @ partent souvent en @lid
+            if (addressedBot) {
+              const handledByAgent = await handleAgentMessage(
+                sock,
+                msg,
+                {
+                  senderJid,
+                  actorJid: actualSenderJid,
+                  actorNumber: actualSenderNumber,
+                  senderName,
+                  isOwner,
+                  isGroup,
+                  chatName: groupSubject,
+                  senderIsAdmin: isSenderAdmin,
+                  senderIsCreator: senderIsGroupCreator,
+                  mentionedJids: mentionedOthers,
+                  text,
+                  botName: config.botName,
+                  prefix,
+                  mediaHint,
+                  quotedTextExcerpt,
+                },
+                (commandName, args) =>
+                  dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "agent")
+              );
+              if (handledByAgent) continue;
+            }
+            continue;
+          }
+
+          if (!text.startsWith(prefix)) continue;
+
+
+          const body = text.slice(prefix.length).trim();
+          const args = body.split(/\s+/);
+          const commandName = args.shift()?.toLowerCase() || "";
+          // 8.93 : le dispatch (contexte, RoleGuard, stats, exécution) vit dans
+          // commandDispatch.ts — source unique partagée avec l'agent IA.
+          await dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "prefix");
+        } catch (msgErr: any) {
+          addLog(`❌ [Engine] Échec du traitement d'un message : ${msgErr?.message || msgErr} — message ignoré, le reste du lot continue.`);
         }
-
-        if (!text.startsWith(prefix)) continue;
-
-
-        const body = text.slice(prefix.length).trim();
-        const args = body.split(/\s+/);
-        const commandName = args.shift()?.toLowerCase() || "";
-        // 8.93 : le dispatch (contexte, RoleGuard, stats, exécution) vit dans
-        // commandDispatch.ts — source unique partagée avec l'agent IA.
-        await dispatchBotCommand(sock, msg, dispatchInfo, commandName, args, "prefix");
       }
     });
 

@@ -91,6 +91,37 @@ export async function dispatchBotCommand(
   // explicitement veut une image : on route vers la même recherche que
   // l'agent, avec les mêmes quota et replis honnêtes.
   if (source === "prefix" && commandName === "img") {
+    // 9.19n (audit #5) : le routage interne passait AVANT le RoleGuard — une
+    // politique de groupe (memberDeny) ne pouvait pas interdire .img. Même
+    // porte que les commandes enregistrées : fail-closed, politique appliquée.
+    try {
+      const aclDecision = authorizeCommand(
+        { name: "img", category: "Tools" },
+        resolveRole({ isOwner: info.isOwner, isAdmin: info.isAdmin, isGroup: info.isGroup }),
+        getGroupPolicy(senderJid),
+        {}
+      );
+      if (!aclDecision.allowed) {
+        addLog(`⛔ RoleGuard denied [img] for ${senderName} (${maskLogNumber(info.senderNumber)}): ${aclDecision.reason}`);
+        recordAudit(`wa:${info.senderNumber}`, "roleguard.deny", "img", aclDecision.reason);
+        try {
+          await sock.sendMessage(senderJid, { text: `⛔ *Access Denied:* ${aclDecision.reason}.` }, { quoted: msg });
+        } catch {}
+        outcome.denied = true;
+        outcome.hadError = true;
+        outcome.lastText = `Access Denied: ${aclDecision.reason}`;
+        outcome.texts = [`⛔ *Access Denied:* ${aclDecision.reason}.`];
+        return outcome;
+      }
+    } catch (aclErr: any) {
+      addLog(`⛔ RoleGuard error on [img] for ${senderName}: ${aclErr?.message || aclErr} (fail-closed)`);
+      try {
+        await sock.sendMessage(senderJid, { text: "⛔ *Access Denied:* unable to verify permission for this command." }, { quoted: msg });
+      } catch {}
+      outcome.denied = true;
+      outcome.hadError = true;
+      return outcome;
+    }
     return await dispatchInternalImageTool(sock, msg, info, args);
   }
 

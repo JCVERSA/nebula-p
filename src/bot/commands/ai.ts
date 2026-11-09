@@ -67,7 +67,6 @@ const aiCommand: BotCommand = {
           await sock.sendPresenceUpdate("composing", msg.key.remoteJid || "");
         }
       } catch {}
-      consumeAIQuota(context.sender);
       const chatJid = msg.key.remoteJid || "";
       const memoryBlock = getMemoryContext(chatJid);
       const systemPrompt =
@@ -80,6 +79,8 @@ const aiCommand: BotCommand = {
           "gemini-3.7-flash"
         )
       );
+      // 9.19n (audit #4) : quota consommé au SUCCÈS de l'appel.
+      consumeAIQuota(context.sender);
       // 9.19f : fini le header encombrant devant CHAQUE réponse — la
       // réponse arrive nue, comme un vrai message. NOVA reste le nom de
       // l'agent (identité dans le persona, pas en signature).

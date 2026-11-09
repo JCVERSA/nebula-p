@@ -1336,6 +1336,25 @@ export function vostfrAutoMissingMessage(query: string, hasVf: boolean, otherFai
   );
 }
 
+/**
+ * 9.19m — kill-switch owner : NEBULA_NOVABOX_DISABLED=1 coupe TOUT Novabox
+ * (recherche, sélection, téléchargement). Cas réel : un serveur à stockage
+ * limité (7 Go) ne peut pas accueillir des épisodes de 75 Mo + caches HLS.
+ * La commande répond un message honnête et court, l'agent IA le relaie —
+ * jamais d'échec brut. Le watcher d'épisodes reste actif : il NOTIFIE les
+ * sorties, il ne télécharge rien (zéro risque disque).
+ */
+export function isNovaboxDisabled(): boolean {
+  return String(process.env.NEBULA_NOVABOX_DISABLED ?? "").trim() === "1";
+}
+
+function novaboxDisabledMessage(): string {
+  return (
+    "🎬 *Novabox est désactivé sur ce serveur.*\n\n" +
+    "_L'administrateur a coupé les téléchargements d'animes ici (ressources limitées)._"
+  );
+}
+
 const animeCommand: BotCommand = {
   name: "anime",
   category: "Novabox",
@@ -1343,6 +1362,10 @@ const animeCommand: BotCommand = {
   usage: ".anime [anime_name] (or .a [name] / .nv [name])",
   aliases: ["novabox", "a", "nv"],
   execute: async (sock, msg, context) => {
+    // 9.19m : kill-switch owner — AVANT toute recherche/session/téléchargement.
+    if (isNovaboxDisabled()) {
+      return void (await context.reply(novaboxDisabledMessage()));
+    }
     const args = context.args || [];
     const firstArg = (args[0] || "").toLowerCase();
     const sender = context.sender;
